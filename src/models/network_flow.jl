@@ -12,7 +12,7 @@ function solve_network_flow(parameters::HomogeneousNoDemandParameters)
     nodes = [(l.line_id, l.bus_line_id, i) for l in lines for i in 1:length(l.stop_times)]
     
     # Create arcs
-    arcs = Tuple{Any,Any}[]
+    arcs = Tuple{Tuple{Int,Int,Int},Tuple{Int,Int,Int}}[]
 
     # Add depot to first stop arcs
     depot_start_arcs = [((l.line_id, l.bus_line_id, 0), (l.line_id, l.bus_line_id, 1)) for l in lines]
@@ -36,7 +36,16 @@ function solve_network_flow(parameters::HomogeneousNoDemandParameters)
             if (line1.line_id, line1.bus_line_id) != (line2.line_id, line2.bus_line_id)
                 start_time = line2.stop_times[1]
                 # Check if connection is temporally feasible
-                if end_time < start_time
+                # Find travel time between lines from travel_times
+                travel_time = travel_times[findfirst(tt ->
+                    tt.bus_line_id_start == line1.bus_line_id &&
+                    tt.bus_line_id_end == line2.bus_line_id &&
+                    tt.origin_stop_id == bus_lines[findfirst(bl -> bl.bus_line_id == line1.bus_line_id, bus_lines)].stop_ids[end] &&
+                    tt.destination_stop_id == bus_lines[findfirst(bl -> bl.bus_line_id == line2.bus_line_id, bus_lines)].stop_ids[1] &&
+                    !tt.is_depot_travel,
+                    travel_times)].time
+                
+                if end_time + travel_time < start_time
                     push!(arcs, ((line1.line_id, line1.bus_line_id, length(line1.stop_times)), (line2.line_id, line2.bus_line_id, 1)))
                 end
             end
@@ -55,7 +64,7 @@ function solve_network_flow(parameters::HomogeneousNoDemandParameters)
         depot_times = Dict()
         for t in travel_times
             if t.is_depot_travel
-                key = (t.bus_line_id, t.origin_stop_id, t.destination_stop_id)
+                key = (t.bus_line_id_start, t.bus_line_id_end, t.origin_stop_id, t.destination_stop_id)
                 depot_times[key] = t.time
             end
         end
@@ -64,7 +73,7 @@ function solve_network_flow(parameters::HomogeneousNoDemandParameters)
         regular_times = Dict()
         for t in travel_times
             if !t.is_depot_travel
-                key = (t.bus_line_id, t.origin_stop_id, t.destination_stop_id)
+                key = (t.bus_line_id_start, t.bus_line_id_end, t.origin_stop_id, t.destination_stop_id)
                 regular_times[key] = t.time
             end
         end
@@ -78,7 +87,7 @@ function solve_network_flow(parameters::HomogeneousNoDemandParameters)
 
             if from_stop == 0  # Depot start arc
                 first_stop_id = bus_line.stop_ids[1]
-                timestamps[arc] = line.stop_times[1] - get(depot_times, (line.bus_line_id, from_stop, first_stop_id), 0.0)
+                timestamps[arc] = line.stop_times[1] - get(depot_times, (0, line.bus_line_id, 0, first_stop_id), Inf)
             elseif to_stop == 0  # Depot end arc
                 last_stop_id = bus_line.stop_ids[end]
                 timestamps[arc] = line.stop_times[end]  # Start time is when we leave the last stop

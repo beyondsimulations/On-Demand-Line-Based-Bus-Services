@@ -52,7 +52,8 @@ struct PassengerDemand
 end
 
 struct TravelTime
-    bus_line_id::Int
+    bus_line_id_start::Int
+    bus_line_id_end::Int
     origin_stop_id::Int
     destination_stop_id::Int
     time::Float64

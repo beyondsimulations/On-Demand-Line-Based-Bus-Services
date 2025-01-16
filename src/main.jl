@@ -68,9 +68,10 @@ if result.status == :Optimal
     for (arc, flow, timestamp) in flow_entries
         println("Time: ", timestamp, " - Flow on arc ", arc, ": ", flow)
     end
+    
+    # Create 3D visualization of the solution
+    solution_plot_3d = plot_solution_3d(bus_lines, lines, depot_location, result, travel_times)
+    display(solution_plot_3d)
 else
     println("No optimal solution found!")
 end
-
-# Create visualization for Setting 1
-setting_1_plot = plot_setting_1(bus_lines, lines, depot_location, result)

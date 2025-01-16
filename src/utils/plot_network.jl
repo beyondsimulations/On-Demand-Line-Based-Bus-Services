@@ -134,7 +134,7 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot:
         append!(z_coords, line.stop_times)
     end
     
-    padding = 0.1
+    padding = 0.2
     x_range = maximum(x_coords) - minimum(x_coords)
     y_range = maximum(y_coords) - minimum(y_coords)
     z_range = maximum(z_coords) - minimum(z_coords)
@@ -147,6 +147,7 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot:
         title="Bus Network Schedule (3D)",
         legend=false,  # Changed from true to false
         size=(1200, 800),
+        aspect_ratio=:equal,
         xlims=x_lims,
         ylims=y_lims,
         zlims=z_lims
@@ -186,14 +187,16 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot:
         # Depot connections
         # Find depot travel times
         depot_start_travel = travel_times[findfirst(tt -> 
-            tt.bus_line_id == line.bus_line_id && 
+            tt.bus_line_id_start == 0 && 
+            tt.bus_line_id_end == line.bus_line_id &&
             tt.origin_stop_id == 0 && 
             tt.destination_stop_id == bus_line.stop_ids[1] && 
             tt.is_depot_travel,
             travel_times)].time
 
         depot_end_travel = travel_times[findfirst(tt -> 
-            tt.bus_line_id == line.bus_line_id && 
+            tt.bus_line_id_start == line.bus_line_id &&
+            tt.bus_line_id_end == 0 &&
             tt.origin_stop_id == bus_line.stop_ids[end] && 
             tt.destination_stop_id == 0 && 
             tt.is_depot_travel,
@@ -219,6 +222,7 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot:
             linewidth=1,
             label=nothing
         )
+        # Add the final depot arrival time
         push!(depot_times, line.stop_times[end] + depot_end_travel)
     end
 
@@ -298,6 +302,130 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot:
         camera=(45, 30),
         grid=true
     )
+
+    display(p)
+    return p
+end
+
+function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot::Tuple{Float64, Float64}, result, travel_times::Vector{TravelTime})
+    # First create the base 3D network visualization
+    p = plot_network_3d(bus_lines, lines, depot)
+    
+    # Plot each arc with positive flow
+    for (arc, flow) in result.flows
+        if flow > 0
+            from_node, to_node = arc
+            
+            # Get coordinates and times
+            if from_node[3] == 0  # From depot
+                from_x, from_y = depot
+                from_time = result.timestamps[arc]
+            else
+                bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == from_node[2], bus_lines)]
+                from_x = bus_line.locations[from_node[3]][1]
+                from_y = bus_line.locations[from_node[3]][2]
+                from_time = result.timestamps[arc]
+            end
+            
+            if to_node[3] == 0  # To depot
+                to_x, to_y = depot
+                travel_time_idx = findfirst(tt -> 
+                    tt.bus_line_id_start == from_node[2] && 
+                    tt.bus_line_id_end == 0 && 
+                    tt.is_depot_travel, 
+                    travel_times)
+                
+                if isnothing(travel_time_idx)
+                    @warn "No depot travel time found for bus_line_id_start=$(from_node[2])"
+                    continue
+                end
+                
+                to_time = from_time + travel_times[travel_time_idx].time
+            else
+                bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == to_node[2], bus_lines)]
+                to_x = bus_line.locations[to_node[3]][1]
+                to_y = bus_line.locations[to_node[3]][2]
+                next_line_start = lines[findfirst(l -> l.line_id == to_node[1] && l.bus_line_id == to_node[2], lines)].stop_times[to_node[3]]
+                
+                # Calculate arrival time based on different cases
+                if from_node[3] == 0 && to_node[3] == 1 && from_node[2] == to_node[2]
+                    # Starting a new line (first stop) - use depot travel time
+                    travel_time_idx = findfirst(tt -> 
+                        tt.bus_line_id_start == 0 && 
+                        tt.bus_line_id_end == to_node[2] && 
+                        tt.is_depot_travel,
+                        travel_times)
+                    
+                    if isnothing(travel_time_idx)
+                        @warn "No depot travel time found for bus_line=$(to_node[2])"
+                        continue
+                    end
+                    
+                    arrival_time = from_time + travel_times[travel_time_idx].time
+                    
+                    # Plot the movement from depot to first stop
+                    plot!(p, [from_x, to_x], [from_y, to_y], [from_time, arrival_time],
+                        linewidth=2,
+                        color=:black,
+                        label=nothing,
+                        linestyle=:solid
+                    )
+                elseif from_node[2] == to_node[2] && from_node[3] == to_node[3]
+                    # Same stop - no travel time needed
+                    arrival_time = from_time
+                else
+                    # Different stops - find travel time between routes
+                    travel_time_idx = findfirst(tt -> 
+                        tt.bus_line_id_start == from_node[2] && 
+                        tt.bus_line_id_end == to_node[2] && 
+                        tt.origin_stop_id == from_node[3] && 
+                        tt.destination_stop_id == to_node[3] && 
+                        !tt.is_depot_travel,
+                        travel_times)
+                    
+                    if isnothing(travel_time_idx)
+                        @warn "No travel time found for movement from bus_line=$(from_node[2]) stop=$(from_node[3]) to bus_line=$(to_node[2]) stop=$(to_node[3])"
+                        continue
+                    end
+                    
+                    arrival_time = from_time + travel_times[travel_time_idx].time
+                    
+                    # Plot the actual travel time
+                    plot!(p, [from_x, to_x], [from_y, to_y], [from_time, arrival_time],
+                        linewidth=2,
+                        color=:black,
+                        label=nothing,
+                        linestyle=:solid
+                    )
+                end
+                
+                # Plot the waiting time at the destination (if any)
+                if arrival_time < next_line_start
+                    plot!(p, [to_x, to_x], [to_y, to_y], [arrival_time, next_line_start],
+                        linewidth=2,
+                        color=:red,
+                        label=nothing,
+                        linestyle=:dash
+                    )
+                end
+                
+                to_time = next_line_start
+            end
+            
+            # Remove the original connection plot since we now plot travel and waiting separately
+            if to_node[3] != 0  # Skip if going to depot (handled by existing code)
+                continue
+            end
+            
+            # Plot depot connections (unchanged)
+            plot!(p, [from_x, to_x], [from_y, to_y], [from_time, to_time],
+                linewidth=2,
+                color=:black,
+                label=nothing,
+                linestyle=:solid
+            )
+        end
+    end
 
     display(p)
     return p
