@@ -1,6 +1,6 @@
 function Line(id::Int, bus_line_id::Int, start_time::Float64, bus_lines::Vector{BusLine}, travel_times::Vector{TravelTime})
     # Find the corresponding bus line
-    bus_line = bus_lines[findfirst(bl -> bl.id == bus_line_id, bus_lines)]
+    bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == bus_line_id, bus_lines)]
     
     # Initialize stop_times with start_time at first stop
     stop_times = [start_time]
@@ -21,5 +21,5 @@ function Line(id::Int, bus_line_id::Int, start_time::Float64, bus_lines::Vector{
         push!(stop_times, stop_times[end] + travel_time)
     end
     
-    new(id, bus_line_id, start_time, stop_times)
+    return Line(id, bus_line_id, start_time, stop_times)
 end

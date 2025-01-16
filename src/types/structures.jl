@@ -1,22 +1,18 @@
-struct Stop
-    id::Int
-    location::Tuple{Float64, Float64}
-end
-
 struct BusLine
-    id::Int
+    bus_line_id::Int
     stop_ids::Vector{Int}
+    locations::Vector{Tuple{Float64, Float64}}
 end
 
 struct Line
-    id::Int
+    line_id::Int
     bus_line_id::Int
     start_time::Float64
     stop_times::Vector{Float64}
 end
 
 struct Bus
-    id::Int
+    bus_id::Int
     capacity::Float64
     shift_start::Float64
     break_start::Float64
@@ -25,7 +21,7 @@ struct Bus
 end
 
 struct PassengerDemand
-    id::Int
+    demand_id::Int
     origin_stop_id::Int
     destination_stop_id::Int
     bus_line_id::Int
@@ -34,6 +30,7 @@ struct PassengerDemand
 end
 
 struct TravelTime
+    bus_line_id::Int
     origin_stop_id::Int
     destination_stop_id::Int
     time::Float64

@@ -24,7 +24,7 @@ docs/site/
 Manifest.toml
 
 # Data files from the case study
-/data
+/case_data
 
 # Working Paper
 paper-draft.pdf

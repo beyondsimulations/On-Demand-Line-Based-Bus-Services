@@ -4,18 +4,14 @@ abstract type ProblemParameters end
 
 # Parameters for Setting 1: Homogeneous fleet, autonomous, no demand
 struct HomogeneousNoDemandParameters <: ProblemParameters
-    stops::Vector{Stop}
     bus_lines::Vector{BusLine}
     lines::Vector{Line}
     buses::Vector{Bus}
     travel_times::Vector{TravelTime}
     passenger_demands::Vector{PassengerDemand}
 
-    function HomogeneousNoDemandParameters(stops, bus_lines, lines, travel_times)
+    function HomogeneousNoDemandParameters(bus_lines, lines, travel_times)
 
-        if length(stops) == 0 || stops[1].id != 0
-            throw(ArgumentError("First stop must be depot with id 0"))
-        end
         if length(bus_lines) == 0
             throw(ArgumentError("Must have at least one bus line"))
         end
@@ -46,13 +42,12 @@ struct HomogeneousNoDemandParameters <: ProblemParameters
             for (i, line) in enumerate(lines)
         ]
         
-        new(stops, bus_lines, lines, buses, travel_times, passenger_demands)
+        new(bus_lines, lines, buses, travel_times, passenger_demands)
     end
 end
 
 # Parameters for Setting 2: Homogeneous fleet, autonomous
 struct HomogeneousParameters <: ProblemParameters
-    stops::Vector{Stop}
     bus_lines::Vector{BusLine}
     lines::Vector{Line}
     buses::Vector{Bus}
@@ -60,11 +55,8 @@ struct HomogeneousParameters <: ProblemParameters
     passenger_demands::Vector{PassengerDemand}
 
     # Constructor with validation
-    function HomogeneousParameters(stops, bus_lines, lines, travel_times, passenger_demands)
+    function HomogeneousParameters(bus_lines, lines, travel_times, passenger_demands)
 
-        if length(stops) == 0 || stops[1].id != 0
-            throw(ArgumentError("First stop must be depot with id 0"))
-        end
         if length(bus_lines) == 0
             throw(ArgumentError("Must have at least one bus line"))
         end
@@ -82,6 +74,6 @@ struct HomogeneousParameters <: ProblemParameters
         buses = [Bus(i, required_capacity, latest_end, Val(HOMOGENEOUS_AUTONOMOUS)) 
                 for i in 1:length(lines)]
         
-        new(stops, bus_lines, lines, buses, travel_times, passenger_demands)
+        new(bus_lines, lines, buses, travel_times, passenger_demands)
     end
 end
