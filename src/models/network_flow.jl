@@ -1,4 +1,4 @@
-function solve_network_flow(parameters::HomogeneousNoDemandParameters)
+function solve_network_flow(parameters::NO_CAPACITY_CONSTRAINT_ALL_LINES)
     # Create model
     model = Model(HiGHS.Optimizer)
 

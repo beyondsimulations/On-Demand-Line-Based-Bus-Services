@@ -50,28 +50,40 @@ lines = [
 network_plot = plot_network(bus_lines, depot_location)
 network_plot_3d = plot_network_3d(bus_lines, lines, depot_location)
 
-# Create parameters for Setting 1
-parameters = create_parameters(HOMOGENEOUS_AUTONOMOUS_NO_DEMAND, bus_lines, lines, depot_location, travel_times)
+# Solve for multiple settings
+settings = [
+    NO_CAPACITY_CONSTRAINT,
+    #CAPACITY_CONSTRAINT,
+    #CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+]
 
-# Solve network flow model
-result = solve_network_flow(parameters)
+subsettings = [
+    ALL_LINES,
+    #ALL_LINES_WITH_DEMAND,
+    #ONLY_DEMAND,
+]
 
-if result.status == :Optimal
-    println("Optimal solution found!")
-    println("Number of buses required: ", result.objective)
+for setting in settings
+    println("\n=== Solving for setting: $(setting) ===\n")
+
+    for subsetting in subsettings
+        println("=== Solving for subsetting: $(subsetting) ===\n")
     
-    # Create a list of (arc, flow, timestamp) tuples and sort by timestamp
-    flow_entries = [(arc, flow, result.timestamps[arc]) for (arc, flow) in result.flows]
-    sort!(flow_entries, by = x -> x[3])  # Sort by timestamp (third element)
+        # Create parameters for current setting
+        parameters = create_parameters(setting, subsetting, bus_lines, lines, depot_location, travel_times)
+        
+        # Solve network flow model
+        result = solve_network_flow(parameters)
     
-    # Print the sorted flows
-    for (arc, flow, timestamp) in flow_entries
-        println("Time: ", timestamp, " - Flow on arc ", arc, ": ", flow)
+        if result.status == :Optimal
+            println("Optimal solution found!")
+            println("Number of buses required: ", result.objective)
+            
+            # Display solution visualization
+            solution_plot = plot_solution_3d(bus_lines, lines, depot_location, result, travel_times)
+            display(solution_plot)
+        else
+            println("No optimal solution found!")
+        end
     end
-    
-    # Create 3D visualization of the solution
-    solution_plot_3d = plot_solution_3d(bus_lines, lines, depot_location, result, travel_times)
-    display(solution_plot_3d)
-else
-    println("No optimal solution found!")
 end
