@@ -46,3 +46,21 @@ struct NO_CAPACITY_CONSTRAINT_ALL_LINES <: ProblemParameters
     end
 end
 
+struct CAPACITY_CONSTRAINT_ALL_LINES <: ProblemParameters
+    bus_lines::Vector{BusLine}
+    lines::Vector{Line}
+    buses::Vector{Bus}
+    travel_times::Vector{TravelTime}
+    passenger_demands::Vector{PassengerDemand}
+    depot_location::Tuple{Float64, Float64}
+end
+
+struct CAPACITY_CONSTRAINT_DRIVER_BREAKS_ALL_LINES <: ProblemParameters
+    bus_lines::Vector{BusLine}
+    lines::Vector{Line}
+    buses::Vector{Bus}
+    travel_times::Vector{TravelTime}
+    passenger_demands::Vector{PassengerDemand}
+    depot_location::Tuple{Float64, Float64}
+end
+

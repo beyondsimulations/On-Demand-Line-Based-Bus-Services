@@ -14,6 +14,7 @@ include("utils/calculate_end.jl")
 include("utils/calculate_travel.jl")
 include("utils/plot_network.jl")
 include("utils/create_parameters.jl")
+include("models/model_setups.jl")
 include("models/network_flow.jl")
 
 # Initialize depot location
@@ -77,7 +78,7 @@ for setting in settings
     
         if result.status == :Optimal
             println("Optimal solution found!")
-            println("Number of buses required: ", result.objective)
+            println("Number of buses required: ", result.objective_value)
             
             # Display solution visualization
             solution_plot = plot_solution_3d(bus_lines, lines, depot_location, result, travel_times)

@@ -14,15 +14,15 @@ function compute_travel_times(bus_lines::Vector{BusLine}, depot::Tuple{Float64, 
     # For each bus line
     for line in bus_lines
         # Calculate travel times between consecutive stops
-        for i in 1:(length(line.locations) - 1)
+        for (i, j) in zip(eachindex(line.locations)[1:end-1], eachindex(line.locations)[2:end])
             push!(travel_times, 
                 TravelTime(
-                    line.bus_line_id,        # start_id
-                    line.bus_line_id,        # end_id
-                    line.stop_ids[i],        # from_stop
-                    line.stop_ids[i + 1],    # to_stop
-                    compute_travel_time(line.locations[i], line.locations[i + 1]),
-                    false                    # is_depot_travel
+                    line.bus_line_id,
+                    line.bus_line_id,
+                    line.stop_ids[i],
+                    line.stop_ids[j],
+                    compute_travel_time(line.locations[i], line.locations[j]),
+                    false
                 )
             )
         end

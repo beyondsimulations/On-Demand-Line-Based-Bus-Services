@@ -43,3 +43,13 @@ struct TravelTime
     time::Float64
     is_depot_travel::Bool
 end
+
+# Solution structure
+struct NetworkFlowSolution
+    status::Symbol
+    objective_value::Union{Float64, Nothing}
+    flows::Union{Dict, Nothing}
+    timestamps::Union{Dict, Nothing}
+    buses::Union{Dict, Nothing}
+    solve_time::Union{Float64, Nothing}
+end
