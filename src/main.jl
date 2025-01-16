@@ -10,26 +10,11 @@ include("types/settings.jl")
 include("types/structures.jl")
 include("types/parameters.jl")
 include("constructors/line.jl")
-include("constructors/bus.jl")
 include("utils/calculate_end.jl")
 include("utils/calculate_travel.jl")
 include("utils/plot_network.jl")
-# Helper functions to create parameters for each setting
-function create_parameters(setting::Setting,
-                         bus_lines::Vector{BusLine},
-                         lines::Vector{Line},
-                         travel_times::Vector{TravelTime};
-                         passenger_demands::Vector{PassengerDemand} = PassengerDemand[]
-                         )
-    
-    if setting == HOMOGENEOUS_AUTONOMOUS_NO_DEMAND
-        return HomogeneousNoDemandParameters(bus_lines, lines, travel_times)
-    elseif setting == HOMOGENEOUS_AUTONOMOUS
-        return HomogeneousParameters(bus_lines, lines, travel_times, passenger_demands)
-    else
-        throw(ArgumentError("Setting not yet implemented!"))
-    end
-end
+include("utils/create_parameters.jl")
+include("models/network_flow.jl")
 
 # Initialize depot location
 depot_location = (16.0, 14.0)
@@ -65,4 +50,27 @@ lines = [
 network_plot = plot_network(bus_lines, depot_location)
 network_plot_3d = plot_network_3d(bus_lines, lines, depot_location)
 
-# Create model
+# Create parameters for Setting 1
+parameters = create_parameters(HOMOGENEOUS_AUTONOMOUS_NO_DEMAND, bus_lines, lines, depot_location, travel_times)
+
+# Solve network flow model
+result = solve_network_flow(parameters)
+
+if result.status == :Optimal
+    println("Optimal solution found!")
+    println("Number of buses required: ", result.objective)
+    
+    # Create a list of (arc, flow, timestamp) tuples and sort by timestamp
+    flow_entries = [(arc, flow, result.timestamps[arc]) for (arc, flow) in result.flows]
+    sort!(flow_entries, by = x -> x[3])  # Sort by timestamp (third element)
+    
+    # Print the sorted flows
+    for (arc, flow, timestamp) in flow_entries
+        println("Time: ", timestamp, " - Flow on arc ", arc, ": ", flow)
+    end
+else
+    println("No optimal solution found!")
+end
+
+# Create visualization for Setting 1
+setting_1_plot = plot_setting_1(bus_lines, lines, depot_location, result)

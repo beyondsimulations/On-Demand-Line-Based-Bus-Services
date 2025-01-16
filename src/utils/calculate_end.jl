@@ -1,7 +1,7 @@
 function calculate_latest_end_time(lines, bus_lines, travel_times)
     latest_end = 0.0
     for line in lines
-        bus_line = bus_lines[findfirst(bl -> bl.id == line.bus_line_id, bus_lines)]
+        bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == line.bus_line_id, bus_lines)]
         last_stop = bus_line.stop_ids[end]
         
         depot_travel = findfirst(tt -> tt.origin_stop_id == last_stop && 

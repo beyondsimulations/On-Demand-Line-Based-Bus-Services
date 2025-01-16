@@ -11,7 +11,8 @@ function Line(id::Int, bus_line_id::Int, start_time::Float64, bus_lines::Vector{
         next_stop = bus_line.stop_ids[i+1]
         
         # Find the travel time between these stops
-        travel_time = travel_times[findfirst(tt -> 
+        travel_time = travel_times[findfirst(tt ->
+            tt.bus_line_id == bus_line.bus_line_id &&
             tt.origin_stop_id == current_stop && 
             tt.destination_stop_id == next_stop && 
             !tt.is_depot_travel,
