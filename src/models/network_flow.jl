@@ -1,4 +1,17 @@
-function solve_network_flow(parameters::NO_CAPACITY_CONSTRAINT_ALL_LINES)
+function solve_network_flow(parameters::ProblemParameters)
+    if parameters.setting == NO_CAPACITY_CONSTRAINT
+        return solve_network_flow_no_capacity_constraint(parameters)
+    elseif parameters.setting == CAPACITY_CONSTRAINT
+        return solve_network_flow_capacity_constraint(parameters)
+    elseif parameters.setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
+        return solve_network_flow_capacity_constraint_driver_breaks(parameters)
+    else
+        throw(ArgumentError("Invalid setting: $(parameters.setting)"))
+    end
+end
+
+
+function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters)
     model = Model(HiGHS.Optimizer)
     network = setup_network_flow(parameters)
 
@@ -31,7 +44,7 @@ function solve_network_flow(parameters::NO_CAPACITY_CONSTRAINT_ALL_LINES)
     return solve_and_return_results(model, network)
 end
 
-function solve_network_flow(parameters::CAPACITY_CONSTRAINT_ALL_LINES)
+function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     model = Model(HiGHS.Optimizer)
     network = setup_network_flow(parameters)
     buses = parameters.buses  # Assuming parameters now contains Bus objects instead of bus_types
@@ -76,7 +89,7 @@ function solve_network_flow(parameters::CAPACITY_CONSTRAINT_ALL_LINES)
     return solve_and_return_results(model, network, buses)
 end
 
-function solve_network_flow(parameters::CAPACITY_CONSTRAINT_DRIVER_BREAKS_ALL_LINES)
+function solve_network_flow_capacity_constraint_driver_breaks(parameters::ProblemParameters)
     # TODO: Implement driver breaks logic building on CAPACITY_CONSTRAINT_ALL_LINES
     throw(NotImplementedError("Driver breaks not yet implemented"))
 end

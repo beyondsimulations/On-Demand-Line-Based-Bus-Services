@@ -44,6 +44,17 @@ struct TravelTime
     is_depot_travel::Bool
 end
 
+struct ProblemParameters
+    setting::Setting
+    subsetting::SubSetting
+    bus_lines::Vector{BusLine}
+    lines::Vector{Line}
+    buses::Vector{Bus}
+    travel_times::Vector{TravelTime}
+    passenger_demands::Vector{PassengerDemand}
+    depot_location::Tuple{Float64, Float64}
+end
+
 # Solution structure
 struct NetworkFlowSolution
     status::Symbol

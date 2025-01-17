@@ -8,11 +8,16 @@ function setup_network_flow(parameters)
     nodes = [(l.line_id, l.bus_line_id, i) for l in lines for i in 1:length(l.stop_times)]
     arcs = Tuple{Tuple{Int,Int,Int},Tuple{Int,Int,Int}}[]
 
-    # Add all arc types
-    depot_start_arcs = [((l.line_id, l.bus_line_id, 0), (l.line_id, l.bus_line_id, 1)) for l in lines]
-    depot_end_arcs = [((l.line_id, l.bus_line_id, length(l.stop_times)), (l.line_id, l.bus_line_id, 0)) for l in lines]
-    append!(arcs, depot_start_arcs)
-    append!(arcs, depot_end_arcs)
+    # Add depot arcs
+    if parameters.setting == NO_CAPACITY_CONSTRAINT
+        depot_start_arcs, depot_end_arcs = add_depot_arcs_no_capacity_constraint!(arcs, lines, parameters.buses[1].shift_end)
+    elseif parameters.setting == CAPACITY_CONSTRAINT
+        depot_start_arcs, depot_end_arcs = add_depot_arcs_capacity_constraint!(arcs, lines, parameters.buses[1].shift_end)
+    elseif parameters.setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
+        depot_start_arcs, depot_end_arcs = add_depot_arcs_capacity_constraint_driver_breaks!(arcs, lines, parameters.buses[1].shift_end)
+    else
+        throw(ArgumentError("Invalid setting: $(parameters.setting)"))
+    end
 
     # Add line arcs and inter-line arcs
     add_line_arcs!(arcs, lines)
@@ -24,6 +29,21 @@ function setup_network_flow(parameters)
         depot_start_arcs = depot_start_arcs,
         timestamps = get_arc_timestamps(arcs, lines, bus_lines, travel_times)
     )
+end
+
+function add_depot_arcs_no_capacity_constraint!(arcs, lines, shift_end)
+    # Create and add depot start arcs
+    depot_start_arcs = [((l.line_id, l.bus_line_id, 0), (l.line_id, l.bus_line_id, 1)) 
+        for l in lines if l.stop_times[1] >= 0.0]  # 0.0 is shift_start for all buses
+    
+    # Create and add depot end arcs
+    depot_end_arcs = [((l.line_id, l.bus_line_id, length(l.stop_times)), (l.line_id, l.bus_line_id, 0)) 
+        for l in lines if l.stop_times[end] <= shift_end]  # All buses have same shift_end
+
+    append!(arcs, depot_start_arcs)
+    append!(arcs, depot_end_arcs)
+    
+    return (depot_start_arcs, depot_end_arcs)
 end
 
 function add_line_arcs!(arcs, lines)

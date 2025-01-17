@@ -365,7 +365,7 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                     
                     # Plot the movement from depot to first stop
                     plot!(p, [from_x, to_x], [from_y, to_y], [from_time, arrival_time],
-                        linewidth=2,
+                        linewidth=3,
                         color=:black,
                         label=nothing,
                         linestyle=:solid
@@ -392,7 +392,7 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                     
                     # Plot the actual travel time
                     plot!(p, [from_x, to_x], [from_y, to_y], [from_time, arrival_time],
-                        linewidth=2,
+                        linewidth=3,
                         color=:black,
                         label=nothing,
                         linestyle=:solid
@@ -401,11 +401,22 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                 
                 # Plot the waiting time at the destination (if any)
                 if arrival_time < next_line_start
+                    # Add square marker at arrival time
+                    scatter!(p, [to_x], [to_y], [arrival_time],
+                        marker=:square,
+                        markersize=3,
+                        color=:red,
+                        markerstrokewidth=1,
+                        markerstrokecolor=:black,
+                        label=nothing
+                    )
+                    
+                    # Plot the waiting time line
                     plot!(p, [to_x, to_x], [to_y, to_y], [arrival_time, next_line_start],
-                        linewidth=2,
+                        linewidth=3,
                         color=:red,
                         label=nothing,
-                        linestyle=:dash
+                        linestyle=:solid
                     )
                 end
                 
@@ -417,9 +428,9 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                 continue
             end
             
-            # Plot depot connections (unchanged)
+            # Plot depot connections
             plot!(p, [from_x, to_x], [from_y, to_y], [from_time, to_time],
-                linewidth=2,
+                linewidth=3,
                 color=:black,
                 label=nothing,
                 linestyle=:solid

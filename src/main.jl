@@ -8,7 +8,6 @@ using CSV
 
 include("types/settings.jl")
 include("types/structures.jl")
-include("types/parameters.jl")
 include("constructors/line.jl")
 include("utils/calculate_end.jl")
 include("utils/calculate_travel.jl")
@@ -35,7 +34,7 @@ bus_lines = [
 travel_times = compute_travel_times(bus_lines, depot_location)
 
 # Load lines from CSV and convert to Line structures
-lines_df = CSV.read("data/lines-2.csv", DataFrame)
+lines_df = CSV.read("data/lines.csv", DataFrame)
 lines = [
     Line(
         row.line_id,
