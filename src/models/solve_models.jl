@@ -7,6 +7,11 @@ function expand_arc(arc)
     if from_line != to_line || from_bus_line != to_bus_line
         return [arc]
     end
+
+    # Handle depot travel
+    if from_stop == 0 || to_stop == 0
+        return [arc]
+    end
     
     # Create sequence of consecutive arcs
     expanded_arcs = []
@@ -24,6 +29,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
 
     if termination_status(model) == MOI.OPTIMAL
         x = model[:x]
+        
         
         # Get the flow values and handle different variable types
         if buses === nothing  # Case with continuous flow variables
@@ -50,7 +56,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     # Expand the arc into consecutive arcs
                     expanded_arcs = expand_arc(current_arc)
                     append!(path, expanded_arcs)
-                    
+                
                     remaining_flow[current_arc] -= 1
                     # Find the next arc (where current end node is the start of next arc)
                     next_arc = nothing
@@ -60,10 +66,12 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                             break
                         end
                     end
+                    
                     current_arc = next_arc
                 end
                 bus_paths[bus_id] = path
             end
+            
         else  # Case with binary variables per bus
             flow_dict = Dict()
             bus_paths = Dict{Int, Vector{Any}}()
@@ -117,7 +125,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 from_node, to_node = arc[1], arc[2]
                 
                 # Handle start from depot
-                if i == 1 && from_node[2] == 0
+                if i == 1 && from_node[3] == 0
                     # Find the line we're about to serve
                     next_line_idx = findfirst(l -> 
                         l.line_id == to_node[1] && 
@@ -139,7 +147,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                                 parameters.travel_times)
                                 
                             if isnothing(matching_time)
-                                throw(ErrorException("No depot travel time found for start arc: $arc"))
+                                throw(ErrorException("No depot start travel time found for start arc: $arc"))
                             end
                             parameters.travel_times[matching_time].time
                         end
@@ -153,7 +161,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 push!(arc_timestamps, (arc, total_time))
                 
                 # Calculate travel time for current arc
-                arc_time = if to_node[2] == 0
+                arc_time = if to_node[3] == 0
                     # Handle return to depot
                     matching_time = findfirst(tt -> 
                         tt.is_depot_travel &&
@@ -164,11 +172,26 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                         parameters.travel_times)
                         
                     if isnothing(matching_time)
-                        throw(ErrorException("No depot travel time found for end arc: $arc"))
+                        throw(ErrorException("No to depot travel time found for end arc: $arc"))
                     end
                     parameters.travel_times[matching_time].time
+
+                elseif from_node[3] == 0
+                    # Handle start from depot
+                    matching_time = findfirst(tt -> 
+                        tt.is_depot_travel &&
+                        tt.bus_line_id_start == 0 && 
+                        tt.bus_line_id_end == to_node[2] &&
+                        tt.origin_stop_id == 0 && 
+                        tt.destination_stop_id == to_node[3],
+                        parameters.travel_times)
                     
-                elseif from_node[1] != 0 && to_node[2] != 0
+                        
+                    if isnothing(matching_time)
+                        throw(ErrorException("No from depot travel time found for end arc: $arc"))
+                    end
+                    parameters.travel_times[matching_time].time
+                else
                     # Handle regular line travel
                     matching_time = findfirst(tt -> 
                         tt.bus_line_id_start == from_node[2] && 
@@ -187,7 +210,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 total_time += arc_time
                 
                 # Check if we're switching to a new line
-                if i < length(path) && to_node[2] != 0
+                if i < length(path) && to_node[3] != 0
                     next_arc = path[i + 1]
                     next_line = (next_arc[1][1], next_arc[1][2])
                     
@@ -226,8 +249,6 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             capacity_usage[bus_id] = arc_capacities
             timestamps[bus_id] = arc_timestamps
         end
-
-        print(parameters.passenger_demands)
 
         return NetworkFlowSolution(
             :Optimal,

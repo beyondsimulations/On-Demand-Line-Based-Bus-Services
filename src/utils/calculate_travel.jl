@@ -1,5 +1,5 @@
 # Function to compute travel time based on Euclidean distance
-function compute_travel_time(point1::Tuple{Float64, Float64}, point2::Tuple{Float64, Float64}; speed::Float64 = 2.0)
+function compute_travel_time(point1::Tuple{Float64, Float64}, point2::Tuple{Float64, Float64}; speed::Float64 = Config.DEFAULT_SPEED)
     # Calculate Euclidean distance
     distance = sqrt((point1[1] - point2[1])^2 + (point1[2] - point2[2])^2)
     

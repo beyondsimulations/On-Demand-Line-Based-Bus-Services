@@ -4,10 +4,11 @@ function calculate_latest_end_time(lines, bus_lines, travel_times)
         bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == line.bus_line_id, bus_lines)]
         last_stop = bus_line.stop_ids[end]
         
-        depot_travel = findfirst(tt -> tt.origin_stop_id == last_stop && 
+        depot_travel = findfirst(tt -> tt.origin_stop_id == last_stop &&
+                                     tt.bus_line_id_start == line.bus_line_id &&
                                      tt.destination_stop_id == 0 && 
                                      tt.is_depot_travel, 
-                               travel_times)
+                                    travel_times)
         
         if isnothing(depot_travel)
             throw(ArgumentError("Missing depot travel time for line $(line.id)"))

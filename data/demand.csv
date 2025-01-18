@@ -1,4 +1,4 @@
-demand_id, line_id, bus_line_id, origin_stop_id, destination_stop_id, demand
+demand_id,line_id,bus_line_id,origin_stop_id,destination_stop_id,demand
 1,1,1,1,4,1
 2,1,1,2,3,2
 3,1,1,2,4,1

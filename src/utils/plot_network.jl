@@ -134,7 +134,7 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot:
         append!(z_coords, line.stop_times)
     end
     
-    padding = 0.2
+    padding = 0.4
     x_range = maximum(x_coords) - minimum(x_coords)
     y_range = maximum(y_coords) - minimum(y_coords)
     z_range = maximum(z_coords) - minimum(z_coords)

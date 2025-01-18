@@ -40,6 +40,23 @@ function create_parameters(
             bus_lines[findfirst(bl -> bl.bus_line_id == line.bus_line_id, bus_lines)].stop_ids[end],
             1.0
         ) for (i, line) in enumerate(lines)]
+
+    elseif subsetting == ALL_LINES_WITH_DEMAND
+        # Create passenger demands from the actual demand data
+        passenger_demands = Vector{PassengerDemand}()
+        for row in eachrow(passenger_demands_df)
+            # Only include demands for lines that exist in our lines vector
+            if any(l -> l.line_id == row.line_id && l.bus_line_id == row.bus_line_id, lines)
+                push!(passenger_demands, PassengerDemand(
+                    row.demand_id,
+                    row.line_id,
+                    row.bus_line_id,
+                    row.origin_stop_id,
+                    row.destination_stop_id,
+                    row.demand
+                ))
+            end
+        end
     else
         # Add logic for other subsettings
         throw(NotImplementedError("Other subsettings not yet implemented"))
