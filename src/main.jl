@@ -46,6 +46,12 @@ lines = [
     for row in eachrow(lines_df)
 ]
 
+# Load busses from CSV
+busses_df = CSV.read("data/busses.csv", DataFrame)
+
+# Load passenger demands from CSV
+passenger_demands_df = CSV.read("data/demand.csv", DataFrame)
+
 # Plot network
 network_plot = plot_network(bus_lines, depot_location)
 network_plot_3d = plot_network_3d(bus_lines, lines, depot_location)
@@ -70,10 +76,11 @@ for setting in settings
         println("=== Solving for subsetting: $(subsetting) ===\n")
     
         # Create parameters for current setting
-        parameters = create_parameters(setting, subsetting, bus_lines, lines, depot_location, travel_times)
+        parameters = create_parameters(setting, subsetting, bus_lines, lines, busses_df, passenger_demands_df, depot_location, travel_times)
         
         # Solve network flow model
         result = solve_network_flow(parameters)
+        println(result.buses)
     
         if result.status == :Optimal
             println("Optimal solution found!")

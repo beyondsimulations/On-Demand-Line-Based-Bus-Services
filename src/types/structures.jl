@@ -18,10 +18,10 @@ mutable struct Bus
     break_start::Float64
     break_end::Float64
     shift_end::Float64
-    
-    # Constructor for Setting 1
-    function Bus(id::Int, capacity::Union{Int,Float64}, end_time::Float64, ::Val{NO_CAPACITY_CONSTRAINT})
-        new(id, Float64(capacity), 0.0, 0.0, 0.0, end_time)
+
+    # Constructor for Setting
+    function Bus(id::Int, capacity::Union{Int,Float64}, shift_start::Union{Int,Float64}, break_start::Union{Int,Float64}, break_end::Union{Int,Float64}, shift_end::Union{Int,Float64})
+        new(id, Float64(capacity), Float64(shift_start), Float64(break_start), Float64(break_end), Float64(shift_end))
     end
 
 end
@@ -59,8 +59,8 @@ end
 struct NetworkFlowSolution
     status::Symbol
     objective_value::Union{Float64, Nothing}
-    flows::Union{Dict, Nothing}
     timestamps::Union{Dict, Nothing}
-    buses::Union{Dict, Nothing}
+    buses::Union{Dict{Int, NamedTuple{(:name, :path, :travel_time, :capacity_usage, :timestamps), 
+        Tuple{String, Vector{Any}, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}, Nothing}
     solve_time::Union{Float64, Nothing}
-end
+end 

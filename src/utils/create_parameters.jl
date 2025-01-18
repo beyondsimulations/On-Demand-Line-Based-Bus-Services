@@ -4,6 +4,8 @@ function create_parameters(
     subsetting::SubSetting, 
     bus_lines::Vector{BusLine},
     lines::Vector{Line},
+    busses_df::DataFrame,
+    passenger_demands_df::DataFrame,
     depot_location::Tuple{Float64, Float64},
     travel_times::Vector{TravelTime}
 )
@@ -18,21 +20,19 @@ function create_parameters(
     latest_end = calculate_latest_end_time(lines, bus_lines, travel_times)
 
     # Create buses based on setting
-    buses = if setting == NO_CAPACITY_CONSTRAINT
-        [Bus(i, length(lines), latest_end, Val(setting)) for i in 1:length(lines)]
+    if setting == NO_CAPACITY_CONSTRAINT
+        busses = [Bus(i, length(lines), 0, 0, 0, latest_end) for i in 1:length(lines)]
     elseif setting == CAPACITY_CONSTRAINT
-        [Bus(i, length(lines), latest_end, Val(setting)) for i in 1:length(lines)]
-        throw(NotImplementedError("Capacity constraint not yet implemented"))
+        busses = [Bus(row.bus_id, row.capacity, 0, 0, 0, latest_end) for row in eachrow(busses_df)]
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
-        # Add driver breaks logic
-        throw(NotImplementedError("Driver breaks not yet implemented"))
+        busses = [Bus(row.bus_id, row.capacity, row.shift_start, row.break_start, row.break_end, row.shift_end) for row in eachrow(busses_df)]
     else
         throw(ArgumentError("Invalid setting: $setting"))
     end
 
     # Create passenger demands based on subsetting
-    passenger_demands = if subsetting == ALL_LINES
-        [PassengerDemand(
+    if subsetting == ALL_LINES
+        passenger_demands = [PassengerDemand(
             i,
             bus_lines[findfirst(bl -> bl.bus_line_id == line.bus_line_id, bus_lines)].stop_ids[1],
             bus_lines[findfirst(bl -> bl.bus_line_id == line.bus_line_id, bus_lines)].stop_ids[end],
@@ -50,7 +50,7 @@ function create_parameters(
         subsetting,
         bus_lines,
         lines,
-        buses,
+        busses,
         travel_times,
         passenger_demands,
         depot_location

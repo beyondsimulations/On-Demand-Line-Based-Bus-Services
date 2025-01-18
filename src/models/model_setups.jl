@@ -5,14 +5,19 @@ function setup_network_flow(parameters)
     travel_times = parameters.travel_times
 
     # Create nodes and basic arcs
-    nodes = [(l.line_id, l.bus_line_id, i) for l in lines for i in 1:length(l.stop_times)]
-    arcs = Tuple{Tuple{Int,Int,Int},Tuple{Int,Int,Int}}[]
+    # Create nodes as a Vector of tuples
+    nodes = Vector{Tuple{Int,Int,Int}}()
+    for l in lines
+        for i in 1:length(l.stop_times)
+            push!(nodes, (l.line_id, l.bus_line_id, i))
+        end
+    end
+
+    arcs = Vector{Tuple{Tuple{Int,Int,Int},Tuple{Int,Int,Int}}}()
 
     # Add depot arcs
-    if parameters.setting == NO_CAPACITY_CONSTRAINT
-        depot_start_arcs, depot_end_arcs = add_depot_arcs_no_capacity_constraint!(arcs, lines, parameters.buses[1].shift_end)
-    elseif parameters.setting == CAPACITY_CONSTRAINT
-        depot_start_arcs, depot_end_arcs = add_depot_arcs_capacity_constraint!(arcs, lines, parameters.buses[1].shift_end)
+    if parameters.setting in [NO_CAPACITY_CONSTRAINT, CAPACITY_CONSTRAINT]
+        depot_start_arcs, depot_end_arcs = add_depot_arcs_no_breaks!(arcs, lines, bus_lines, parameters.buses[1].shift_end, travel_times)
     elseif parameters.setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
         depot_start_arcs, depot_end_arcs = add_depot_arcs_capacity_constraint_driver_breaks!(arcs, lines, parameters.buses[1].shift_end)
     else
@@ -23,22 +28,53 @@ function setup_network_flow(parameters)
     add_line_arcs!(arcs, lines)
     add_interline_arcs!(arcs, lines, bus_lines, travel_times)
 
+    println(nodes)
+    println(arcs)
+    println(depot_start_arcs)
+
     return (
         nodes = nodes,
         arcs = arcs,
         depot_start_arcs = depot_start_arcs,
-        timestamps = get_arc_timestamps(arcs, lines, bus_lines, travel_times)
     )
 end
 
-function add_depot_arcs_no_capacity_constraint!(arcs, lines, shift_end)
+function add_depot_arcs_no_breaks!(arcs, lines, bus_lines, shift_end, travel_times)
+    # Create depot travel times lookup
+    depot_times = Dict()
+    for t in travel_times
+        if t.is_depot_travel
+            key = (t.bus_line_id_start, t.bus_line_id_end, t.origin_stop_id, t.destination_stop_id)
+            depot_times[key] = t.time
+        end
+    end
+
     # Create and add depot start arcs
-    depot_start_arcs = [((l.line_id, l.bus_line_id, 0), (l.line_id, l.bus_line_id, 1)) 
-        for l in lines if l.stop_times[1] >= 0.0]  # 0.0 is shift_start for all buses
+    depot_start_arcs = []
+    for l in lines
+        #if l.stop_times[1] >= 0.0  # 0.0 is shift_start for all buses
+            # Check if there's enough time to reach from depot
+            first_stop_id = bus_lines[findfirst(bl -> bl.bus_line_id == l.bus_line_id, bus_lines)].stop_ids[1]
+            depot_travel_time = get(depot_times, (0, l.bus_line_id, 0, first_stop_id), Inf)
+            
+        #    if l.stop_times[1] >= depot_travel_time
+                push!(depot_start_arcs, ((l.line_id, 0, 0), (l.line_id, l.bus_line_id, 1)))
+        #    end
+        #end
+    end
     
     # Create and add depot end arcs
-    depot_end_arcs = [((l.line_id, l.bus_line_id, length(l.stop_times)), (l.line_id, l.bus_line_id, 0)) 
-        for l in lines if l.stop_times[end] <= shift_end]  # All buses have same shift_end
+    depot_end_arcs = []
+    for l in lines
+        #if l.stop_times[end] <= shift_end  # All buses have same shift_end
+            last_stop_id = bus_lines[findfirst(bl -> bl.bus_line_id == l.bus_line_id, bus_lines)].stop_ids[end]
+            depot_travel_time = get(depot_times, (l.bus_line_id, 0, last_stop_id, 0), Inf)
+            
+        #    if l.stop_times[end] + depot_travel_time <= shift_end
+                push!(depot_end_arcs, ((l.line_id, l.bus_line_id, length(l.stop_times)), (l.line_id, 0, 0)))
+        #    end
+       # end
+    end
 
     append!(arcs, depot_start_arcs)
     append!(arcs, depot_end_arcs)
@@ -48,9 +84,9 @@ end
 
 function add_line_arcs!(arcs, lines)
     for line in lines
-        for i in 1:(length(line.stop_times)-1)
-            push!(arcs, ((line.line_id, line.bus_line_id, i), (line.line_id, line.bus_line_id, i+1)))
-        end
+        # Add single arc from first to last stop for each line
+        push!(arcs, ((line.line_id, line.bus_line_id, 1), 
+                    (line.line_id, line.bus_line_id, length(line.stop_times))))
     end
 end
 
@@ -76,49 +112,4 @@ function add_interline_arcs!(arcs, lines, bus_lines, travel_times)
             end
         end
     end
-end
-
-function get_arc_timestamps(arcs, lines, bus_lines, travel_times)
-    # Create lookup dictionary for lines
-    line_dict = Dict((l.line_id, l.bus_line_id) => l for l in lines)
-    
-    # Create lookup dictionary for bus lines to get stop_ids
-    bus_lines_dict = Dict(bl.bus_line_id => bl for bl in bus_lines)
-    
-    # Create lookup dictionary for depot travel times
-    depot_times = Dict()
-    for t in travel_times
-        if t.is_depot_travel
-            key = (t.bus_line_id_start, t.bus_line_id_end, t.origin_stop_id, t.destination_stop_id)
-            depot_times[key] = t.time
-        end
-    end
-
-    # Add lookup dictionary for regular travel times
-    regular_times = Dict()
-    for t in travel_times
-        if !t.is_depot_travel
-            key = (t.bus_line_id_start, t.bus_line_id_end, t.origin_stop_id, t.destination_stop_id)
-            regular_times[key] = t.time
-        end
-    end
-
-    timestamps = Dict{Tuple{Any,Any}, Float64}()
-    for arc in arcs
-        from_id, to_id = arc[1][1:2], arc[2][1:2]
-        from_stop, to_stop = arc[1][3], arc[2][3]
-        line = line_dict[from_id]
-        bus_line = bus_lines_dict[line.bus_line_id]
-
-        if from_stop == 0  # Depot start arc
-            first_stop_id = bus_line.stop_ids[1]
-            timestamps[arc] = line.stop_times[1] - get(depot_times, (0, line.bus_line_id, 0, first_stop_id), Inf)
-        elseif to_stop == 0  # Depot end arc
-            last_stop_id = bus_line.stop_ids[end]
-            timestamps[arc] = line.stop_times[end]  # Start time is when we leave the last stop
-        else  # Line to line arc
-            timestamps[arc] = line.stop_times[from_stop]  # Start time is when we leave the current stop
-        end
-    end
-    return timestamps
 end
