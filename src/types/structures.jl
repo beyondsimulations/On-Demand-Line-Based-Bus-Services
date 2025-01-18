@@ -28,10 +28,10 @@ end
 
 struct PassengerDemand
     demand_id::Int
+    line_id::Int
+    bus_line_id::Int
     origin_stop_id::Int
     destination_stop_id::Int
-    bus_line_id::Int
-    line_id::Int
     demand::Float64
 end
 

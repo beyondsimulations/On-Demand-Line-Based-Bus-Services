@@ -34,10 +34,10 @@ function create_parameters(
     if subsetting == ALL_LINES
         passenger_demands = [PassengerDemand(
             i,
+            line.line_id,
+            line.bus_line_id,
             bus_lines[findfirst(bl -> bl.bus_line_id == line.bus_line_id, bus_lines)].stop_ids[1],
             bus_lines[findfirst(bl -> bl.bus_line_id == line.bus_line_id, bus_lines)].stop_ids[end],
-            line.bus_line_id,
-            line.line_id,
             1.0
         ) for (i, line) in enumerate(lines)]
     else

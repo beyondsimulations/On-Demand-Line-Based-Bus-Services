@@ -15,6 +15,7 @@ include("utils/plot_network.jl")
 include("utils/create_parameters.jl")
 include("models/model_setups.jl")
 include("models/network_flow.jl")
+include("models/solve_models.jl")
 
 # Initialize depot location
 depot_location = (16.0, 14.0)
@@ -80,7 +81,20 @@ for setting in settings
         
         # Solve network flow model
         result = solve_network_flow(parameters)
-        println(result.buses)
+        
+        for (bus_id, bus_info) in result.buses
+            println("\nBus $(bus_info.name):")
+            println("  Travel time: $(round(bus_info.travel_time, digits=2))")
+            println("  Path segments with capacity and time:")
+            # Convert capacity_usage vector to dictionary
+            capacity_dict = Dict(bus_info.capacity_usage)
+            timestamps_dict = Dict(bus_info.timestamps)
+            for segment in bus_info.path
+                usage = get(capacity_dict, segment, 0)
+                time = round(get(timestamps_dict, segment, 0.0), digits=2)
+                println("    $segment (capacity: $usage, time: $time)")
+            end
+        end
     
         if result.status == :Optimal
             println("Optimal solution found!")

@@ -28,10 +28,6 @@ function setup_network_flow(parameters)
     add_line_arcs!(arcs, lines)
     add_interline_arcs!(arcs, lines, bus_lines, travel_times)
 
-    println(nodes)
-    println(arcs)
-    println(depot_start_arcs)
-
     return (
         nodes = nodes,
         arcs = arcs,
