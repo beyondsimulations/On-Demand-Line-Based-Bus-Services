@@ -1,8 +1,8 @@
 module Config
 
 # Network configuration
-const DEFAULT_SPEED = 2.0
-const DEPOT_LOCATION = (14.0, 14.0)
+const DEFAULT_SPEED = 3.0
+const DEPOT_LOCATION = (28.0, 28.0)
 
 # File paths
 const DATA_PATHS = Dict(

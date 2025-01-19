@@ -25,28 +25,21 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
 
     # Constraint 1: Flow Conservation
     # For each node, incoming flow = outgoing flow
-    nodes_with_arcs = union(Set(arc[1] for arc in network.arcs), Set(arc[2] for arc in network.arcs))
-    println("Nodes with arcs: $(nodes_with_arcs)")
-    for node in network.nodes
-        if node in nodes_with_arcs
-            incoming = filter(a -> a[2] == node, network.arcs)
-            outgoing = filter(a -> a[1] == node, network.arcs)
-            @constraint(model, 
-                sum(x[arc] for arc in incoming) == sum(x[arc] for arc in outgoing)
-            )
-        end
+    nodes_with_arcs = union(Set(arc[1] for arc in network.line_arcs), Set(arc[2] for arc in network.line_arcs))
+    for node in nodes_with_arcs
+        incoming = filter(a -> a[2] == node, network.arcs)
+        outgoing = filter(a -> a[1] == node, network.arcs)
+        @constraint(model, 
+            sum(x[arc] for arc in incoming) == sum(x[arc] for arc in outgoing)
+        )
     end
 
     # Constraint 2: Service Coverage
-    # Each line must be served exactly once
-    lines_with_arcs = Set((arc[1][1], arc[1][2]) for arc in network.arcs)
-    println("Lines with arcs: $(lines_with_arcs)")
-    for line in parameters.lines
-        if (line.line_id, line.bus_line_id) in lines_with_arcs
-            first_stop = (line.line_id, line.bus_line_id, 1)
-            incoming_to_first = filter(a -> a[2] == first_stop, network.arcs)
-            @constraint(model, sum(x[arc] for arc in incoming_to_first) == 1)
-        end
+    # Each line_arc must be served exactly once
+    for arc in network.line_arcs
+        first_stop = arc[1]
+        incoming_to_first = filter(a -> a[2] == first_stop, network.arcs)
+        @constraint(model, sum(x[arc] for arc in incoming_to_first) == 1)
     end
 
     return solve_and_return_results(model, network, parameters)
