@@ -111,11 +111,10 @@ function plot_network(bus_lines::Vector{BusLine}, depot::Tuple{Float64, Float64}
         ticks=false
     )
 
-    display(p)
     return p
 end
 
-function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot::Tuple{Float64, Float64})
+function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, travel_times::Vector{TravelTime}, depot::Tuple{Float64, Float64})
     # Calculate axis limits as before
     x_coords = Float64[]
     y_coords = Float64[]
@@ -303,13 +302,12 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot:
         grid=true
     )
 
-    display(p)
     return p
 end
 
 function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot::Tuple{Float64, Float64}, result, travel_times::Vector{TravelTime})
     # First create the base 3D network visualization
-    p = plot_network_3d(bus_lines, lines, depot)
+    p = plot_network_3d(bus_lines, lines, travel_times, depot)
     
     # Create a color gradient based on number of buses
     num_buses = length(result.buses)
@@ -447,8 +445,6 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
             end
         end
     end
-
-    display(p)
     return p
 end
 

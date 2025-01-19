@@ -59,7 +59,7 @@ function create_parameters(
         end
     else
         # Add logic for other subsettings
-        throw(NotImplementedError("Other subsettings not yet implemented"))
+        throw(ArgumentError("Other subsettings not yet implemented"))
     end
 
     return ProblemParameters(
