@@ -225,19 +225,6 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, travel
         push!(depot_times, line.stop_times[end] + depot_end_travel)
     end
 
-    # Plot depot points at each departure/arrival
-    scatter!(p, 
-        fill(depot[1], length(depot_times)), 
-        fill(depot[2], length(depot_times)), 
-        depot_times,  # Use the actual departure/arrival times
-        marker=:diamond,
-        markersize=4,
-        color=:black,
-        markerstrokewidth=1,
-        markerstrokecolor=:white,
-        label="Depot Points"
-    )
-
     # Plot feasible connections between lines
     for line1 in lines
         bus_line1_idx = findfirst(bl -> bl.bus_line_id == line1.bus_line_id, bus_lines)
@@ -263,18 +250,45 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, travel
                 start_y = bus_line2.locations[1][2]
                 start_time = line2.stop_times[1]
                 
-                # Check if connection is temporally feasible
-                if end_time < start_time
-                    # Plot connection line
-                    plot!(p, [end_x, start_x],
-                            [end_y, start_y],
-                            [end_time, start_time],
-                        linestyle=:dot,
-                        color=:grey,
-                        linewidth=0.8,
-                        alpha=1.0,
-                        label=nothing
-                    )
+                # Find travel time between the lines
+                travel_time_idx = findfirst(tt -> 
+                    tt.bus_line_id_start == line1.bus_line_id && 
+                    tt.bus_line_id_end == line2.bus_line_id &&
+                    tt.origin_stop_id == bus_line1.stop_ids[end] && 
+                    tt.destination_stop_id == bus_line2.stop_ids[1] && 
+                    !tt.is_depot_travel,
+                    travel_times)
+                
+                if !isnothing(travel_time_idx)
+                    travel_time = travel_times[travel_time_idx].time
+                    arrival_time = end_time + travel_time
+                    
+                    # Check if connection is temporally feasible
+                    if end_time < start_time && arrival_time <= start_time
+                        # Plot connection line
+                        plot!(p, [end_x, start_x],
+                                [end_y, start_y],
+                                [end_time, arrival_time],
+                            linestyle=:dot,
+                            color=:grey,
+                            linewidth=0.8,
+                            alpha=1.0,
+                            label=nothing
+                        )
+                        
+                        # If there's waiting time, plot it as a vertical line
+                        if arrival_time < start_time
+                            plot!(p, [start_x, start_x],
+                                    [start_y, start_y],
+                                    [arrival_time, start_time],
+                                linestyle=:dot,
+                                color=:grey,
+                                linewidth=0.8,
+                                alpha=1.0,
+                                label=nothing
+                            )
+                        end
+                    end
                 end
             end
         end
@@ -331,6 +345,19 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
             if from_node[3] == 0  # From depot
                 from_x, from_y = depot
                 from_time = timestamp_dict[arc]
+
+                # Add depot point
+                scatter!(p, 
+                    [depot[1]], 
+                    [depot[2]], 
+                    [from_time],
+                    marker=:diamond,
+                    markersize=4,
+                    color=:black,
+                    markerstrokewidth=1,
+                    markerstrokecolor=:white,
+                    label=""
+                )
             else
                 bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == from_node[2], bus_lines)]
                 from_x = bus_line.locations[from_node[3]][1]
@@ -369,6 +396,19 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                     color=bus_color,
                     label=(i == 1 ? bus_info.name : nothing),
                     linestyle=:solid
+                )
+                
+                # Add depot point
+                scatter!(p, 
+                    [depot[1]], 
+                    [depot[2]], 
+                    [to_time],
+                    marker=:diamond,
+                    markersize=4,
+                    color=:black,
+                    markerstrokewidth=1,
+                    markerstrokecolor=:white,
+                    label=""
                 )
                 continue
             end
@@ -430,16 +470,24 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                     l.line_id == to_node[1] && 
                     l.bus_line_id == to_node[2], 
                     lines)]
-                next_line_start = next_line.stop_times[to_node[3]]
-        
+                
+                # Use the scheduled stop time for the specific stop
+                scheduled_time = next_line.stop_times[to_node[3]]
                 
                 # Plot waiting time if there is any
-                if arrival_time < next_line_start
-                    plot!(p, [to_x, to_x], [to_y, to_y], [arrival_time, next_line_start],
+                if arrival_time + 0.00000001 < scheduled_time 
+                    plot!(p, [to_x, to_x], [to_y, to_y], [arrival_time, scheduled_time],
                         linewidth=3,
                         color=bus_color,
                         label=nothing,
                         linestyle=:solid
+                    )
+                    # Add black circle at arrival point
+                    scatter!(p, [to_x], [to_y], [arrival_time],
+                        marker=:circle,
+                        markercolor=:black,
+                        markersize=3,
+                        label=nothing
                     )
                 end
             end

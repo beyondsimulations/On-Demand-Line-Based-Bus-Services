@@ -134,7 +134,9 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     
                     if !isnothing(next_line_idx)
                         current_line_id = (to_node[1], to_node[2])
-                        current_line_start = parameters.lines[next_line_idx].start_time
+                        line = parameters.lines[next_line_idx]
+                        # Use the pre-calculated stop time for our entry point
+                        current_line_start = line.stop_times[to_node[3]]
                         
                         # Calculate depot travel time
                         depot_time = let
@@ -222,7 +224,9 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                         
                         if !isnothing(next_line_idx)
                             current_line_id = next_line
-                            current_line_start = parameters.lines[next_line_idx].start_time
+                            line = parameters.lines[next_line_idx]
+                            # Use the pre-calculated stop time for our entry point
+                            current_line_start = line.stop_times[next_arc[1][3]]
                             total_time = max(total_time, current_line_start)
                         end
                     end
