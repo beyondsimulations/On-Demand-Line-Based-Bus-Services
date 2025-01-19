@@ -41,7 +41,7 @@ function create_parameters(
             1.0
         ) for (i, line) in enumerate(lines)]
 
-    elseif subsetting == ALL_LINES_WITH_DEMAND
+    elseif subsetting == ALL_LINES_WITH_DEMAND || subsetting == ONLY_DEMAND
         # Create passenger demands from the actual demand data
         passenger_demands = Vector{PassengerDemand}()
         for row in eachrow(passenger_demands_df)
