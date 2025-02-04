@@ -57,6 +57,28 @@ struct ProblemParameters
     depot_location::Tuple{Float64, Float64}
 end
 
+mutable struct ModelStation
+    line_id::Int
+    bus_line_id::Int
+    stop_id::Int
+end
+
+import Base.==
+function ==(a::ModelStation, b::ModelStation)
+    return a.line_id == b.line_id && 
+           a.bus_line_id == b.bus_line_id && 
+           a.stop_id == b.stop_id
+end
+
+
+mutable struct ModelArc
+    arc_start::ModelStation
+    arc_end::ModelStation
+    bus_id::Int
+    demand_id::Int
+    demand::Int
+end
+
 # Solution structure
 struct NetworkFlowSolution
     status::Symbol

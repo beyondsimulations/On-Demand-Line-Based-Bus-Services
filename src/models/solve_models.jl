@@ -1,24 +1,27 @@
 # Helper function to expand an arc into a sequence of consecutive arcs
 function expand_arc(arc)
-    (from_line, from_bus_line, from_stop) = arc[1]
-    (to_line, to_bus_line, to_stop) = arc[2]
     
     # If not on same line or consecutive stops, return original arc
-    if from_line != to_line || from_bus_line != to_bus_line
+    if arc.arc_start.line_id != arc.arc_end.line_id || arc.arc_start.bus_line_id != arc.arc_end.bus_line_id
         return [arc]
     end
 
     # Handle depot travel
-    if from_stop == 0 || to_stop == 0
+    if arc.arc_start.stop_id == 0 || arc.arc_end.stop_id == 0
         return [arc]
     end
     
     # Create sequence of consecutive arcs
     expanded_arcs = []
-    for i in from_stop:(to_stop-1)
+    for i in arc.arc_start.stop_id:(arc.arc_end.stop_id-1)
         push!(expanded_arcs, 
-            ((from_line, from_bus_line, i),
-             (from_line, from_bus_line, i+1)))
+            ModelArc(
+                ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, i),
+                ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, i+1),
+                arc.bus_id,
+                arc.demand_id,
+                arc.demand
+            ))
     end
     return expanded_arcs
 end
@@ -61,7 +64,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     # Find the next arc (where current end node is the start of next arc)
                     next_arc = nothing
                     for arc in network.arcs
-                        if arc[1] == current_arc[2] && get(remaining_flow, arc, 0) > 0.5
+                        if arc.arc_start == current_arc.arc_end && get(remaining_flow, arc, 0) > 0.5
                             next_arc = arc
                             break
                         end
@@ -122,30 +125,30 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             current_line_start = nothing
             
             for (i, arc) in enumerate(path)
-                from_node, to_node = arc[1], arc[2]
+                from_node, to_node = arc.arc_start, arc.arc_end
                 
                 # Handle start from depot
-                if i == 1 && from_node[3] == 0
+                if i == 1 && from_node.stop_id == 0
                     # Find the line we're about to serve
                     next_line_idx = findfirst(l -> 
-                        l.line_id == to_node[1] && 
-                        l.bus_line_id == to_node[2], 
+                        l.line_id == to_node.line_id && 
+                        l.bus_line_id == to_node.bus_line_id, 
                         parameters.lines)
                     
                     if !isnothing(next_line_idx)
-                        current_line_id = (to_node[1], to_node[2])
+                        current_line_id = (to_node.line_id, to_node.bus_line_id)
                         line = parameters.lines[next_line_idx]
                         # Use the pre-calculated stop time for our entry point
-                        current_line_start = line.stop_times[to_node[3]]
+                        current_line_start = line.stop_times[to_node.stop_id]
                         
                         # Calculate depot travel time
                         depot_time = let
                             matching_time = findfirst(tt -> 
                                 tt.is_depot_travel &&
                                 tt.bus_line_id_start == 0 && 
-                                tt.bus_line_id_end == to_node[2] &&
+                                tt.bus_line_id_end == to_node.bus_line_id &&
                                 tt.origin_stop_id == 0 && 
-                                tt.destination_stop_id == to_node[3],
+                                tt.destination_stop_id == to_node.stop_id,
                                 parameters.travel_times)
                                 
                             if isnothing(matching_time)
@@ -163,13 +166,13 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 push!(arc_timestamps, (arc, total_time))
                 
                 # Calculate travel time for current arc
-                arc_time = if to_node[3] == 0
+                arc_time = if to_node.stop_id == 0
                     # Handle return to depot
                     matching_time = findfirst(tt -> 
                         tt.is_depot_travel &&
-                        tt.bus_line_id_start == from_node[2] && 
+                        tt.bus_line_id_start == from_node.bus_line_id && 
                         tt.bus_line_id_end == 0 &&
-                        tt.origin_stop_id == from_node[3] && 
+                        tt.origin_stop_id == from_node.stop_id && 
                         tt.destination_stop_id == 0,
                         parameters.travel_times)
                         
@@ -178,14 +181,14 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     end
                     parameters.travel_times[matching_time].time
 
-                elseif from_node[3] == 0
+                elseif from_node.stop_id == 0
                     # Handle start from depot
                     matching_time = findfirst(tt -> 
                         tt.is_depot_travel &&
                         tt.bus_line_id_start == 0 && 
-                        tt.bus_line_id_end == to_node[2] &&
+                        tt.bus_line_id_end == to_node.bus_line_id &&
                         tt.origin_stop_id == 0 && 
-                        tt.destination_stop_id == to_node[3],
+                        tt.destination_stop_id == to_node.stop_id,
                         parameters.travel_times)
                     
                         
@@ -196,10 +199,10 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 else
                     # Handle regular line travel
                     matching_time = findfirst(tt -> 
-                        tt.bus_line_id_start == from_node[2] && 
-                        tt.bus_line_id_end == to_node[2] &&
-                        tt.origin_stop_id == from_node[3] && 
-                        tt.destination_stop_id == to_node[3],
+                        tt.bus_line_id_start == from_node.bus_line_id && 
+                        tt.bus_line_id_end == to_node.bus_line_id &&
+                        tt.origin_stop_id == from_node.stop_id && 
+                        tt.destination_stop_id == to_node.stop_id,
                         parameters.travel_times)
                         
                     if isnothing(matching_time)
@@ -212,9 +215,9 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 total_time += arc_time
                 
                 # Check if we're switching to a new line
-                if i < length(path) && to_node[3] != 0
+                if i < length(path) && to_node.stop_id != 0
                     next_arc = path[i + 1]
-                    next_line = (next_arc[1][1], next_arc[1][2])
+                    next_line = (next_arc.arc_start.line_id, next_arc.arc_start.bus_line_id)
                     
                     if next_line != current_line_id
                         next_line_idx = findfirst(l -> 
@@ -226,7 +229,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                             current_line_id = next_line
                             line = parameters.lines[next_line_idx]
                             # Use the pre-calculated stop time for our entry point
-                            current_line_start = line.stop_times[next_arc[1][3]]
+                            current_line_start = line.stop_times[next_arc.arc_start.stop_id]
                             total_time = max(total_time, current_line_start)
                         end
                     end
@@ -237,12 +240,12 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 # Track passengers that are on the bus for this arc
                 for demand in parameters.passenger_demands
                     # Check if this arc is part of the passenger's journey
-                    if demand.line_id == from_node[1] && 
-                       demand.line_id == to_node[1] &&
-                       demand.bus_line_id == from_node[2] &&
-                       demand.bus_line_id == to_node[2] &&
-                       demand.origin_stop_id <= from_node[3] &&
-                       demand.destination_stop_id >= to_node[3]
+                    if demand.line_id == from_node.line_id && 
+                       demand.line_id == to_node.line_id &&
+                       demand.bus_line_id == from_node.bus_line_id &&
+                       demand.bus_line_id == to_node.bus_line_id &&
+                       demand.origin_stop_id <= from_node.stop_id &&
+                       demand.destination_stop_id >= to_node.stop_id
                         capacity += demand.demand
                     end
                 end

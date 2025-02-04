@@ -339,10 +339,10 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
         timestamp_dict = Dict(arc => time for (arc, time) in timestamps)
         
         for (i, arc) in enumerate(bus_info.path)
-            from_node, to_node = arc
+            from_node, to_node = arc.arc_start, arc.arc_end
             
             # Get coordinates and times
-            if from_node[3] == 0  # From depot
+            if from_node.stop_id == 0  # From depot
                 from_x, from_y = depot
                 from_time = timestamp_dict[arc]
 
@@ -359,13 +359,13 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                     label=""
                 )
             else
-                bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == from_node[2], bus_lines)]
-                from_x = bus_line.locations[from_node[3]][1]
-                from_y = bus_line.locations[from_node[3]][2]
+                bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == from_node.bus_line_id, bus_lines)]
+                from_x = bus_line.locations[from_node.stop_id][1]
+                from_y = bus_line.locations[from_node.stop_id][2]
                 from_time = timestamp_dict[arc]
             end
             
-            if to_node[3] == 0  # To depot
+            if to_node.stop_id == 0  # To depot
                 to_x, to_y = depot
                 # Find the next timestamp in sequence
                 if i < length(timestamps)
@@ -373,9 +373,9 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                 else
                     # Find the correct travel time from the last stop to depot
                     depot_travel_idx = findfirst(tt -> 
-                        tt.bus_line_id_start == from_node[2] && 
+                        tt.bus_line_id_start == from_node.bus_line_id && 
                         tt.bus_line_id_end == 0 &&
-                        tt.origin_stop_id == from_node[3] && 
+                        tt.origin_stop_id == from_node.stop_id && 
                         tt.destination_stop_id == 0 && 
                         tt.is_depot_travel,
                         travel_times)
@@ -413,16 +413,16 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                 continue
             end
             
-            bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == to_node[2], bus_lines)]
-            to_x = bus_line.locations[to_node[3]][1]
-            to_y = bus_line.locations[to_node[3]][2]
+            bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == to_node.bus_line_id, bus_lines)]
+            to_x = bus_line.locations[to_node.stop_id][1]
+            to_y = bus_line.locations[to_node.stop_id][2]
             
             # Get the arrival time using actual travel time
-            if from_node[2] == 0 || to_node[2] == 0  # Depot connection
+            if from_node.bus_line_id == 0 || to_node.bus_line_id == 0  # Depot connection
                 depot_travel_idx = findfirst(tt -> 
-                    tt.bus_line_id_start == (from_node[2] == 0 ? to_node[2] : from_node[2]) && 
-                    tt.bus_line_id_end == (to_node[2] == 0 ? from_node[2] : 0) &&
-                    tt.origin_stop_id == (from_node[2] == 0 ? to_node[3] : from_node[3]) && 
+                    tt.bus_line_id_start == (from_node.bus_line_id == 0 ? to_node.bus_line_id : from_node.bus_line_id) && 
+                    tt.bus_line_id_end == (to_node.bus_line_id == 0 ? from_node.bus_line_id : 0) &&
+                    tt.origin_stop_id == (from_node.bus_line_id == 0 ? to_node.stop_id : from_node.stop_id) && 
                     tt.destination_stop_id == 0 && 
                     tt.is_depot_travel,
                     travel_times)
@@ -434,14 +434,14 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
                     depot_travel = travel_times[depot_travel_idx]
                     arrival_time = from_time + depot_travel.time
                 end
-            elseif from_node[2] != to_node[2] || 
-                   (from_node[2] == to_node[2] && from_node[1] != to_node[1])  # Inter-line connection or same route different line
+            elseif from_node.bus_line_id != to_node.bus_line_id || 
+                   (from_node.bus_line_id == to_node.bus_line_id && from_node.line_id != to_node.line_id)  # Inter-line connection or same route different line
                 # Find the correct travel time between different lines or same route different lines
                 travel_time_idx = findfirst(tt -> 
-                    tt.bus_line_id_start == from_node[2] && 
-                    tt.bus_line_id_end == to_node[2] &&
-                    tt.origin_stop_id == from_node[3] && 
-                    tt.destination_stop_id == to_node[3] && 
+                    tt.bus_line_id_start == from_node.bus_line_id && 
+                    tt.bus_line_id_end == to_node.bus_line_id &&
+                    tt.origin_stop_id == from_node.stop_id && 
+                    tt.destination_stop_id == to_node.stop_id && 
                     !tt.is_depot_travel,
                     travel_times)
                 
@@ -465,14 +465,14 @@ function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot
             )
             
             # Add square marker and waiting time visualization at arrival
-            if to_node[1] != :depot
+            if to_node.line_id != :depot
                 next_line = lines[findfirst(l -> 
-                    l.line_id == to_node[1] && 
-                    l.bus_line_id == to_node[2], 
+                    l.line_id == to_node.line_id && 
+                    l.bus_line_id == to_node.bus_line_id, 
                     lines)]
                 
                 # Use the scheduled stop time for the specific stop
-                scheduled_time = next_line.stop_times[to_node[3]]
+                scheduled_time = next_line.stop_times[to_node.stop_id]
                 
                 # Plot waiting time if there is any
                 if arrival_time + 0.00000001 < scheduled_time 

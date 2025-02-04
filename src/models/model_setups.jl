@@ -3,69 +3,87 @@ function setup_network_flow(parameters)
     lines = parameters.lines
     bus_lines = parameters.bus_lines
     travel_times = parameters.travel_times
+    buses = parameters.buses
 
-    # Add line arcs
-    if parameters.subsetting == ALL_LINES
-        line_arcs = add_line_arcs(lines)
-    elseif parameters.subsetting == ALL_LINES_WITH_DEMAND
-        line_arcs = add_line_arcs_with_demand(lines, parameters.passenger_demands)
-    elseif parameters.subsetting == ONLY_DEMAND
-        line_arcs = add_line_arcs_only_demand(lines, parameters.passenger_demands, parameters.bus_lines)
-    else
-        throw(ArgumentError("Invalid subsetting: $(parameters.subsetting)"))
+    if parameters.setting == NO_CAPACITY_CONSTRAINT
+
+        # Add line arcs
+        if parameters.subsetting == ALL_LINES
+            line_arcs = add_line_arcs(lines)
+        elseif parameters.subsetting == ALL_LINES_WITH_DEMAND
+            line_arcs = add_line_arcs_with_demand(lines, parameters.passenger_demands)
+        elseif parameters.subsetting == ONLY_DEMAND
+            line_arcs = add_line_arcs_only_demand(lines, parameters.passenger_demands, parameters.bus_lines)
+        else
+            throw(ArgumentError("Invalid subsetting: $(parameters.subsetting)"))
+        end
+
+        # Print all arcs for debugging in a structured way
+        println("Line arcs:")
+        sort!(line_arcs, by = x -> (x.arc_start.line_id, x.arc_start.bus_line_id, x.arc_start.stop_id, x.arc_end.line_id, x.arc_end.bus_line_id, x.arc_end.stop_id))
+        for arc in line_arcs
+            println("  $(arc)")
+        end
+
+        # Create nodes as a Vector of tuples, only including nodes that appear in arcs
+        nodes = Vector{ModelStation}()
+        nodes_set = union(
+            Set(arc.arc_start for arc in line_arcs),
+            Set(arc.arc_end for arc in line_arcs)
+        )
+        nodes = collect(nodes_set)
+
+        # Print all nodes for debugging in a structured way
+        println("Nodes:")
+        sort!(nodes, by = x -> (x.line_id, x.bus_line_id, x.stop_id))
+        for node in nodes
+            println("  $(node)")
+        end
+
+        # Add depot arcs
+        if parameters.setting in [NO_CAPACITY_CONSTRAINT]
+            depot_start_arcs, depot_end_arcs = add_depot_arcs_no_capacity_constraint!(line_arcs, lines, bus_lines, parameters.buses[1].shift_end, travel_times)
+        else
+            throw(ArgumentError("Invalid setting: $(parameters.setting)"))
+        end
+
+        # Print all depot start arcs for debugging in a structured way
+        println("Depot start arcs:")
+        sort!(depot_start_arcs, by = x -> (x.arc_start.line_id, x.arc_start.bus_line_id, x.arc_start.stop_id, x.arc_end.line_id, x.arc_end.bus_line_id, x.arc_end.stop_id))
+        for arc in depot_start_arcs
+            println("  $(arc)")
+        end
+
+        # Print all depot end arcs for debugging in a structured way
+        println("Depot end arcs:")
+        sort!(depot_end_arcs, by = x -> (x.arc_start.line_id, x.arc_start.bus_line_id, x.arc_start.stop_id, x.arc_end.line_id, x.arc_end.bus_line_id, x.arc_end.stop_id))
+        for arc in depot_end_arcs
+            println("  $(arc)")
+        end
+
+        # inter-line arcs
+        interline_arcs = add_interline_arcs!(line_arcs, lines, bus_lines, travel_times)
+
+        # Print all inter-line arcs for debugging in a structured way
+        println("Inter-line arcs:")
+        sort!(interline_arcs, by = x -> (x.arc_start.line_id, x.arc_start.bus_line_id, x.arc_start.stop_id, x.arc_end.line_id, x.arc_end.bus_line_id, x.arc_end.stop_id))
+        for arc in interline_arcs
+            println("  $(arc)")
+        end
     end
 
-    # Print all arcs for debugging in a structured way
-    println("Arcs:")
-    sorted_arcs = sort(line_arcs, by = x -> (x[1][1], x[1][2], x[1][3], x[2][1], x[2][2], x[2][3]))
-    for arc in sorted_arcs
-        println("  $(arc)")
-    end
+    if parameters.setting == CAPACITY_CONSTRAINT
+        # Add line arcs
+        if parameters.subsetting == ALL_LINES
+            line_arcs = add_line_arcs_capacity_constraint(lines,buses)
+        elseif parameters.subsetting == ALL_LINES_WITH_DEMAND
+            line_arcs = add_line_arcs_with_demand_capacity_constraint(lines, parameters.passenger_demands)
+        elseif parameters.subsetting == ONLY_DEMAND
+            line_arcs = add_line_arcs_only_demand_capacity_constraint(lines, parameters.passenger_demands, parameters.bus_lines)
+        else
+            throw(ArgumentError("Invalid subsetting: $(parameters.subsetting)"))
+        end
 
-    # Create nodes as a Vector of tuples, only including nodes that appear in arcs
-    nodes = Vector{Tuple{Int,Int,Int}}()
-    nodes_set = union(
-        Set(arc[1] for arc in line_arcs),
-        Set(arc[2] for arc in line_arcs)
-    )
-    nodes = collect(nodes_set)
-
-    # Print all nodes for debugging in a structured way
-    println("Nodes:")
-    sorted_nodes = sort(nodes, by = x -> (x[1], x[2], x[3]))
-    for node in sorted_nodes
-        println("  $(node)")
-    end
-
-    # Add depot arcs
-    if parameters.setting in [NO_CAPACITY_CONSTRAINT]
-        depot_start_arcs, depot_end_arcs = add_depot_arcs_no_capacity_constraint!(line_arcs, lines, bus_lines, parameters.buses[1].shift_end, travel_times)
-    else
-        throw(ArgumentError("Invalid setting: $(parameters.setting)"))
-    end
-
-    # Print all depot start arcs for debugging in a structured way
-    println("Depot start arcs:")
-    sorted_depot_start_arcs = sort(depot_start_arcs, by = x -> (x[1][1], x[1][2], x[1][3], x[2][1], x[2][2], x[2][3]))
-    for arc in sorted_depot_start_arcs
-        println("  $(arc)")
-    end
-
-    # Print all depot end arcs for debugging in a structured way
-    println("Depot end arcs:")
-    sorted_depot_end_arcs = sort(depot_end_arcs, by = x -> (x[1][1], x[1][2], x[1][3], x[2][1], x[2][2], x[2][3]))
-    for arc in sorted_depot_end_arcs
-        println("  $(arc)")
-    end
-
-    # inter-line arcs
-    interline_arcs = add_interline_arcs!(line_arcs, lines, bus_lines, travel_times)
-
-    # Print all inter-line arcs for debugging in a structured way
-    println("Inter-line arcs:")
-    sorted_arcs = sort(interline_arcs, by = x -> (x[1][1], x[1][2], x[1][3], x[2][1], x[2][2], x[2][3]))
-    for arc in sorted_arcs
-        println("  $(arc)")
     end
 
     # Combine all arcs
@@ -82,19 +100,55 @@ function setup_network_flow(parameters)
 end
 
 function add_line_arcs(lines)
-    line_arcs = Vector{Tuple{Tuple{Int,Int,Int},Tuple{Int,Int,Int}}}()
+    line_arcs = Vector{ModelArc}()
 
     for line in lines
         # Add single arc from first to last stop for each line
-        push!(line_arcs, ((line.line_id, line.bus_line_id, 1), 
-                    (line.line_id, line.bus_line_id, length(line.stop_times))))
+        push!(line_arcs, ModelArc(
+            ModelStation(line.line_id, line.bus_line_id, 1), 
+            ModelStation(line.line_id, line.bus_line_id, length(line.stop_times)),
+            0,
+            0,
+            0)
+        )
+    end
+    return line_arcs
+end
+
+function add_line_arcs_capacity_constraint(lines, buses)
+
+    depot_times = Dict()
+    for t in travel_times
+        if t.is_depot_travel
+            key = (t.bus_line_id_start, t.bus_line_id_end, t.origin_stop_id, t.destination_stop_id)
+            depot_times[key] = t.time
+        end
+    end
+
+    line_arcs = Vector{ModelArc}()
+    for bus in buses
+        for line in lines
+            if bus.shift_start + depot_times[(0, line.bus_line_id, 0, 1)] <= line.start_time && 
+                bus.shift_end - depot_times[(line.bus_line_id, 0, length(line.stop_times), 0)] >= line.stop_times[end] &&
+                (line.start_time <= bus.break_start && line.stop_times[end] <= bus.break_start ||
+                line.start_time >= bus.break_end && line.stop_times[end] >= bus.break_end)
+
+                push!(line_arcs, ModelArc(
+                    ModelStation(line.line_id, line.bus_line_id, 1), 
+                    ModelStation(line.line_id, line.bus_line_id, length(line.stop_times)), 
+                    bus.bus_id, 
+                    1,
+                    1)
+                )
+            end
+        end
     end
     return line_arcs
 end
 
 function add_line_arcs_with_demand(lines, passenger_demands)
     # Create a set of (line_id, bus_line_id) pairs that have demand
-    line_arcs = Vector{Tuple{Tuple{Int,Int,Int},Tuple{Int,Int,Int}}}()
+    line_arcs = Vector{ModelArc}()
 
     lines_with_demand = Set(
         (demand.line_id, demand.bus_line_id) 
@@ -104,15 +158,20 @@ function add_line_arcs_with_demand(lines, passenger_demands)
     for line in lines
         # Only add arc if this line has any associated demand
         if (line.line_id, line.bus_line_id) in lines_with_demand
-            push!(line_arcs, ((line.line_id, line.bus_line_id, 1), 
-                        (line.line_id, line.bus_line_id, length(line.stop_times))))
+            push!(line_arcs, ModelArc(
+                ModelStation(line.line_id, line.bus_line_id, 1), 
+                ModelStation(line.line_id, line.bus_line_id, length(line.stop_times)),
+                0,
+                0,
+                0)
+            )
         end
     end
     return line_arcs
 end
 
 function add_line_arcs_only_demand(lines, passenger_demands, bus_lines)
-    line_arcs = Vector{Tuple{Tuple{Int,Int,Int},Tuple{Int,Int,Int}}}()
+    line_arcs = Vector{ModelArc}()
 
     # Group demands by line
     demands_by_line = Dict()
@@ -159,8 +218,13 @@ function add_line_arcs_only_demand(lines, passenger_demands, bus_lines)
 
         # Create arcs for merged segments
         for (start_pos, end_pos) in merged_segments
-            push!(line_arcs, ((line_key[1], line_key[2], start_pos),
-                        (line_key[1], line_key[2], end_pos)))
+            push!(line_arcs, ModelArc(
+                ModelStation(line_key[1], line_key[2], start_pos),
+                ModelStation(line_key[1], line_key[2], end_pos),
+                0,
+                0,
+                0)
+            )
         end
     end
     return line_arcs
@@ -177,14 +241,14 @@ function add_depot_arcs_no_capacity_constraint!(arcs, lines, bus_lines, shift_en
     end
 
     # Create depot start and end arcs for all existing arcs
-    depot_start_arcs = []
-    depot_end_arcs = []
+    depot_start_arcs = Vector{ModelArc}()
+    depot_end_arcs = Vector{ModelArc}()
     
     # Group arcs by line_id and bus_line_id
     for arc in arcs
-        line_id, bus_line_id = arc[1][1], arc[1][2]
-        section_start_pos = arc[1][3]
-        section_end_pos = arc[2][3]
+        line_id, bus_line_id = arc.arc_start.line_id, arc.arc_start.bus_line_id
+        section_start_pos = arc.arc_start.stop_id
+        section_end_pos = arc.arc_end.stop_id
         
         # Find the corresponding line
         line = first(filter(l -> l.line_id == line_id && l.bus_line_id == bus_line_id, lines))
@@ -195,7 +259,13 @@ function add_depot_arcs_no_capacity_constraint!(arcs, lines, bus_lines, shift_en
             depot_travel_time = get(depot_times, (0, bus_line_id, 0, first_stop_id), Inf)
             
             if line.stop_times[section_start_pos] >= depot_travel_time
-                push!(depot_start_arcs, ((line_id, bus_line_id, 0), (line_id, bus_line_id, section_start_pos)))
+                push!(depot_start_arcs, ModelArc(
+                    ModelStation(line_id, bus_line_id, 0),
+                    ModelStation(line_id, bus_line_id, section_start_pos),
+                    0,
+                    0,
+                    0)
+                )
             end
         end
         
@@ -205,7 +275,13 @@ function add_depot_arcs_no_capacity_constraint!(arcs, lines, bus_lines, shift_en
             depot_travel_time = get(depot_times, (bus_line_id, 0, last_stop_id, 0), Inf)
             
             if line.stop_times[section_end_pos] + depot_travel_time <= shift_end
-                push!(depot_end_arcs, ((line_id, bus_line_id, section_end_pos), (line_id, bus_line_id, 0)))
+                push!(depot_end_arcs, ModelArc(
+                    ModelStation(line_id, bus_line_id, section_end_pos),
+                    ModelStation(line_id, bus_line_id, 0),
+                    0,
+                    0,
+                    0)
+                )
             end
         end
     end
@@ -215,18 +291,18 @@ end
 
 
 function add_interline_arcs!(non_depot_arcs, lines, bus_lines, travel_times)
-    interline_arcs = Vector{Tuple{Tuple{Int,Int,Int},Tuple{Int,Int,Int}}}()
+    interline_arcs = Vector{ModelArc}()
     # Create lookup for arc end positions and start positions by line
     
     # Create lookup for arc end positions and start positions by line
     arc_positions = Dict()
     for arc in non_depot_arcs
-        line_key = (arc[1][1], arc[1][2])
+        line_key = (arc.arc_start.line_id, arc.arc_start.bus_line_id)
         if !haskey(arc_positions, line_key)
             arc_positions[line_key] = (Set{Int}(), Set{Int}())  # (end_positions, start_positions)
         end
-        push!(arc_positions[line_key][1], arc[2][3])  # end position
-        push!(arc_positions[line_key][2], arc[1][3])  # start position
+        push!(arc_positions[line_key][1], arc.arc_end.stop_id)  # end position
+        push!(arc_positions[line_key][2], arc.arc_start.stop_id)  # start position
     end
 
     # Create intra-line connections for each line
@@ -238,9 +314,13 @@ function add_interline_arcs!(non_depot_arcs, lines, bus_lines, travel_times)
                 # Only create connection if start position comes after end position
                 if start_pos > end_pos
                     # Create intra-line connection
-                    push!(interline_arcs, 
-                        ((line_id, direction, end_pos),
-                         (line_id, direction, start_pos)))
+                    push!(interline_arcs, ModelArc(
+                        ModelStation(line_id, direction, end_pos),
+                        ModelStation(line_id, direction, start_pos),
+                        0,
+                        0,
+                        0)
+                    )
                 end
             end
         end
@@ -277,8 +357,13 @@ function add_interline_arcs!(non_depot_arcs, lines, bus_lines, travel_times)
                             if !isnothing(travel_time_idx)
                                 travel_time = travel_times[travel_time_idx].time
                                 if end_time + travel_time <= start_time
-                                    push!(interline_arcs, ((line1.line_id, line1.bus_line_id, end_pos), 
-                                                         (line2.line_id, line2.bus_line_id, start_pos)))
+                                    push!(interline_arcs, ModelArc(
+                                        ModelStation(line1.line_id, line1.bus_line_id, end_pos),
+                                        ModelStation(line2.line_id, line2.bus_line_id, start_pos),
+                                        0,
+                                        0,
+                                        0)
+                                    )
                                 end
                             end
                         end

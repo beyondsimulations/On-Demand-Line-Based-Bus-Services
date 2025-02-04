@@ -15,6 +15,8 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
     model = Model(HiGHS.Optimizer)
     network = setup_network_flow(parameters)
 
+    println(network.arcs)
+
     # Variables:
     # x[arc] = flow on each arc (continuous, ≥ 0)
     # Represents number of buses flowing through each connection
@@ -24,23 +26,33 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
     @objective(model, Min, sum(x[arc] for arc in network.depot_start_arcs))
 
     # Constraint 1: Flow Conservation
-    # For each node, incoming flow = outgoing flow
-    nodes_with_arcs = union(Set(arc[1] for arc in network.line_arcs), Set(arc[2] for arc in network.line_arcs))
+    # For each arc, incoming flow = outgoing flow
+    nodes_with_arcs = union(Set(arc.arc_start for arc in network.line_arcs), Set(arc.arc_end for arc in network.line_arcs))
     for node in nodes_with_arcs
-        incoming = filter(a -> a[2] == node, network.arcs)
-        outgoing = filter(a -> a[1] == node, network.arcs)
+        println("node")
+        println(node)
+        println("...")
+        println("incoming")
+        incoming = filter(a -> a.arc_end == node, network.arcs)
+        println(incoming)
+        println("...")
+        println("outgoing")
+        outgoing = filter(a -> a.arc_start == node, network.arcs)
+        println(outgoing)
+        println("...")
+        println("xxx")
         @constraint(model, 
-            sum(x[arc] for arc in incoming) == sum(x[arc] for arc in outgoing)
+            sum(x[arc] for arc in incoming) - sum(x[arc] for arc in outgoing) == 0
         )
     end
 
     # Constraint 2: Service Coverage
     # Each line_arc must be served exactly once
     for arc in network.line_arcs
-        first_stop = arc[1]
-        incoming_to_first = filter(a -> a[2] == first_stop, network.arcs)
-        @constraint(model, sum(x[arc] for arc in incoming_to_first) == 1)
+        @constraint(model, x[arc] == 1)
     end
+
+    println(model)
 
     return solve_and_return_results(model, network, parameters)
 end
