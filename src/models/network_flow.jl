@@ -29,18 +29,8 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
     # For each arc, incoming flow = outgoing flow
     nodes_with_arcs = union(Set(arc.arc_start for arc in network.line_arcs), Set(arc.arc_end for arc in network.line_arcs))
     for node in nodes_with_arcs
-        println("node")
-        println(node)
-        println("...")
-        println("incoming")
-        incoming = filter(a -> a.arc_end == node, network.arcs)
-        println(incoming)
-        println("...")
-        println("outgoing")
-        outgoing = filter(a -> a.arc_start == node, network.arcs)
-        println(outgoing)
-        println("...")
-        println("xxx")
+        incoming = filter(a -> isequal(a.arc_end, node), network.arcs)
+        outgoing = filter(a -> isequal(a.arc_start, node), network.arcs)
         @constraint(model, 
             sum(x[arc] for arc in incoming) - sum(x[arc] for arc in outgoing) == 0
         )

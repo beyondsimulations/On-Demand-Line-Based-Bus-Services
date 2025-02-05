@@ -63,11 +63,15 @@ mutable struct ModelStation
     stop_id::Int
 end
 
-import Base.==
-function ==(a::ModelStation, b::ModelStation)
-    return a.line_id == b.line_id && 
-           a.bus_line_id == b.bus_line_id && 
-           a.stop_id == b.stop_id
+import Base: hash, isequal
+function Base.hash(x::ModelStation, h::UInt)
+    hash((x.line_id, x.bus_line_id, x.stop_id), h)
+end
+
+function Base.isequal(x::ModelStation, y::ModelStation)
+    return x.line_id == y.line_id && 
+           x.bus_line_id == y.bus_line_id && 
+           x.stop_id == y.stop_id
 end
 
 

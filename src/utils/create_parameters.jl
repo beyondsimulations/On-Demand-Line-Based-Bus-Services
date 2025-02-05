@@ -31,7 +31,7 @@ function create_parameters(
     end
 
     # Create passenger demands based on subsetting
-    if subsetting == ALL_LINES
+    if subsetting == ALL_LINES && setting == NO_CAPACITY_CONSTRAINT
         passenger_demands = [PassengerDemand(
             i,
             line.line_id,
@@ -41,7 +41,7 @@ function create_parameters(
             1.0
         ) for (i, line) in enumerate(lines)]
 
-    elseif subsetting == ALL_LINES_WITH_DEMAND || subsetting == ONLY_DEMAND
+    else
         # Create passenger demands from the actual demand data
         passenger_demands = Vector{PassengerDemand}()
         for row in eachrow(passenger_demands_df)
@@ -57,9 +57,6 @@ function create_parameters(
                 ))
             end
         end
-    else
-        # Add logic for other subsettings
-        throw(ArgumentError("Other subsettings not yet implemented"))
     end
 
     return ProblemParameters(
