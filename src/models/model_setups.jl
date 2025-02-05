@@ -482,13 +482,32 @@ end
 function add_intra_line_arcs_capacity_constraint!(line_arcs, lines, bus_lines, travel_times)
     intra_line_arcs = Vector{ModelArc}()
 
+    # Create lookup for arc end positions and start positions by line and bus
+    
+    for line1 in lines
+        for line2 in lines
+            if line1 != line2
+                if line1.arc_start.line_id == line2.arc_end.line_id && line1.arc_start.bus_line_id == line2.arc_end.bus_line_id && line1.bus_id == line2.bus_id
+                    if line1.arc_start.stop_id <= line2.arc_start.stop_id   
+                        push!(intra_line_arcs, ModelArc(
+                                ModelStation(line1.line_id, line1.bus_line_id, line1.arc_end.stop_id),
+                                ModelStation(line2.line_id, line2.bus_line_id, line2.arc_start.stop_id),
+                                line1.bus_id,
+                                0,
+                                0)
+                            )
+                    end
+                end
+            end
+        end
+    end
 
     return intra_line_arcs
 end
 
 function add_inter_line_arcs_capacity_constraint!(line_arcs, lines, bus_lines, travel_times)
     inter_line_arcs = Vector{ModelArc}()
-    
+
 
     return inter_line_arcs
 end
