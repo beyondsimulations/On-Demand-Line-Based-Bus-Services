@@ -23,6 +23,7 @@ function expand_arc(arc)
                 arc.demand
             ))
     end
+
     return expanded_arcs
 end
 
@@ -32,8 +33,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
 
     if termination_status(model) == MOI.OPTIMAL
         x = model[:x]
-        
-        
+
         # Get the flow values and handle different variable types
         if buses === nothing  # Case with continuous flow variables
             flow_dict = Dict(arc => value(x[arc]) for arc in network.arcs if value(x[arc]) > 1e-6)
@@ -53,7 +53,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                         break
                     end
                 end
-                
+
                 current_arc = start_arc
                 while current_arc !== nothing
                     # Expand the arc into consecutive arcs
@@ -64,7 +64,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     # Find the next arc (where current end node is the start of next arc)
                     next_arc = nothing
                     for arc in network.arcs
-                        if arc.arc_start == current_arc.arc_end && get(remaining_flow, arc, 0) > 0.5
+                        if isequal(arc.arc_start, current_arc.arc_end) && get(remaining_flow, arc, 0) > 0.5
                             next_arc = arc
                             break
                         end
@@ -74,42 +74,102 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 end
                 bus_paths[bus_id] = path
             end
-            
+
         else  # Case with binary variables per bus
-            flow_dict = Dict()
+
+            
             bus_paths = Dict{Int, Vector{Any}}()
+
+            all_bus_arcs = [arc for arc in network.arcs if value(x[arc]) > 0.5]
+
+            for arc in all_bus_arcs
+                println(arc)
+            end
             
             for bus in buses
-                path = []
-                # Start from any depot start arc used by this bus
-                start_arc = nothing
-                for arc in network.depot_start_arcs
-                    if value(x[arc, bus.bus_id]) > 0.5
-                        start_arc = arc
-                        break
-                    end
-                end
+                # Get all arcs used by this bus
+                bus_arcs = [arc for arc in all_bus_arcs if arc.bus_id == bus.bus_id]
                 
-                current_arc = start_arc
-                while current_arc !== nothing
-                    # Expand the arc into consecutive arcs
-                    expanded_arcs = expand_arc(current_arc)
-                    append!(path, expanded_arcs)
+                # Find depot start arc - include both direct depot arcs and transfer arcs
+                depot_start_arcs = filter(a -> a.arc_start.stop_id == 0 || 
+                                             (a.arc_start.line_id != a.arc_end.line_id), bus_arcs)
+                
+                if isempty(depot_start_arcs)
+                    continue
+                end
+
+                filter!(a -> 
+                    !(a.arc_start.line_id == a.arc_end.line_id &&
+                      a.arc_start.bus_line_id == a.arc_end.bus_line_id &&
+                      a.arc_start.stop_id > a.arc_end.stop_id &&
+                      a.arc_end.stop_id != 0), bus_arcs
+                )
+
+                multiple_paths = []
+                for arc in bus_arcs
+                    expanded_arcs = expand_arc(arc)
+                    append!(multiple_paths, expanded_arcs)
+                end
+
+                # Create an ordered unique path by following the connections
+                unique_path = []
+                current_station = depot_start_arcs[1].arc_start
+                visited_arcs = Set()  # Track visited arcs to prevent infinite loops
+                
+                while true
+                    # Find the next arc that starts from current_station
+                    next_arcs = filter(a -> 
+                        isequal(a.arc_start, current_station) && 
+                        !(a in visited_arcs), 
+                        multiple_paths)
                     
-                    # Update flow_dict for compatibility
-                    flow_dict[current_arc] = get(flow_dict, current_arc, 0) + 1
-                    # Find the next arc (where current end node is the start of next arc)
-                    next_arc = nothing
-                    for arc in network.arcs
-                        if arc[1] == current_arc[2] && value(x[arc, bus.bus_id]) > 0.5
-                            next_arc = arc
-                            break
+                    if isempty(next_arcs)
+                        # Check if we've reached a depot end
+                        if current_station.stop_id == 0
+                            break  # Successfully completed the path
+                        else
+                            # Look for transfer arcs or depot return arcs
+                            alternative_arcs = filter(a -> 
+                                isequal(a.arc_start, current_station) && 
+                                (a.arc_end.stop_id == 0 || a.arc_start.line_id != a.arc_end.line_id), 
+                                multiple_paths)
+                                
+                            if isempty(alternative_arcs)
+                                @warn "Path construction stuck at station: $current_station for bus $(bus.bus_id)"
+                                break
+                            end
+                            next_arcs = [alternative_arcs[1]]
                         end
                     end
-                    current_arc = next_arc
+                    
+                    # Get the next arc and mark it as visited
+                    next_arc = next_arcs[1]
+                    push!(visited_arcs, next_arc)
+                    
+                    # Create combined arc for parallel arcs
+                    all_parallel_arcs = filter(a -> 
+                        isequal(a.arc_start, current_station) && 
+                        isequal(a.arc_end, next_arc.arc_end), 
+                        multiple_paths)
+                    
+                    # Create combined arc
+                    push!(unique_path, ModelArc(
+                        current_station,
+                        next_arc.arc_end,
+                        bus.bus_id,
+                        0,
+                        sum(arc.demand for arc in all_parallel_arcs)
+                    ))
+                    
+                    current_station = next_arc.arc_end
                 end
-                bus_paths[bus.bus_id] = path
+
+                bus_paths[bus.bus_id] = unique_path
             end
+        end
+
+        for arc in bus_paths
+            println(arc)
         end
 
         # Calculate travel times, capacities, and timestamps for each bus path

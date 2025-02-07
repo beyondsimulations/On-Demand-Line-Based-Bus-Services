@@ -27,7 +27,7 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
 
     # Constraint 1: Flow Conservation
     # For each arc, incoming flow = outgoing flow
-    nodes_with_arcs = union(Set(arc.arc_start for arc in network.line_arcs), Set(arc.arc_end for arc in network.line_arcs))
+    nodes_with_arcs = union(Set(arc.arc_start for arc in network.line_arcs), Set(arc.arc_end for arc in vcat(network.line_arcs, network.intra_line_arcs, network.inter_line_arcs)))
     for node in nodes_with_arcs
         incoming = filter(a -> isequal(a.arc_end, node), network.arcs)
         outgoing = filter(a -> isequal(a.arc_start, node), network.arcs)
@@ -42,8 +42,6 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
         @constraint(model, x[arc] == 1)
     end
 
-    println(model)
-
     return solve_and_return_results(model, network, parameters)
 end
 
@@ -54,42 +52,57 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
 
     # Variables:
     # x[arc,bus] = 1 if specific bus uses this arc, 0 otherwise
-    @variable(model, x[network.arcs, bus.bus_id for bus in buses], Bin)
+    @variable(model, x[network.arcs], Bin)
 
     # Objective: Minimize total number of buses used
     @objective(model, Min, 
-        sum(x[arc, bus.bus_id] for arc in network.depot_start_arcs for bus in buses))
+        sum(x[arc] for arc in network.depot_start_arcs))
 
     # Constraint 1: Flow Conservation per Individual Bus
     # For each node and bus, incoming flow = outgoing flow
-    for node in network.nodes, bus in buses
-        incoming = filter(a -> a[2] == node, network.arcs)
-        outgoing = filter(a -> a[1] == node, network.arcs)
-        @constraint(model, 
-            sum(x[arc, bus.bus_id] for arc in incoming) == 
-            sum(x[arc, bus.bus_id] for arc in outgoing)
-        )
-    end
-
-    # Constraint 2: Service Coverage
-    # Each line must be served exactly once by any bus
-    for line in parameters.lines
-        first_stop = (line.line_id, line.bus_line_id, 1)
-        incoming_to_first = filter(a -> a[2] == first_stop, network.arcs)
-        @constraint(model, 
-            sum(x[arc, bus.bus_id] for arc in incoming_to_first for bus in buses) == 1
-        )
-    end
-
-    # Constraint 4: Capacity Feasibility
-    # Prevent using buses that don't have sufficient capacity
-    for arc in network.arcs, bus in buses
-        if !is_capacity_feasible(arc, bus.capacity, parameters)
-            @constraint(model, x[arc, bus.bus_id] == 0)
+    nodes_with_arcs = union(Set(arc.arc_start for arc in network.line_arcs), Set(arc.arc_end for arc in vcat(network.line_arcs, network.intra_line_arcs, network.inter_line_arcs)))
+    for node in nodes_with_arcs
+        for bus in buses
+            incoming = filter(a -> isequal(a.arc_end, node) && isequal(a.bus_id, bus.bus_id), network.arcs)
+            outgoing = filter(a -> isequal(a.arc_start, node) && isequal(a.bus_id, bus.bus_id), network.arcs)
+            @constraint(model, 
+                sum(x[arc] for arc in incoming) - sum(x[arc] for arc in outgoing) == 0
+            )
         end
     end
 
+    # Constraint 2: Service Coverage
+    # Each line_arc must be served exactly once
+    unique_line_arcs = Set((arc.arc_start,arc.arc_end,arc.demand_id) for arc in network.line_arcs)
+    for unique_line_arc in unique_line_arcs
+        filtered_arcs = filter(a -> isequal(a.arc_start, unique_line_arc[1]) && isequal(a.arc_end, unique_line_arc[2]) && isequal(a.demand_id, unique_line_arc[3]), network.arcs)
+        @constraint(model, sum(x[arc] for arc in filtered_arcs) == 1)
+    end
+
+    # Constraint 3: Only one bus from depot
+    @constraint(model, one_bus_from_depot[bus in buses], 
+        sum(x[arc] for arc in network.depot_start_arcs if arc.bus_id == bus.bus_id) <= 1)
+    
+    # Constraint 4: Prevent returning to previous line after using interline arc
+    #for interline_arc in network.inter_line_arcs
+        # Get all line arcs that come after this interline arc's start point on the same line
+    #    same_line_later_arcs = filter(a -> 
+    #        a in network.line_arcs && 
+    #        a.line_id == interline_arc.from_line_id && 
+    #        a.sequence_id > interline_arc.from_sequence_id &&
+    #        a.bus_id == interline_arc.bus_id, 
+    #        network.arcs
+    #    )
+        
+    #    # If we use the interline arc, we can't use any later arcs on the same line
+    #    @constraint(model, 
+    #        x[interline_arc] + sum(x[arc] for arc in same_line_later_arcs) <= 1
+    #    )
+    #end
+
+    # Constraint 5: Prevent too much passengers on a line
+    
+
     return solve_and_return_results(model, network, parameters, buses)
 end
-
 
