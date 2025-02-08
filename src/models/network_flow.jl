@@ -95,31 +95,32 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     # Constraint 4: Prevent illegal allocations due to intra-line arcs
 
     for arc1 in network.line_arcs
-        for arc2 in network.line_arcs
-            if !(arc1.arc_start.line_id == arc2.arc_start.line_id && 
-                arc1.arc_start.bus_line_id == arc2.arc_start.bus_line_id) &&
+        for arc2 in network.inter_line_arcs
+            if arc1.arc_end.bus_line_id == arc2.arc_start.bus_line_id &&
+                arc1.arc_end.line_id == arc2.arc_start.line_id &&
                 arc1.bus_id == arc2.bus_id
 
                 # Get the line data and corresponding times
                 line1 = first(filter(l -> l.line_id == arc1.arc_end.line_id && 
                     l.bus_line_id == arc1.arc_end.bus_line_id, parameters.lines))
-                line2 = first(filter(l -> l.line_id == arc2.arc_start.line_id && 
-                    l.bus_line_id == arc2.arc_start.bus_line_id, parameters.lines))
+                line2 = first(filter(l -> l.line_id == arc2.arc_end.line_id && 
+                    l.bus_line_id == arc2.arc_end.bus_line_id, parameters.lines))
 
                 line1_end_time = line1.stop_times[arc1.arc_end.stop_id]
-                line2_start_time = line2.stop_times[arc2.arc_start.stop_id]
+                line2_end_time = line2.stop_times[arc2.arc_end.stop_id]
 
                 # Find travel time between sections
                 travel_time_idx = findfirst(tt ->
-                tt.bus_line_id_start == arc1.arc_end.bus_line_id &&
-                tt.bus_line_id_end == arc2.arc_start.bus_line_id &&
-                tt.origin_stop_id == arc1.arc_end.stop_id &&
-                tt.destination_stop_id == arc2.arc_start.stop_id,
-                parameters.travel_times)
+                    tt.bus_line_id_start == arc1.arc_end.bus_line_id &&
+                    tt.bus_line_id_end == arc2.arc_end.bus_line_id &&
+                    tt.origin_stop_id == arc1.arc_end.stop_id &&
+                    tt.destination_stop_id == arc2.arc_end.stop_id,
+                    parameters.travel_times)
 
                 if !isnothing(travel_time_idx)
                     travel_time = parameters.travel_times[travel_time_idx].time
-                    if line1_end_time + travel_time > line2_start_time && line1_end_time < line2_start_time
+
+                    if line1_end_time + travel_time > line2_end_time
 
                         @constraint(model, x[arc1] + x[arc2] <= 1)
 

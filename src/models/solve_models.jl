@@ -92,11 +92,6 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 arc.arc_start.stop_id,
                 arc.arc_end.stop_id
             ))
-
-            println("All bus arcs:")
-            for arc in all_bus_arcs
-                println(arc)
-            end
             
             for bus in buses
                 # Get all arcs used by this bus
@@ -144,10 +139,6 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
 
                 # Now expand each arc in the ordered path
 
-                println("Ordered path:")
-                for arc in ordered_path
-                    println(arc)
-                end
                 expanded_path = []
 
                 #for arc in ordered_path
