@@ -33,8 +33,25 @@ function compute_travel_times(bus_lines::Vector{BusLine}, depot::Tuple{Float64, 
                         false
                     )
                 )
+
+            end
+
+            # Add zero travel time for each stop to itself
+            for i in eachindex(line.locations)
+                push!(travel_times,
+                    TravelTime(
+                        line.bus_line_id,
+                        line.bus_line_id,
+                        line.stop_ids[i],
+                        line.stop_ids[i],
+                        0.0,
+                        false
+                    )
+                )
             end
         end
+
+
         
         # Calculate travel times from depot to all stops in the line
         for (stop_idx, stop_location) in enumerate(line.locations)

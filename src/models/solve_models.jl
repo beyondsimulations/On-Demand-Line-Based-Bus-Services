@@ -1,7 +1,7 @@
 # Helper function to expand an arc into a sequence of consecutive arcs
 function expand_arc(arc)
     
-    # If not on same line or consecutive stops, return original arc
+    # If not on same line, return original arc
     if arc.arc_start.line_id != arc.arc_end.line_id || arc.arc_start.bus_line_id != arc.arc_end.bus_line_id
         return [arc]
     end
@@ -11,18 +11,20 @@ function expand_arc(arc)
         return [arc]
     end
     
-    # Create sequence of consecutive arcs
+    # Create sequence of consecutive arcs if stop id increase
     expanded_arcs = []
-    for i in arc.arc_start.stop_id:(arc.arc_end.stop_id-1)
-        push!(expanded_arcs, 
-            ModelArc(
-                ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, i),
-                ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, i+1),
-                arc.bus_id,
-                arc.demand_id,
-                arc.demand,
-                arc.kind
-            ))
+    if arc.arc_start.stop_id < arc.arc_end.stop_id
+        for i in arc.arc_start.stop_id:(arc.arc_end.stop_id-1)
+            push!(expanded_arcs, 
+                ModelArc(
+                    ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, i),
+                    ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, i+1),
+                    arc.bus_id,
+                    arc.demand_id,
+                    arc.demand,
+                    arc.kind
+                ))
+        end
     end
 
     return expanded_arcs
@@ -100,104 +102,110 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 # Get all arcs used by this bus
                 bus_arcs = [arc for arc in all_bus_arcs if arc.bus_id == bus.bus_id]
                 
-                # Find depot start arc - include both direct depot arcs and transfer arcs
-                depot_start_arcs = filter(a -> a.arc_start.stop_id == 0 || 
-                                             (a.arc_start.line_id != a.arc_end.line_id), bus_arcs)
+                if isempty(bus_arcs)
+                    continue
+                end
                 
-                if isempty(depot_start_arcs)
+                # Find depot start arc
+                depot_start_arc = first(filter(a -> 
+                    a.arc_start.stop_id == 0 && a.kind == "depot-start-arc", 
+                    bus_arcs))
+                
+                if isnothing(depot_start_arc)
                     continue
                 end
 
-                filter!(a -> 
-                    !(a.arc_start.line_id == a.arc_end.line_id &&
-                      a.arc_start.bus_line_id == a.arc_end.bus_line_id &&
-                      a.arc_start.stop_id > a.arc_end.stop_id &&
-                      a.arc_end.stop_id != 0), bus_arcs
-                )
-
-                multiple_paths = []
-                for arc in bus_arcs
-                    expanded_arcs = expand_arc(arc)
-                    append!(multiple_paths, expanded_arcs)
-                end
-
-                # Create an ordered unique path by following the connections
-                unique_path = []
-                current_station = depot_start_arcs[1].arc_start
-                visited_arcs = Set()  # Track visited arcs to prevent infinite loops
+                # Create ordered path by following demand IDs
+                ordered_path = [depot_start_arc]
+                current_arc = depot_start_arc
                 
                 while true
-                    # Find the next arc that starts from current_station
-                    next_arcs = filter(a -> 
-                        isequal(a.arc_start, current_station) && 
-                        !(a in visited_arcs), 
-                        multiple_paths)
+                    # Find next arc by matching demand IDs or connecting within same line
+                    next_arc = nothing
+                    current_end_demand = current_arc.demand_id[2]
                     
-                    if isempty(next_arcs)
-                        # Check if we've reached a depot end
-                        if current_station.stop_id == 0
-                            break  # Successfully completed the path
-                        else
-                            # Look for transfer arcs or depot return arcs
-                            alternative_arcs = filter(a -> 
-                                isequal(a.arc_start, current_station) && 
-                                (a.arc_end.stop_id == 0 || a.arc_start.line_id != a.arc_end.line_id), 
-                                multiple_paths)
-                                
-                            if isempty(alternative_arcs)
-                                # Check if we have any remaining depot or transfer arcs from anywhere
-                                remaining_arcs = filter(a -> 
-                                    !(a in visited_arcs) && 
-                                    ((a.arc_end.stop_id == 0) || # depot arc
-                                     (a.arc_start.line_id != a.arc_end.line_id)), # transfer arc
-                                    multiple_paths)
-
-                                if !isempty(remaining_arcs)
-                                    # Create a transfer arc from current station to the start of remaining arc
-                                    transfer_arc = ModelArc(
-                                        current_station,
-                                        remaining_arcs[1].arc_end,
-                                        bus.bus_id,
-                                        (0, 0),
-                                        0,
-                                        "transfer-arc"
-                                    )
-                                    push!(unique_path, transfer_arc)
-                                    current_station = remaining_arcs[1].arc_end
-                                    continue
-                                end
-                                
-                                @warn "Path construction stuck at station: $current_station for bus $(bus.bus_id)"
-                                break
-                            end
-                            next_arcs = [alternative_arcs[1]]
-                        end
+                    if current_end_demand == 0  # We've reached a depot end
+                        break
                     end
                     
-                    # Get the next arc and mark it as visited
-                    next_arc = next_arcs[1]
-                    push!(visited_arcs, next_arc)
+                    next_arc = first(filter(a -> 
+                        a.demand_id[1] == current_end_demand && 
+                        a ∉ ordered_path, 
+                        bus_arcs))
                     
-                    # Create combined arc for parallel arcs
-                    all_parallel_arcs = filter(a -> 
-                        isequal(a.arc_start, current_station) && 
-                        isequal(a.arc_end, next_arc.arc_end), 
-                        multiple_paths)
+                    if isnothing(next_arc)
+                        @warn "Path construction stuck at arc: $current_arc for bus $(bus.bus_id)"
+                        break
+                    end
                     
-                    # Create combined arc
-                    push!(unique_path, ModelArc(
-                        current_station,
-                        next_arc.arc_end,
-                        bus.bus_id,
-                        (0, 0),
-                        sum(arc.demand for arc in all_parallel_arcs),
-                        "combined-arc"
-                    ))
-                    
-                    current_station = next_arc.arc_end
+                    push!(ordered_path, next_arc)
+                    current_arc = next_arc
                 end
 
-                bus_paths[bus.bus_id] = unique_path
+                # Now expand each arc in the ordered path
+
+                println("Ordered path:")
+                for arc in ordered_path
+                    println(arc)
+                end
+                expanded_path = []
+
+                #for arc in ordered_path
+                #    if arc.kind != "intra-line-arc"
+                #        append!(expanded_path, expand_arc(arc))
+                #    else
+                #        append!(expanded_path, [arc])
+                #    end
+                #end
+
+                for (i, arc) in enumerate(ordered_path)
+                    if arc.kind != "intra-line-arc"
+                        if arc.kind == "inter-line-arc" || arc.kind == "depot-end-arc"
+                            prev_arc = ordered_path[i-1]
+                            # Find the last stop we visit on this line
+                            last_stop = prev_arc.arc_end.stop_id
+                            current_line = (prev_arc.arc_start.line_id, prev_arc.arc_start.bus_line_id)
+                            
+                            # Look in the path for the last stop on the same line
+                            for past_arc in reverse(ordered_path[1:i-1])
+                                if (past_arc.arc_start.line_id, past_arc.arc_start.bus_line_id) == current_line &&
+                                   past_arc.arc_start.stop_id > last_stop
+                                    last_stop = past_arc.arc_start.stop_id
+                                end
+                            end
+                            
+                            # If we found a later stop, create artificial path to it
+                            if last_stop > prev_arc.arc_end.stop_id
+                                # Add artificial stops from current to last
+                                artificial_arc = ModelArc(
+                                    prev_arc.arc_end,  # From current position
+                                    ModelStation(prev_arc.arc_start.line_id, prev_arc.arc_start.bus_line_id, last_stop),  # To last stop
+                                    arc.bus_id,
+                                    prev_arc.demand_id,
+                                    0,
+                                    "artificial-arc"
+                                )
+                                append!(expanded_path, expand_arc(artificial_arc))
+                                
+                                # Update the inter-line/depot arc to start from the last stop
+                                arc = ModelArc(
+                                    ModelStation(prev_arc.arc_start.line_id, prev_arc.arc_start.bus_line_id, last_stop),
+                                    arc.arc_end,
+                                    arc.bus_id,
+                                    arc.demand_id,
+                                    arc.demand,
+                                    arc.kind
+                                )
+                            end
+                        
+                        end
+                        append!(expanded_path, expand_arc(arc))
+                    else
+                        append!(expanded_path, [arc])
+                    end
+                end
+
+                bus_paths[bus.bus_id] = expanded_path
             end
         end
 
@@ -268,6 +276,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     if isnothing(matching_time)
                         throw(ErrorException("No to depot travel time found for end arc: $arc"))
                     end
+
                     parameters.travel_times[matching_time].time
 
                 elseif from_node.stop_id == 0
@@ -287,12 +296,31 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     parameters.travel_times[matching_time].time
                 else
                     # Handle regular line travel
-                    matching_time = findfirst(tt -> 
-                        tt.bus_line_id_start == from_node.bus_line_id && 
-                        tt.bus_line_id_end == to_node.bus_line_id &&
-                        tt.origin_stop_id == from_node.stop_id && 
-                        tt.destination_stop_id == to_node.stop_id,
-                        parameters.travel_times)
+
+                    if arc.kind != "intra-line-arc"
+                        matching_time = findfirst(tt -> 
+                            tt.bus_line_id_start == from_node.bus_line_id && 
+                            tt.bus_line_id_end == to_node.bus_line_id &&
+                            tt.origin_stop_id == from_node.stop_id && 
+                            tt.destination_stop_id == to_node.stop_id,
+                            parameters.travel_times)
+                    else
+                        matching_time = findfirst(tt -> 
+                            tt.bus_line_id_start == to_node.bus_line_id && 
+                            tt.bus_line_id_end == from_node.bus_line_id &&
+                            tt.origin_stop_id == to_node.stop_id && 
+                            tt.destination_stop_id == from_node.stop_id,
+                            parameters.travel_times)
+
+                        if isnothing(matching_time)
+                            matching_time = findfirst(tt -> 
+                                tt.bus_line_id_start == from_node.bus_line_id && 
+                                tt.bus_line_id_end == to_node.bus_line_id &&
+                                tt.origin_stop_id == from_node.stop_id && 
+                                tt.destination_stop_id == to_node.stop_id,
+                                parameters.travel_times)
+                        end
+                    end
                         
                     if isnothing(matching_time)
                         throw(ErrorException("No travel time found for arc: $arc"))
@@ -301,7 +329,12 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 end
                 
                 # Update total time
-                total_time += arc_time
+
+                if arc.kind != "intra-line-arc" || arc.arc_start.stop_id <= arc.arc_end.stop_id
+                    total_time += arc_time
+                else
+                    total_time -= arc_time
+                end
                 
                 # Check if we're switching to a new line
                 if i < length(path) && to_node.stop_id != 0

@@ -487,8 +487,6 @@ function add_inter_line_arcs!(non_depot_arcs, lines, bus_lines, travel_times)
         for arc2 in non_depot_arcs
             if arc1.bus_id == arc2.bus_id
                 if !isequal(arc1.arc_start, arc2.arc_start)
-                    line_key1 = (arc1.arc_end.line_id, arc1.arc_end.bus_line_id, arc1.arc_end.stop_id)
-                    line_key2 = (arc2.arc_start.line_id, arc2.arc_start.bus_line_id, arc2.arc_start.stop_id)
 
                     # Get the line data and corresponding times
                     line1 = first(filter(l -> l.line_id == arc1.arc_end.line_id && 
@@ -536,7 +534,7 @@ function add_intra_line_arcs_capacity_constraint!(line_arcs, lines, buses)
     for line in lines
         for bus in buses
             filtered_arcs = filter(arc -> arc.arc_start.line_id == line.line_id && arc.arc_start.bus_line_id == line.bus_line_id && arc.bus_id == bus.bus_id, line_arcs)
-            sorted_arcs = sort(filtered_arcs, by = arc -> (arc.arc_start.stop_id, arc.arc_end.stop_id))
+            sorted_arcs = sort(filtered_arcs, by = arc -> (arc.arc_start.stop_id, -arc.arc_end.stop_id))
             
             for (i, arc1) in enumerate(sorted_arcs)
                 for arc2 in sorted_arcs[(i+1):end]
