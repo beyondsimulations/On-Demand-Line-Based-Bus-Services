@@ -571,9 +571,7 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs, lines, buses, trave
     for line1 in line_arcs
         for line2 in line_arcs
             if line1 != line2
-                if (line1.arc_start.line_id != line2.arc_start.line_id && 
-                   line1.arc_start.bus_line_id != line2.arc_start.bus_line_id) && 
-                   line1.bus_id == line2.bus_id
+                if line1.bus_id == line2.bus_id
 
                     line1_data = first(filter(l -> l.line_id == line1.arc_end.line_id && 
                                                     l.bus_line_id == line1.arc_end.bus_line_id, lines))

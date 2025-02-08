@@ -33,8 +33,8 @@ display(network_plot_3d)
 # Solve for multiple settings
 settings = [
     #NO_CAPACITY_CONSTRAINT,
-    #CAPACITY_CONSTRAINT,
-    CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+    CAPACITY_CONSTRAINT,
+    #CAPACITY_CONSTRAINT_DRIVER_BREAKS,
 ]
 
 subsettings = [
