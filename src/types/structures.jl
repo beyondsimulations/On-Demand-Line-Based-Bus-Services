@@ -79,8 +79,9 @@ mutable struct ModelArc
     arc_start::ModelStation
     arc_end::ModelStation
     bus_id::Int
-    demand_id::Int
+    demand_id::Tuple{Int, Int}
     demand::Int
+    kind::String
 end
 
 # Solution structure

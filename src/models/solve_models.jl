@@ -20,7 +20,8 @@ function expand_arc(arc)
                 ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, i+1),
                 arc.bus_id,
                 arc.demand_id,
-                arc.demand
+                arc.demand,
+                arc.kind
             ))
     end
 
@@ -77,11 +78,20 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
 
         else  # Case with binary variables per bus
 
-            
             bus_paths = Dict{Int, Vector{Any}}()
 
             all_bus_arcs = [arc for arc in network.arcs if value(x[arc]) > 0.5]
 
+            # Sort arcs by bus_id, line_id, and stop positions for clearer debugging
+            sort!(all_bus_arcs, by = arc -> (
+                arc.bus_id,
+                arc.arc_start.bus_line_id,
+                arc.arc_start.line_id,
+                arc.arc_start.stop_id,
+                arc.arc_end.stop_id
+            ))
+
+            println("All bus arcs:")
             for arc in all_bus_arcs
                 println(arc)
             end
@@ -135,6 +145,28 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                                 multiple_paths)
                                 
                             if isempty(alternative_arcs)
+                                # Check if we have any remaining depot or transfer arcs from anywhere
+                                remaining_arcs = filter(a -> 
+                                    !(a in visited_arcs) && 
+                                    ((a.arc_end.stop_id == 0) || # depot arc
+                                     (a.arc_start.line_id != a.arc_end.line_id)), # transfer arc
+                                    multiple_paths)
+
+                                if !isempty(remaining_arcs)
+                                    # Create a transfer arc from current station to the start of remaining arc
+                                    transfer_arc = ModelArc(
+                                        current_station,
+                                        remaining_arcs[1].arc_end,
+                                        bus.bus_id,
+                                        (0, 0),
+                                        0,
+                                        "transfer-arc"
+                                    )
+                                    push!(unique_path, transfer_arc)
+                                    current_station = remaining_arcs[1].arc_end
+                                    continue
+                                end
+                                
                                 @warn "Path construction stuck at station: $current_station for bus $(bus.bus_id)"
                                 break
                             end
@@ -157,8 +189,9 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                         current_station,
                         next_arc.arc_end,
                         bus.bus_id,
-                        0,
-                        sum(arc.demand for arc in all_parallel_arcs)
+                        (0, 0),
+                        sum(arc.demand for arc in all_parallel_arcs),
+                        "combined-arc"
                     ))
                     
                     current_station = next_arc.arc_end
@@ -166,10 +199,6 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
 
                 bus_paths[bus.bus_id] = unique_path
             end
-        end
-
-        for arc in bus_paths
-            println(arc)
         end
 
         # Calculate travel times, capacities, and timestamps for each bus path

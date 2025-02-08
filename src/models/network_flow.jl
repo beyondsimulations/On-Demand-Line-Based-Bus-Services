@@ -4,7 +4,7 @@ function solve_network_flow(parameters::ProblemParameters)
     elseif parameters.setting == CAPACITY_CONSTRAINT
         return solve_network_flow_capacity_constraint(parameters)
     elseif parameters.setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
-        return solve_network_flow_capacity_constraint_driver_breaks(parameters)
+        return solve_network_flow_capacity_constraint(parameters)
     else
         throw(ArgumentError("Invalid setting: $(parameters.setting)"))
     end
@@ -48,7 +48,6 @@ end
 function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     model = Model(HiGHS.Optimizer)
     network = setup_network_flow(parameters)
-    buses = parameters.buses  # Assuming parameters now contains Bus objects instead of bus_types
 
     # Variables:
     # x[arc,bus] = 1 if specific bus uses this arc, 0 otherwise
@@ -60,14 +59,24 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
 
     # Constraint 1: Flow Conservation per Individual Bus
     # For each node and bus, incoming flow = outgoing flow
-    nodes_with_arcs = union(Set(arc.arc_start for arc in network.line_arcs), Set(arc.arc_end for arc in vcat(network.line_arcs, network.intra_line_arcs, network.inter_line_arcs)))
-    for node in nodes_with_arcs
-        for bus in buses
+    for node in network.nodes
+        for bus in parameters.buses
             incoming = filter(a -> isequal(a.arc_end, node) && isequal(a.bus_id, bus.bus_id), network.arcs)
             outgoing = filter(a -> isequal(a.arc_start, node) && isequal(a.bus_id, bus.bus_id), network.arcs)
-            @constraint(model, 
-                sum(x[arc] for arc in incoming) - sum(x[arc] for arc in outgoing) == 0
+
+            unique_demand_ids = Set(
+                vcat(
+                    [arc.demand_id[2] for arc in incoming],
+                    [arc.demand_id[1] for arc in outgoing]
+                )
             )
+
+            for demand_id in unique_demand_ids
+                @constraint(model, 
+                    sum(x[arc] for arc in incoming if arc.demand_id[2] == demand_id) - sum(x[arc] for arc in outgoing if arc.demand_id[1] == demand_id) == 0
+                )
+            end
+
         end
     end
 
@@ -80,29 +89,22 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     end
 
     # Constraint 3: Only one bus from depot
-    @constraint(model, one_bus_from_depot[bus in buses], 
+    @constraint(model, one_bus_from_depot[bus in parameters.buses], 
         sum(x[arc] for arc in network.depot_start_arcs if arc.bus_id == bus.bus_id) <= 1)
-    
-    # Constraint 4: Prevent returning to previous line after using interline arc
-    #for interline_arc in network.inter_line_arcs
-        # Get all line arcs that come after this interline arc's start point on the same line
-    #    same_line_later_arcs = filter(a -> 
-    #        a in network.line_arcs && 
-    #        a.line_id == interline_arc.from_line_id && 
-    #        a.sequence_id > interline_arc.from_sequence_id &&
-    #        a.bus_id == interline_arc.bus_id, 
-    #        network.arcs
-    #    )
-        
-    #    # If we use the interline arc, we can't use any later arcs on the same line
-    #    @constraint(model, 
-    #        x[interline_arc] + sum(x[arc] for arc in same_line_later_arcs) <= 1
-    #    )
-    #end
 
     # Constraint 5: Prevent too much passengers on a line
-    
+    for bus in parameters.buses
+        for line in parameters.lines
+            for stop in 1:length(line.stop_times)-1
+                filtered_arcs = filter(
+                    a -> a.bus_id == bus.bus_id && a.arc_start.line_id == line.line_id &&
+                    a.arc_start.stop_id <= stop && a.arc_end.stop_id >= stop + 1, network.line_arcs
+                    )
+                @constraint(model, sum(x[arc] for arc in filtered_arcs) <= bus.capacity)
+            end
+        end
+    end
 
-    return solve_and_return_results(model, network, parameters, buses)
+    return solve_and_return_results(model, network, parameters, parameters.buses)
 end
 

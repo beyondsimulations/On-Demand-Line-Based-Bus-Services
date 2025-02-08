@@ -40,7 +40,6 @@ function create_parameters(
             bus_lines[findfirst(bl -> bl.bus_line_id == line.bus_line_id, bus_lines)].stop_ids[end],
             1.0
         ) for (i, line) in enumerate(lines)]
-
     else
         # Create passenger demands from the actual demand data
         passenger_demands = Vector{PassengerDemand}()
@@ -56,6 +55,39 @@ function create_parameters(
                     row.demand
                 ))
             end
+        end
+
+        # Add synthetic demands based on subsetting for capacity constraint settings
+        if setting in [CAPACITY_CONSTRAINT, CAPACITY_CONSTRAINT_DRIVER_BREAKS]
+            if subsetting == ALL_LINES
+                # Add full-line demands for each line
+                for line in lines
+                    push!(passenger_demands, PassengerDemand(
+                        maximum(d -> d.demand_id, passenger_demands) + line.line_id,  # unique demand_id
+                        line.line_id,
+                        line.bus_line_id,
+                        1,  # first stop
+                        length(line.stop_times),  # last stop
+                        0.0  # no actual demand
+                    ))
+                end
+            elseif subsetting == ALL_LINES_WITH_DEMAND
+                # Add full-line demands only for lines that have any real demand
+                lines_with_demand = Set((d.line_id, d.bus_line_id) for d in passenger_demands)
+                for line in lines
+                    if (line.line_id, line.bus_line_id) in lines_with_demand
+                        push!(passenger_demands, PassengerDemand(
+                            maximum(d -> d.demand_id, passenger_demands) + line.line_id,  # unique demand_id
+                            line.line_id,
+                            line.bus_line_id,
+                            1,  # first stop
+                            length(line.stop_times),  # last stop
+                            0.0  # no actual demand
+                        ))
+                    end
+                end
+            end
+            # For ONLY_DEMAND setting, we just use the original passenger_demands
         end
     end
 

@@ -6,7 +6,7 @@ function setup_network_flow(parameters)
     buses = parameters.buses
     passenger_demands = parameters.passenger_demands
 
-    print_level = 1
+    print_level = 0
 
     if parameters.setting == NO_CAPACITY_CONSTRAINT
 
@@ -112,10 +112,10 @@ function setup_network_flow(parameters)
 
     end
 
-    if parameters.setting == CAPACITY_CONSTRAINT
+    if parameters.setting in [CAPACITY_CONSTRAINT, CAPACITY_CONSTRAINT_DRIVER_BREAKS]
 
         # Add line arcs
-        line_arcs = add_line_arcs_capacity_constraint(lines, buses, passenger_demands, travel_times, parameters.subsetting)
+        line_arcs = add_line_arcs_capacity_constraint(lines, buses, passenger_demands, travel_times)
 
         # Print all line arcs for debugging in a structured way
         sort!(line_arcs, by = x -> (x.arc_start.line_id, x.arc_start.bus_line_id, x.arc_start.stop_id, x.arc_end.line_id, x.arc_end.bus_line_id, x.arc_end.stop_id))
@@ -173,7 +173,7 @@ function setup_network_flow(parameters)
         end
 
         # Add intra-line arcs
-        intra_line_arcs = add_intra_line_arcs_capacity_constraint!(line_arcs)
+        intra_line_arcs = add_intra_line_arcs_capacity_constraint!(line_arcs, lines, buses)
 
         # Print all intra-line arcs for debugging in a structured way
         sort!(intra_line_arcs, by = x -> (x.arc_start.line_id, x.arc_start.bus_line_id, x.arc_start.stop_id, x.arc_end.line_id, x.arc_end.bus_line_id, x.arc_end.stop_id))
@@ -226,9 +226,10 @@ function add_line_arcs(lines)
             ModelStation(line.line_id, line.bus_line_id, 1), 
             ModelStation(line.line_id, line.bus_line_id, length(line.stop_times)),
             0,
+            (0, 0),
             0,
-            0)
-        )
+            "line-arc"
+        ))
     end
     return line_arcs
 end
@@ -249,9 +250,10 @@ function add_line_arcs_with_demand(lines, passenger_demands)
                 ModelStation(line.line_id, line.bus_line_id, 1), 
                 ModelStation(line.line_id, line.bus_line_id, length(line.stop_times)),
                 0,
+                (0, 0),
                 0,
-                0)
-            )
+                "line-arc"
+            ))
         end
     end
     return line_arcs
@@ -309,15 +311,16 @@ function add_line_arcs_only_demand(lines, passenger_demands, bus_lines)
                 ModelStation(line_key[1], line_key[2], start_pos),
                 ModelStation(line_key[1], line_key[2], end_pos),
                 0,
+                (0, 0),
                 0,
-                0)
-            )
+                "line-arc"
+            ))
         end
     end
     return line_arcs
 end
 
-function add_line_arcs_capacity_constraint(lines, buses, passenger_demands, travel_times, subsetting)
+function add_line_arcs_capacity_constraint(lines, buses, passenger_demands, travel_times)
 
     depot_times = Dict()
     for t in travel_times
@@ -326,43 +329,34 @@ function add_line_arcs_capacity_constraint(lines, buses, passenger_demands, trav
             depot_times[key] = t.time
         end
     end
-
+    
+    # Create line arcs based on demands
     line_arcs = Vector{ModelArc}()
     for bus in buses
         for line in lines
+            # Check if bus can serve this line (time window check)
             if bus.shift_start + depot_times[(0, line.bus_line_id, 0, 1)] <= line.start_time && 
-                bus.shift_end - depot_times[(line.bus_line_id, 0, length(line.stop_times), 0)] >= line.stop_times[end] &&
-                (line.start_time <= bus.break_start && line.stop_times[end] <= bus.break_start ||
+               bus.shift_end - depot_times[(line.bus_line_id, 0, length(line.stop_times), 0)] >= line.stop_times[end] &&
+               (line.start_time <= bus.break_start && line.stop_times[end] <= bus.break_start ||
                 line.start_time >= bus.break_end && line.stop_times[end] >= bus.break_end)
-
-                is_there_demand = false
                 
+                # Create arcs for each demand that uses this line
                 for demand in passenger_demands
                     if demand.line_id == line.line_id && demand.bus_line_id == line.bus_line_id
-
                         push!(line_arcs, ModelArc(
-                            ModelStation(line.line_id, line.bus_line_id, demand.origin_stop_id), 
-                            ModelStation(line.line_id, line.bus_line_id, demand.destination_stop_id), 
-                            bus.bus_id, 
-                            demand.demand_id,
-                            demand.demand)
-                        )
-                        is_there_demand = true
+                            ModelStation(line.line_id, line.bus_line_id, demand.origin_stop_id),
+                            ModelStation(line.line_id, line.bus_line_id, demand.destination_stop_id),
+                            bus.bus_id,
+                            (demand.demand_id, demand.demand_id),
+                            demand.demand,
+                            "line-arc"
+                        ))
                     end
-                end
-
-                if subsetting == ALL_LINES || (subsetting == ALL_LINES_WITH_DEMAND && is_there_demand == true)
-                    push!(line_arcs, ModelArc(
-                        ModelStation(line.line_id, line.bus_line_id, 1), 
-                        ModelStation(line.line_id, line.bus_line_id, length(line.stop_times)), 
-                        bus.bus_id, 
-                        0,
-                        0)
-                    )
                 end
             end
         end
     end
+    
     return line_arcs
 end
 
@@ -399,9 +393,10 @@ function add_depot_arcs_no_capacity_constraint!(arcs, lines, bus_lines, shift_en
                     ModelStation(line_id, bus_line_id, 0),
                     ModelStation(line_id, bus_line_id, section_start_pos),
                     0,
+                    (0, 0),
                     0,
-                    0)
-                )
+                    "depot-start-arc"
+                ))
             end
         end
         
@@ -415,9 +410,10 @@ function add_depot_arcs_no_capacity_constraint!(arcs, lines, bus_lines, shift_en
                     ModelStation(line_id, bus_line_id, section_end_pos),
                     ModelStation(line_id, bus_line_id, 0),
                     0,
+                    (0, 0),
                     0,
-                    0)
-                )
+                    "depot-end-arc"
+                ))
             end
         end
     end
@@ -428,49 +424,27 @@ end
 function add_depot_arcs_capacity_constraint!(line_arcs)
     depot_start_arcs = Vector{ModelArc}()
     depot_end_arcs = Vector{ModelArc}()
-    
-    # Create Sets to track unique arcs
-    existing_start_arcs = Set{Tuple{Int,Int,Int,Int}}()  # (line_id, bus_line_id, stop_id, bus_id)
-    existing_end_arcs = Set{Tuple{Int,Int,Int,Int}}()    # (line_id, bus_line_id, stop_id, bus_id)
 
     for arc in line_arcs
         # Check and add depot start arc
-        start_key = (
-            arc.arc_start.line_id,
-            arc.arc_start.bus_line_id,
-            arc.arc_start.stop_id,
-            arc.bus_id
-        )
-        
-        if !in(start_key, existing_start_arcs)
-            push!(depot_start_arcs, ModelArc(
-                ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, 0),
-                ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, arc.arc_start.stop_id),
-                arc.bus_id,
-                0,
-                0
-            ))
-            push!(existing_start_arcs, start_key)
-        end
 
-        # Check and add depot end arc
-        end_key = (
-            arc.arc_start.line_id,
-            arc.arc_start.bus_line_id,
-            arc.arc_end.stop_id,
-            arc.bus_id
-        )
-        
-        if !in(end_key, existing_end_arcs)
-            push!(depot_end_arcs, ModelArc(
-                ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, arc.arc_end.stop_id),
-                ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, 0),
-                arc.bus_id,
-                0,
-                0
-            ))
-            push!(existing_end_arcs, end_key)
-        end
+        push!(depot_start_arcs, ModelArc(
+            ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, 0),
+            ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, arc.arc_start.stop_id),
+            arc.bus_id,
+            (0, arc.demand_id[1]),
+            0,
+            "depot-start-arc"
+        ))
+
+        push!(depot_end_arcs, ModelArc(
+            ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, arc.arc_end.stop_id),
+            ModelStation(arc.arc_start.line_id, arc.arc_start.bus_line_id, 0),
+            arc.bus_id,
+            (arc.demand_id[1],0),
+            0,
+            "depot-end-arc"
+        ))
     end
     
     return (depot_start_arcs, depot_end_arcs)
@@ -481,33 +455,21 @@ function add_intra_line_arcs!(non_depot_arcs, lines, bus_lines, travel_times)
     
     intra_line_arcs = Vector{ModelArc}()
     # Create lookup for arc end positions and start positions by line
-    
-    arc_positions = Dict()
-    for arc in non_depot_arcs
-        line_key = (arc.arc_start.line_id, arc.arc_start.bus_line_id)
-        if !haskey(arc_positions, line_key)
-            arc_positions[line_key] = (Set{Int}(), Set{Int}())  # (end_positions, start_positions)
-        end
-        push!(arc_positions[line_key][1], arc.arc_end.stop_id)  # end position
-        push!(arc_positions[line_key][2], arc.arc_start.stop_id)  # start position
-    end
 
-    # Create intra-line connections for each line
-    for (line_key, (end_positions, start_positions)) in arc_positions
-        line_id, direction = line_key
-        # Create connections between all end positions and start positions within the same line
-        for end_pos in end_positions
-            for start_pos in start_positions
-                # Only create connection if start position comes after end position
-                if start_pos > end_pos
-                    # Create intra-line connection
-                    push!(intra_line_arcs, ModelArc(
-                        ModelStation(line_id, direction, end_pos),
-                        ModelStation(line_id, direction, start_pos),
-                        0,
-                        0,
-                        0)
-                    )
+    for arc1 in non_depot_arcs
+        for arc2 in non_depot_arcs
+            if arc1.bus_id == arc2.bus_id
+                if isequal(arc1.arc_start, arc2.arc_end) && isequal(arc1.arc_end, arc2.arc_start)
+                    if arc1.arc_start.stop_id <= arc2.arc_start.stop_id
+                        push!(intra_line_arcs, ModelArc(
+                            ModelStation(arc1.arc_start.line_id, arc1.arc_start.bus_line_id, arc1.arc_end.stop_id),
+                            ModelStation(arc2.arc_start.line_id, arc2.arc_start.bus_line_id, arc2.arc_start.stop_id),
+                            0,
+                            (arc1.demand_id, arc2.demand_id),
+                            0,
+                            "intra-line-arc"
+                        ))
+                    end
                 end
             end
         end
@@ -521,56 +483,43 @@ function add_inter_line_arcs!(non_depot_arcs, lines, bus_lines, travel_times)
     # Check all possible connections between sections
     inter_line_arcs = Vector{ModelArc}()
 
-    # Create lookup for arc end positions and start positions by line
-    arc_positions = Dict()
-    for arc in non_depot_arcs
-        line_key = (arc.arc_start.line_id, arc.arc_start.bus_line_id)
-        if !haskey(arc_positions, line_key)
-            arc_positions[line_key] = (Set{Int}(), Set{Int}())  # (end_positions, start_positions)
-        end
-        push!(arc_positions[line_key][1], arc.arc_end.stop_id)  # end position
-        push!(arc_positions[line_key][2], arc.arc_start.stop_id)  # start position
-    end
+    for arc1 in non_depot_arcs
+        for arc2 in non_depot_arcs
+            if arc1.bus_id == arc2.bus_id
+                if !isequal(arc1.arc_start, arc2.arc_start)
+                    line_key1 = (arc1.arc_end.line_id, arc1.arc_end.bus_line_id, arc1.arc_end.stop_id)
+                    line_key2 = (arc2.arc_start.line_id, arc2.arc_start.bus_line_id, arc2.arc_start.stop_id)
 
-    for line1 in lines
-        line1_key = (line1.line_id, line1.bus_line_id)
-        if haskey(arc_positions, line1_key)
-            for end_pos in arc_positions[line1_key][1]
-                end_time = line1.stop_times[end_pos]
-                
-                for line2 in lines
-                    line2_key = (line2.line_id, line2.bus_line_id)
-                    if haskey(arc_positions, line2_key) && line1_key != line2_key
-                        for start_pos in arc_positions[line2_key][2]
-                            # Skip if either position is 0 (depot)
-                            if end_pos == 0 || start_pos == 0
-                                continue
-                            end
-                            
-                            start_time = line2.stop_times[start_pos]
-                            
-                            # Find travel time between sections
-                            travel_time_idx = findfirst(tt ->
-                                tt.bus_line_id_start == line1.bus_line_id &&
-                                tt.bus_line_id_end == line2.bus_line_id &&
-                                tt.origin_stop_id == bus_lines[findfirst(bl -> bl.bus_line_id == line1.bus_line_id, bus_lines)].stop_ids[end_pos] &&
-                                tt.destination_stop_id == bus_lines[findfirst(bl -> bl.bus_line_id == line2.bus_line_id, bus_lines)].stop_ids[start_pos] &&
-                                !tt.is_depot_travel,
-                                travel_times)
-                            
-                            # Only proceed if we found a valid travel time
-                            if !isnothing(travel_time_idx)
-                                travel_time = travel_times[travel_time_idx].time
-                                if end_time + travel_time <= start_time
-                                    push!(inter_line_arcs, ModelArc(
-                                        ModelStation(line1.line_id, line1.bus_line_id, end_pos),
-                                        ModelStation(line2.line_id, line2.bus_line_id, start_pos),
-                                        0,
-                                        0,
-                                        0)
-                                    )
-                                end
-                            end
+                    # Get the line data and corresponding times
+                    line1 = first(filter(l -> l.line_id == arc1.arc_end.line_id && 
+                                           l.bus_line_id == arc1.arc_end.bus_line_id, lines))
+                    line2 = first(filter(l -> l.line_id == arc2.arc_start.line_id && 
+                                           l.bus_line_id == arc2.arc_start.bus_line_id, lines))
+                    
+                    line1_end_time = line1.stop_times[arc1.arc_end.stop_id]
+                    line2_start_time = line2.stop_times[arc2.arc_start.stop_id]
+
+                    # Find travel time between sections
+                    travel_time_idx = findfirst(tt ->
+                        tt.bus_line_id_start == arc1.arc_end.bus_line_id &&
+                        tt.bus_line_id_end == arc2.arc_start.bus_line_id &&
+                        tt.origin_stop_id == arc1.arc_end.stop_id &&
+                        tt.destination_stop_id == arc2.arc_start.stop_id &&
+                        !tt.is_depot_travel,
+                        travel_times)
+                    
+                    # Only proceed if we found a valid travel time
+                    if !isnothing(travel_time_idx)
+                        travel_time = travel_times[travel_time_idx].time
+                        if line1_end_time + travel_time <= line2_start_time
+                            push!(inter_line_arcs, ModelArc(
+                                ModelStation(arc1.arc_end.line_id, arc1.arc_end.bus_line_id, arc1.arc_end.stop_id),
+                                ModelStation(arc2.arc_start.line_id, arc2.arc_start.bus_line_id, arc2.arc_start.stop_id),
+                                0,
+                                (arc1.demand_id[1], arc2.demand_id[1]),
+                                0,
+                                "inter-line-arc"
+                            ))
                         end
                     end
                 end
@@ -581,40 +530,24 @@ function add_inter_line_arcs!(non_depot_arcs, lines, bus_lines, travel_times)
     return inter_line_arcs
 end
 
-function add_intra_line_arcs_capacity_constraint!(line_arcs)
+function add_intra_line_arcs_capacity_constraint!(line_arcs, lines, buses)
     intra_line_arcs = Vector{ModelArc}()
-    # Create a Set to track unique arcs
-    existing_arcs = Set{Tuple{Int,Int,Int,Int,Int}}()  # (line_id, bus_line_id, start_stop, end_stop, bus_id)
-    
-    for line1 in line_arcs
-        for line2 in line_arcs
-            if line1 != line2
-                if line1.arc_start.line_id == line2.arc_end.line_id && 
-                   line1.arc_start.bus_line_id == line2.arc_end.bus_line_id && 
-                   line1.bus_id == line2.bus_id
-                    
-                    if line1.arc_start.stop_id <= line2.arc_start.stop_id   
-                        # Create a unique identifier for this arc
-                        arc_key = (
-                            line1.arc_start.line_id,
-                            line1.arc_start.bus_line_id,
-                            line1.arc_end.stop_id,
-                            line2.arc_start.stop_id,
-                            line1.bus_id
-                        )
 
-                        # Only add if we haven't seen this arc before
-                        if !in(arc_key, existing_arcs)
-                            push!(intra_line_arcs, ModelArc(
-                                ModelStation(line1.arc_start.line_id, line1.arc_start.bus_line_id, line1.arc_end.stop_id),
-                                ModelStation(line2.arc_start.line_id, line2.arc_start.bus_line_id, line2.arc_start.stop_id),
-                                line1.bus_id,
-                                0,
-                                0)
-                            )
-                            push!(existing_arcs, arc_key)
-                        end
-                    end
+    for line in lines
+        for bus in buses
+            filtered_arcs = filter(arc -> arc.arc_start.line_id == line.line_id && arc.arc_start.bus_line_id == line.bus_line_id && arc.bus_id == bus.bus_id, line_arcs)
+            sorted_arcs = sort(filtered_arcs, by = arc -> (arc.arc_start.stop_id, arc.arc_end.stop_id))
+            
+            for (i, arc1) in enumerate(sorted_arcs)
+                for arc2 in sorted_arcs[(i+1):end]
+                    push!(intra_line_arcs, ModelArc(
+                        ModelStation(arc1.arc_start.line_id, arc1.arc_start.bus_line_id, arc1.arc_end.stop_id),
+                        ModelStation(arc2.arc_start.line_id, arc2.arc_start.bus_line_id, arc2.arc_start.stop_id),
+                        arc1.bus_id,
+                        (arc1.demand_id[1], arc2.demand_id[1]),
+                        0,
+                        "intra-line-arc"
+                    ))
                 end
             end
         end
@@ -640,69 +573,59 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs, lines, buses, trave
     for line1 in line_arcs
         for line2 in line_arcs
             if line1 != line2
-                if line1.arc_start.line_id != line2.arc_start.line_id && 
-                   line1.arc_start.bus_line_id != line2.arc_start.bus_line_id && 
+                if (line1.arc_start.line_id != line2.arc_start.line_id && 
+                   line1.arc_start.bus_line_id != line2.arc_start.bus_line_id) && 
                    line1.bus_id == line2.bus_id
+
+                    line1_data = first(filter(l -> l.line_id == line1.arc_end.line_id && 
+                                                    l.bus_line_id == line1.arc_end.bus_line_id, lines))
+                    line2_data = first(filter(l -> l.line_id == line2.arc_start.line_id && 
+                                                    l.bus_line_id == line2.arc_start.bus_line_id, lines))
+
+                    end_time = line1_data.stop_times[line1.arc_end.stop_id]
+                    start_time = line2_data.stop_times[line2.arc_start.stop_id]
                     
-                    arc_key = (
-                        line1.arc_end.line_id,
-                        line1.arc_end.bus_line_id,
-                        line2.arc_start.line_id,
-                        line2.arc_start.bus_line_id,
-                        line1.bus_id
-                    )
+                    # Get break times for this bus
+                    break_start = bus_breaks[line1.bus_id].break_start
+                    break_end = bus_breaks[line1.bus_id].break_end
+                    break_duration = bus_breaks[line1.bus_id].break_duration
 
-                    if !in(arc_key, existing_arcs)
-                        line1_data = first(filter(l -> l.line_id == line1.arc_end.line_id && 
-                                                     l.bus_line_id == line1.arc_end.bus_line_id, lines))
-                        line2_data = first(filter(l -> l.line_id == line2.arc_start.line_id && 
-                                                     l.bus_line_id == line2.arc_start.bus_line_id, lines))
-
-                        end_time = line1_data.stop_times[line1.arc_end.stop_id]
-                        start_time = line2_data.stop_times[line2.arc_start.stop_id]
+                    travel_time_idx = findfirst(tt ->
+                        tt.bus_line_id_start == line1.arc_end.bus_line_id &&
+                        tt.bus_line_id_end == line2.arc_start.bus_line_id &&
+                        tt.origin_stop_id == line1.arc_end.stop_id &&
+                        tt.destination_stop_id == line2.arc_start.stop_id &&
+                        !tt.is_depot_travel,
+                        travel_times)
+                
+                    if !isnothing(travel_time_idx)
+                        travel_time = travel_times[travel_time_idx].time
                         
-                        # Get break times for this bus
-                        break_start = bus_breaks[line1.bus_id].break_start
-                        break_end = bus_breaks[line1.bus_id].break_end
-                        break_duration = bus_breaks[line1.bus_id].break_duration
+                        # Check if the connection is feasible considering breaks
+                        is_feasible = false
+                        total_connection_time = travel_time
+                        
+                        # Case 1: Connection happens entirely before break
+                        if end_time + travel_time <= break_start
+                            is_feasible = true
+                        # Case 2: Connection happens entirely after break
+                        elseif end_time >= break_end
+                            is_feasible = true
+                        # Case 3: Break needs to be included in the connection
+                        elseif end_time <= break_start && start_time >= break_end
+                            total_connection_time = travel_time + break_duration
+                            is_feasible = end_time + total_connection_time <= start_time
+                        end
 
-                        travel_time_idx = findfirst(tt ->
-                            tt.bus_line_id_start == line1.arc_end.bus_line_id &&
-                            tt.bus_line_id_end == line2.arc_start.bus_line_id &&
-                            tt.origin_stop_id == line1.arc_end.stop_id &&
-                            tt.destination_stop_id == line2.arc_start.stop_id &&
-                            !tt.is_depot_travel,
-                            travel_times)
-                    
-                        if !isnothing(travel_time_idx)
-                            travel_time = travel_times[travel_time_idx].time
-                            
-                            # Check if the connection is feasible considering breaks
-                            is_feasible = false
-                            total_connection_time = travel_time
-                            
-                            # Case 1: Connection happens entirely before break
-                            if end_time + travel_time <= break_start
-                                is_feasible = true
-                            # Case 2: Connection happens entirely after break
-                            elseif end_time >= break_end
-                                is_feasible = true
-                            # Case 3: Break needs to be included in the connection
-                            elseif end_time <= break_start && start_time >= break_end
-                                total_connection_time = travel_time + break_duration
-                                is_feasible = end_time + total_connection_time <= start_time
-                            end
-
-                            if is_feasible && end_time + total_connection_time <= start_time
-                                push!(inter_line_arcs, ModelArc(
-                                    ModelStation(line1.arc_end.line_id, line1.arc_end.bus_line_id, line1.arc_end.stop_id),
-                                    ModelStation(line2.arc_start.line_id, line2.arc_start.bus_line_id, line2.arc_start.stop_id),
-                                    line1.bus_id,
-                                    0,
-                                    0)
-                                )
-                                push!(existing_arcs, arc_key)
-                            end
+                        if is_feasible && end_time + total_connection_time <= start_time
+                            push!(inter_line_arcs, ModelArc(
+                                ModelStation(line1.arc_end.line_id, line1.arc_end.bus_line_id, line1.arc_end.stop_id),
+                                ModelStation(line2.arc_start.line_id, line2.arc_start.bus_line_id, line2.arc_start.stop_id),
+                                line1.bus_id,
+                                (line1.demand_id[1], line2.demand_id[1]),
+                                0,
+                                "inter-line-arc"
+                            ))
                         end
                     end
                 end
