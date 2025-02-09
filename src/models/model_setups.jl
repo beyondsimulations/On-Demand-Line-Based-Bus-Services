@@ -337,8 +337,14 @@ function add_line_arcs_capacity_constraint(lines, buses, passenger_demands, trav
             # Check if bus can serve this line (time window check)
             if bus.shift_start + depot_times[(0, line.bus_line_id, 0, 1)] <= line.start_time && 
                bus.shift_end - depot_times[(line.bus_line_id, 0, length(line.stop_times), 0)] >= line.stop_times[end] &&
-               (line.start_time <= bus.break_start && line.stop_times[end] <= bus.break_start ||
-                line.start_time >= bus.break_end && line.stop_times[end] >= bus.break_end)
+               (
+                   # Before break 1
+                   (line.start_time <= bus.break_start_1 && line.stop_times[end] <= bus.break_start_1) ||
+                   # Between breaks 1 and 2
+                   (line.start_time >= bus.break_end_1 && line.stop_times[end] <= bus.break_start_2) ||
+                   # After break 2
+                   (line.start_time >= bus.break_end_2 && line.stop_times[end] >= bus.break_end_2)
+               )
                 
                 # Create arcs for each demand that uses this line
                 for demand in passenger_demands
@@ -562,9 +568,12 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs, lines, buses, trave
     bus_breaks = Dict()
     for bus in buses
         bus_breaks[bus.bus_id] = (
-            break_start = bus.break_start,
-            break_end = bus.break_end,
-            break_duration = bus.break_end - bus.break_start
+            break_start_1 = bus.break_start_1,
+            break_end_1 = bus.break_end_1,
+            break_start_2 = bus.break_start_2,
+            break_end_2 = bus.break_end_2,
+            break_duration_1 = bus.break_end_1 - bus.break_start_1,
+            break_duration_2 = bus.break_end_2 - bus.break_start_2
         )
     end
 
@@ -582,9 +591,12 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs, lines, buses, trave
                     start_time = line2_data.stop_times[line2.arc_start.stop_id]
                     
                     # Get break times for this bus
-                    break_start = bus_breaks[line1.bus_id].break_start
-                    break_end = bus_breaks[line1.bus_id].break_end
-                    break_duration = bus_breaks[line1.bus_id].break_duration
+                    break_start_1 = bus_breaks[line1.bus_id].break_start_1
+                    break_end_1 = bus_breaks[line1.bus_id].break_end_1
+                    break_duration_1 = bus_breaks[line1.bus_id].break_duration_1
+                    break_start_2 = bus_breaks[line1.bus_id].break_start_2
+                    break_end_2 = bus_breaks[line1.bus_id].break_end_2
+                    break_duration_2 = bus_breaks[line1.bus_id].break_duration_2
 
                     travel_time_idx = findfirst(tt ->
                         tt.bus_line_id_start == line1.arc_end.bus_line_id &&
@@ -601,16 +613,35 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs, lines, buses, trave
                         is_feasible = false
                         total_connection_time = travel_time
                         
-                        # Case 1: Connection happens entirely before break
-                        if end_time + travel_time <= break_start
+                        # Case 1: Connection happens entirely before break 1
+                        if end_time + travel_time <= break_start_1 
                             is_feasible = true
-                        # Case 2: Connection happens entirely after break
-                        elseif end_time >= break_end
+                        # Case 2: Connection happens entirely after break 1 but before break 2
+                        elseif end_time >= break_end_1 && end_time + travel_time <= break_start_2
                             is_feasible = true
-                        # Case 3: Break needs to be included in the connection
-                        elseif end_time <= break_start && start_time >= break_end
-                            total_connection_time = travel_time + break_duration
+                        # Case 3: Connection happens entirely after break 2
+                        elseif end_time >= break_end_2
+                            is_feasible = true
+                        # Case 4: Connection spans break 1
+                        elseif end_time <= break_start_1 && start_time >= break_end_1
+                            total_connection_time = travel_time + break_duration_1
                             is_feasible = end_time + total_connection_time <= start_time
+                        # Case 5: Connection spans break 2
+                        elseif end_time <= break_start_2 && start_time >= break_end_2
+                            total_connection_time = travel_time + break_duration_2
+                            is_feasible = end_time + total_connection_time <= start_time
+                        # Case 6: Connection spans both breaks
+                        elseif end_time <= break_start_1 && start_time >= break_end_2
+                            total_connection_time = travel_time + break_duration_1 + break_duration_2
+                            is_feasible = end_time + total_connection_time <= start_time
+                        # Case 7: Connection starts during a break (not feasible)
+                        elseif (break_start_1 <= end_time <= break_end_1) || 
+                              (break_start_2 <= end_time <= break_end_2)
+                            is_feasible = false
+                        # Case 8: Connection ends during a break (not feasible)
+                        elseif (break_start_1 <= end_time + travel_time <= break_end_1) || 
+                              (break_start_2 <= end_time + travel_time <= break_end_2)
+                            is_feasible = false
                         end
 
                         if is_feasible && end_time + total_connection_time <= start_time

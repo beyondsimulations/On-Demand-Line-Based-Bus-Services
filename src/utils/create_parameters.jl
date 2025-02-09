@@ -21,11 +21,11 @@ function create_parameters(
 
     # Create buses based on setting
     if setting == NO_CAPACITY_CONSTRAINT
-        busses = [Bus(i, length(lines), 0, 0, 0, latest_end) for i in 1:length(lines)]
+        busses = [Bus(i, length(lines), 0, 0, 0, 0, 0, latest_end) for i in 1:length(lines)]
     elseif setting == CAPACITY_CONSTRAINT
-        busses = [Bus(row.bus_id, row.capacity, 0, 0, 0, latest_end) for row in eachrow(busses_df)]
+        busses = [Bus(row.bus_id, row.capacity, 0, 0, 0, 0, 0, latest_end) for row in eachrow(busses_df)]
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
-        busses = [Bus(row.bus_id, row.capacity, row.shift_start, row.break_start, row.break_end, row.shift_end) for row in eachrow(busses_df)]
+        busses = [Bus(row.bus_id, row.capacity, row.shift_start, row.break_start_1, row.break_end_1, row.break_start_2, row.break_end_2, row.shift_end) for row in eachrow(busses_df)]
     else
         throw(ArgumentError("Invalid setting: $setting"))
     end

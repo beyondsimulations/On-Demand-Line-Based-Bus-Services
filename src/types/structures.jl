@@ -17,13 +17,15 @@ mutable struct Bus
     bus_id::Int
     capacity::Float64
     shift_start::Float64
-    break_start::Float64
-    break_end::Float64
+    break_start_1::Float64
+    break_end_1::Float64
+    break_start_2::Float64
+    break_end_2::Float64
     shift_end::Float64
 
     # Constructor for Setting
-    function Bus(id::Int, capacity::Union{Int,Float64}, shift_start::Union{Int,Float64}, break_start::Union{Int,Float64}, break_end::Union{Int,Float64}, shift_end::Union{Int,Float64})
-        new(id, Float64(capacity), Float64(shift_start), Float64(break_start), Float64(break_end), Float64(shift_end))
+    function Bus(id::Int, capacity::Union{Int,Float64}, shift_start::Union{Int,Float64}, break_start_1::Union{Int,Float64}, break_end_1::Union{Int,Float64}, break_start_2::Union{Int,Float64}, break_end_2::Union{Int,Float64}, shift_end::Union{Int,Float64})
+        new(id, Float64(capacity), Float64(shift_start), Float64(break_start_1), Float64(break_end_1), Float64(break_start_2), Float64(break_end_2), Float64(shift_end))
     end
 
 end
