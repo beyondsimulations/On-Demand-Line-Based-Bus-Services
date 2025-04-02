@@ -99,7 +99,7 @@ function get_formatted_bus_lines(conn, agency_id)
     WITH stop_sequences AS (
         SELECT DISTINCT
             r.route_short_name as bus_line_id,
-            r.route_id as route_line_id,
+            t.trip_id,
             s.stop_id,
             s.stop_name,
             ST_Y(s.stop_loc::geometry) as stop_lat,
@@ -118,7 +118,7 @@ function get_formatted_bus_lines(conn, agency_id)
     most_common_sequence AS (
         SELECT 
             bus_line_id,
-            route_line_id,
+            trip_id,
             stop_id,
             stop_name,
             stop_lat,
@@ -133,7 +133,7 @@ function get_formatted_bus_lines(conn, agency_id)
     ordered_stops AS (
         SELECT 
             bus_line_id,
-            route_line_id,
+            trip_id,
             stop_id,
             stop_name,
             stop_lat,
@@ -147,13 +147,13 @@ function get_formatted_bus_lines(conn, agency_id)
     )
     SELECT 
         bus_line_id,
-        route_line_id,
+        trip_id,
         sequential_stop_id as stop_ids,
         stop_name,
         stop_lon as stop_x,
         stop_lat as stop_y
     FROM ordered_stops
-    ORDER BY bus_line_id::integer, route_line_id, sequential_stop_id;
+    ORDER BY bus_line_id::integer, trip_id, sequential_stop_id;
     """
     result = execute(conn, query, [agency_id, Vector(used_lines.line_id)])
     df = DataFrame(result)
@@ -173,6 +173,7 @@ function get_bus_line_trip_times(conn, agency_id)
     trip_times AS (
         SELECT 
             r.route_short_name as bus_line_id,
+            t.trip_id,
             CASE 
                 WHEN EXTRACT(HOUR FROM st.arrival_time::time) >= 24 
                 THEN (st.arrival_time::time - INTERVAL '24 hours')::time
@@ -195,11 +196,13 @@ function get_bus_line_trip_times(conn, agency_id)
     SELECT 
         ROW_NUMBER() OVER (PARTITION BY bus_line_id, weekday ORDER BY trip_start_time) as line_id,
         bus_line_id,
+        trip_id,
         trip_start_time,
         weekday
     FROM trip_times
     ORDER BY 
         bus_line_id::integer,
+        trip_id,
         weekday,
         trip_start_time;
     """
@@ -265,50 +268,20 @@ function get_extended_bus_lines(conn, agency_id)
         JOIN service_day_unnest sd ON t.service_id = sd.service_id
         WHERE r.agency_id = \$1
         AND r.route_short_name = ANY(\$2)
-    ),
-    trip_stop_patterns AS (
-        SELECT
-            bus_line_id,
-            trip_id,
-            day,
-            STRING_AGG(stop_id::text, ',' ORDER BY stop_sequence) AS stop_pattern
-        FROM trip_stops
-        GROUP BY bus_line_id, trip_id, day
-    ),
-    route_patterns AS (
-        SELECT
-            bus_line_id,
-            stop_pattern,
-            ROW_NUMBER() OVER (PARTITION BY bus_line_id ORDER BY MIN(trip_id)) AS route_line_id
-        FROM trip_stop_patterns
-        GROUP BY bus_line_id, stop_pattern
-    ),
-    trip_with_route_id AS (
-        SELECT
-            t.bus_line_id,
-            t.trip_id,
-            t.day,
-            r.route_line_id
-        FROM trip_stop_patterns t
-        JOIN route_patterns r ON t.bus_line_id = r.bus_line_id AND t.stop_pattern = r.stop_pattern
     )
     SELECT 
         ts.bus_line_id,
-        tr.route_line_id,
+        ts.trip_id,
         ts.stop_id,
         ts.stop_sequence,
         ts.stop_name,
         ts.stop_lon as stop_x,
         ts.stop_lat as stop_y,
         ts.day,
-        ts.trip_id,
         ts.arrival_time
     FROM trip_stops ts
-    JOIN trip_with_route_id tr ON ts.bus_line_id = tr.bus_line_id AND ts.trip_id = tr.trip_id AND ts.day = tr.day
     ORDER BY 
         ts.bus_line_id::integer,
-        tr.route_line_id,
-        ts.day,
         ts.trip_id,
         ts.stop_sequence;
     """
@@ -316,37 +289,6 @@ function get_extended_bus_lines(conn, agency_id)
     df = DataFrame(result)
     validate_lines_present(df, "bus_line_id")
     return df
-end
-
-function renumber_route_line_ids(df)
-    result = copy(df)
-    
-    current_bus_line = ""
-    current_trip = ""
-    current_route_line = 1
-    
-    for i in 1:nrow(result)
-        bus_line = result[i, :bus_line_id]
-        trip = result[i, :trip_id]
-        stop_seq = result[i, :stop_sequence]
-        
-        # Reset route_line_id when bus_line changes
-        if bus_line != current_bus_line
-            current_bus_line = bus_line
-            current_trip = trip
-            current_route_line = 1
-        # Increment route_line_id when trip changes and stop_sequence is 0
-        elseif trip != current_trip && stop_seq == 0
-            current_trip = trip
-            current_route_line += 1
-        end
-        
-        result[i, :route_line_id] = current_route_line
-    end
-
-    
-    
-    return result
 end
 
 # Example usage
@@ -375,9 +317,6 @@ function main()
         
         # Get extended bus lines with day types and arrival times
         extended_bus_lines = get_extended_bus_lines(conn, agency_id)
-        
-        # Renumber route_line_ids to start with 1 for each bus_line_id
-        extended_bus_lines = renumber_route_line_ids(extended_bus_lines)
         
         println("\nExtended bus lines with day types and times:")
         println(first(extended_bus_lines, 10))
