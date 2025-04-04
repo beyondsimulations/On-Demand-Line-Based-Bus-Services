@@ -21,7 +21,7 @@ include("models/solve_models.jl")
 include("data/loader.jl")
 
 # Set to true to run the case study
-case = true
+case = "VLP Boizenburg"
 
 # Load all data
 data = load_all_data()
