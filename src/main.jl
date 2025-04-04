@@ -20,6 +20,9 @@ include("models/network_flow.jl")
 include("models/solve_models.jl")
 include("data/loader.jl")
 
+# Set to true to run the case study
+case = true
+
 # Load all data
 data = load_all_data()
 
@@ -33,14 +36,14 @@ display(network_plot_3d)
 # Solve for multiple settings
 settings = [
     NO_CAPACITY_CONSTRAINT,
-    #CAPACITY_CONSTRAINT,
-    #CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+    CAPACITY_CONSTRAINT,
+    CAPACITY_CONSTRAINT_DRIVER_BREAKS,
 ]
 
 subsettings = [
    ALL_LINES,
-   #ALL_LINES_WITH_DEMAND,
-   #ONLY_DEMAND,
+   ALL_LINES_WITH_DEMAND,
+   ONLY_DEMAND,
 ]
 
 for setting in settings
