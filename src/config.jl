@@ -1,24 +1,18 @@
 module Config
 
-# Network configuration
-const DEFAULT_SPEED = 30.0
+# Average speed for calculating travel times between routes and to/from depot (km/h)
+const AVERAGE_BUS_SPEED = 30.0 # Adjust as needed
 
-# File paths for default data
-const DATA_PATHS = Dict(
-    :bus_lines => "data/bus-lines.csv",
-    :lines => "data/demand.csv",
-    :buses => "data/shifts.csv",
-    :demand => "data/vehicles.csv",
-    :depots => "data/depots.csv"
-)
+# Earth radius in kilometers for Haversine calculation
+const EARTH_RADIUS_KM = 6371.0
 
 # File paths for case study data
-const CASE_DATA_PATHS = Dict(
-    :bus_lines => "case_data/bus-lines.csv",
-    :lines => "case_data/demand.csv",    
-    :buses => "case_data/shifts.csv",      
-    :demand => "case_data/vehicles.csv",
-    :depots => "case_data/depots.csv"
+const DATA_PATHS = Dict(
+    :routes => "clean_case_data/routes.csv",
+    :demand => "clean_case_data/demand.csv",    
+    :shifts => "clean_case_data/shifts.csv",      
+    :buses => "clean_case_data/vehicles.csv",
+    :depots => "clean_case_data/depots.csv"
 )
 
 end

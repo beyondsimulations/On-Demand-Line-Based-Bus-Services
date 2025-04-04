@@ -1,20 +1,19 @@
-
-
-struct BusLine
-    bus_line_id::Int
+struct Route
+    route_id::Int
+    day::String
+    trip_id::Int
+    trip_sequence::Int
+    stop_sequence::Vector{Int}
     stop_ids::Vector{Int}
-    locations::Vector{Tuple{Float64, Float64}}
-end
-
-struct Line
-    line_id::Int
-    bus_line_id::Int
-    start_time::Float64
+    stop_names::Vector{String}
     stop_times::Vector{Float64}
+    locations::Vector{Tuple{Float64, Float64}}
+    depot_id::Int
 end
 
 mutable struct Bus
     bus_id::Int
+    day::String
     capacity::Float64
     shift_start::Float64
     break_start_1::Float64
@@ -22,7 +21,7 @@ mutable struct Bus
     break_start_2::Float64
     break_end_2::Float64
     shift_end::Float64
-
+    depot_id::Int
     # Constructor for Setting
     function Bus(id::Int, capacity::Union{Int,Float64}, shift_start::Union{Int,Float64}, break_start_1::Union{Int,Float64}, break_end_1::Union{Int,Float64}, break_start_2::Union{Int,Float64}, break_end_2::Union{Int,Float64}, shift_end::Union{Int,Float64})
         new(id, Float64(capacity), Float64(shift_start), Float64(break_start_1), Float64(break_end_1), Float64(break_start_2), Float64(break_end_2), Float64(shift_end))
@@ -32,50 +31,54 @@ end
 
 struct PassengerDemand
     demand_id::Int
-    line_id::Int
-    bus_line_id::Int
+    date::Date
+    route_id::Int
+    trip_id::Int
+    depot_id::Int
     origin_stop_id::Int
     destination_stop_id::Int
     demand::Float64
 end
 
 struct TravelTime
-    bus_line_id_start::Int
-    bus_line_id_end::Int
-    origin_stop_id::Int
-    destination_stop_id::Int
+    origin::NamedTuple{(:route_id, :trip_id, :trip_sequence, :stop_id), Tuple{Int, Int, Int, Int}}
+    destination::NamedTuple{(:route_id, :trip_id, :trip_sequence, :stop_id), Tuple{Int, Int, Int, Int}}
+    day::String
     time::Float64
     is_depot_travel::Bool
+end
+
+struct Depot
+    depot_id::Int
+    depot_name::String
+    location::Tuple{Float64, Float64}
 end
 
 struct ProblemParameters
     setting::Setting
     subsetting::SubSetting
-    bus_lines::Vector{BusLine}
-    lines::Vector{Line}
+    routes::Vector{Route}
     buses::Vector{Bus}
     travel_times::Vector{TravelTime}
     passenger_demands::Vector{PassengerDemand}
-    depot_location::Tuple{Float64, Float64}
+    depots::Vector{Depot}
 end
 
 mutable struct ModelStation
-    line_id::Int
-    bus_line_id::Int
+    route_id::Int
+    trip_id::Int
     stop_id::Int
 end
 
 import Base: hash, isequal
 function Base.hash(x::ModelStation, h::UInt)
-    hash((x.line_id, x.bus_line_id, x.stop_id), h)
+    hash((x.route_id, x.stop_id), h)
 end
 
 function Base.isequal(x::ModelStation, y::ModelStation)
-    return x.line_id == y.line_id && 
-           x.bus_line_id == y.bus_line_id && 
+    return x.route_id == y.route_id && 
            x.stop_id == y.stop_id
 end
-
 
 mutable struct ModelArc
     arc_start::ModelStation

@@ -5,29 +5,29 @@ using JuMP
 using HiGHS
 using DataFrames
 using CSV
-
+using Dates
 include("Config.jl")
 using .Config
 include("types/settings.jl")
 include("types/structures.jl")
-include("constructors/line.jl")
 include("utils/calculate_end.jl")
 include("utils/calculate_travel.jl")
 include("utils/plot_network.jl")
-include("utils/create_parameters.jl")
+#include("utils/create_parameters.jl")
 include("models/model_setups.jl")
 include("models/network_flow.jl")
 include("models/solve_models.jl")
 include("data/loader.jl")
 
-# Set to true to run the case study
-case = "VLP Boizenburg"
+# Set the depots to run the model for
+depots = ["VLP Boizenburg"]
+dates = [Date(2024, 8, 22)]
 
 # Load all data
 data = load_all_data()
 
 # Plot network
-network_plot = plot_network(data.bus_lines, Config.DEPOT_LOCATION)
+network_plot = plot_network(data.routes, data.depots)
 display(network_plot)
 
 network_plot_3d = plot_network_3d(data.bus_lines, data.lines, data.travel_times, Config.DEPOT_LOCATION)
