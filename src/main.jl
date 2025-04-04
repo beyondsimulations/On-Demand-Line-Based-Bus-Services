@@ -20,30 +20,57 @@ include("models/solve_models.jl")
 include("data/loader.jl")
 
 # Set the depots to run the model for
-depots = ["VLP Boizenburg"]
-dates = [Date(2024, 8, 22)]
+depots_to_process_names = ["VLP Parchim"]
+dates_to_process = [Date(2024, 8, 22)]
 
 # Load all data
+println("Loading all data...")
 data = load_all_data()
+println("Data loading finished.")
 
-# Plot network
-network_plot = plot_network(data.routes, data.depots)
-display(network_plot)
+# Filter depots to process based on names specified
+depots_to_process = filter(d -> d.depot_name in depots_to_process_names, data.depots)
+if isempty(depots_to_process)
+    error("None of the specified depot names found: $depots_to_process_names")
+end
 
-network_plot_3d = plot_network_3d(data.bus_lines, data.lines, data.travel_times, Config.DEPOT_LOCATION)
-display(network_plot_3d)
+# Plot network for each specified depot and date
+println("\n=== Generating Network Plots ===")
+for depot in depots_to_process
+    for date in dates_to_process
+        println("\nPlotting network for Depot: $(depot.depot_name) on Date: $date")
 
-# Solve for multiple settings
+        # Plot 2D Network
+        println("  Generating 2D plot...")
+        # Pass all routes, the specific depot, and date
+        network_plot_2d = plot_network(data.routes, depot, date)
+        # Display or save the plot
+        display(network_plot_2d)
+        # savefig(network_plot_2d, "network_2d_$(depot.depot_name)_$(date).html") # Optional: Save plot
+
+        # Plot 3D Network
+        println("  Generating 3D plot...")
+        # Pass all routes, all travel times, the specific depot, and date
+        network_plot_3d = plot_network_3d(data.routes, data.travel_times, depot, date)
+        # Display or save the plot
+        display(network_plot_3d)
+        # savefig(network_plot_3d, "network_3d_$(depot.depot_name)_$(date).html") # Optional: Save plot
+    end
+end
+println("=== Network Plotting Finished ===")
+
+
+# Define settings for solving
 settings = [
     NO_CAPACITY_CONSTRAINT,
-    CAPACITY_CONSTRAINT,
-    CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+    # CAPACITY_CONSTRAINT,
+    # CAPACITY_CONSTRAINT_DRIVER_BREAKS,
 ]
 
 subsettings = [
    ALL_LINES,
-   ALL_LINES_WITH_DEMAND,
-   ONLY_DEMAND,
+   # ALL_LINES_WITH_DEMAND,
+   # ONLY_DEMAND,
 ]
 
 for setting in settings

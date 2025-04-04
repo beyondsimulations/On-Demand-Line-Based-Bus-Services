@@ -42,98 +42,86 @@ end
 """
     compute_travel_times(routes::Vector{Route}, depots::Vector{Depot}) -> Vector{TravelTime}
 
-Calculates travel times between route endpoints and their assigned depot,
-and between routes assigned to the same depot.
+Calculates travel times between ALL pairs of unique stops (including depots)
+within each depot's operational zone.
 Uses Haversine distance and average bus speed. Assumes routes have a `depot_id`.
 """
 function compute_travel_times(routes::Vector{Route}, depots::Vector{Depot})::Vector{TravelTime}
     travel_times_list = TravelTime[]
+    depot_stops = Dict{Int, Set{Int}}() # Depot ID -> Set of associated Stop IDs
+    stop_locations = Dict{Int, Tuple{Float64, Float64}}() # Stop ID -> Location (Lat, Lon)
 
-    # Sentinel IDs for Depot Legs
-    DEPOT_ROUTE_ID = -1
-    DEPOT_TRIP_ID = -1
-    DEPOT_TRIP_SEQUENCE = -1
+    println("Gathering stops and locations for each depot zone...")
 
-    # Create a lookup for depots by ID for efficiency
-    depot_lookup = Dict(d.depot_id => d for d in depots)
-
-    println("Calculating travel times within depot zones using avg speed: $(Config.AVERAGE_BUS_SPEED) km/h.")
-
-    # --- Travel between Assigned Depots and Routes ---
-    for route in routes
-        if isempty(route.locations) || isempty(route.stop_ids) || !haskey(depot_lookup, route.depot_id)
-             if !haskey(depot_lookup, route.depot_id)
-                println("Warning: Route $(route.route_id) assigned to unknown Depot ID $(route.depot_id), skipping depot travel.")
-            else # isempty case
-                println("Warning: Route $(route.route_id) day $(route.day) is empty, skipping travel time.")
-            end
-            continue
-        end
-
-        depot = depot_lookup[route.depot_id]
-        depot_stop_id = depot.depot_id
-        depot_lat, depot_lon = depot.location
-
-        start_stop_id = route.stop_ids[1]
-        start_loc_lat, start_loc_lon = route.locations[1]
-        end_stop_id = route.stop_ids[end]
-        end_loc_lat, end_loc_lon = route.locations[end]
-
-        # 1. Assigned Depot to Route Start
-        dist_depot_start = haversine_distance(depot_lat, depot_lon, start_loc_lat, start_loc_lon)
-        time_depot_start = calculate_travel_time_minutes(dist_depot_start)
-        push!(travel_times_list, TravelTime(
-            (route_id=DEPOT_ROUTE_ID, trip_id=DEPOT_TRIP_ID, trip_sequence=DEPOT_TRIP_SEQUENCE, stop_id=depot_stop_id), # Origin: Depot
-            (route_id=route.route_id, trip_id=route.trip_id, trip_sequence=route.trip_sequence, stop_id=start_stop_id), # Destination: Route Start
-            route.day,
-            time_depot_start,
-            true # is_depot_travel
-        ))
-
-        # 2. Route End to Assigned Depot
-        dist_end_depot = haversine_distance(end_loc_lat, end_loc_lon, depot_lat, depot_lon)
-        time_end_depot = calculate_travel_time_minutes(dist_end_depot)
-        push!(travel_times_list, TravelTime(
-            (route_id=route.route_id, trip_id=route.trip_id, trip_sequence=route.trip_sequence, stop_id=end_stop_id), # Origin: Route End
-            (route_id=DEPOT_ROUTE_ID, trip_id=DEPOT_TRIP_ID, trip_sequence=DEPOT_TRIP_SEQUENCE, stop_id=depot_stop_id), # Destination: Depot
-            route.day,
-            time_end_depot,
-            true # is_depot_travel
-        ))
+    # 1a. Add depots as stops and initialize depot stop sets
+    for depot in depots
+        depot_stops[depot.depot_id] = Set([depot.depot_id]) # Add depot itself
+        stop_locations[depot.depot_id] = depot.location
     end
 
-    # --- Inter-Route Travel (only within the same depot zone) ---
-    num_routes = length(routes)
-    for i in 1:num_routes
-        route_i = routes[i]
-        if isempty(route_i.locations) || isempty(route_i.stop_ids) continue end
-        end_i_stop_id = route_i.stop_ids[end]
-        end_i_lat, end_i_lon = route_i.locations[end]
+    # 1b. Add route stops to their respective depots and store locations
+    for route in routes
+        if !haskey(depot_stops, route.depot_id)
+            println("Warning: Route $(route.route_id) assigned to unknown Depot ID $(route.depot_id). Skipping route.")
+            continue
+        end
+        if isempty(route.stop_ids) || length(route.stop_ids) != length(route.locations)
+             println("Warning: Route $(route.route_id) day $(route.day) has inconsistent stops/locations. Skipping route.")
+             continue
+        end
 
-        for j in 1:num_routes
-            # Skip self-travel and travel between different depots or days
-            route_j = routes[j]
-            if i == j || route_i.depot_id != route_j.depot_id || route_i.day != route_j.day
-                continue
+        current_depot_set = depot_stops[route.depot_id]
+        for (i, stop_id) in enumerate(route.stop_ids)
+            push!(current_depot_set, stop_id)
+            # Store location - overwrite if exists, assuming consistency
+            stop_locations[stop_id] = route.locations[i]
+        end
+    end
+
+    println("Calculating all-pairs travel times within each depot zone using avg speed: $(Config.AVERAGE_BUS_SPEED) km/h.")
+
+    # 2. Calculate pairwise travel times within each depot zone
+    for (depot_id, stops_in_zone) in depot_stops
+        if !haskey(stop_locations, depot_id) continue end # Should not happen if depot loop ran
+        depot_location = stop_locations[depot_id] # Depot's own location
+
+        println("Processing Depot ID: $depot_id with $(length(stops_in_zone)) unique stops...")
+        stop_list = collect(stops_in_zone) # Convert set to list for indexing
+
+        for i in 1:length(stop_list)
+            stop_a_id = stop_list[i]
+            if !haskey(stop_locations, stop_a_id)
+                 println("Warning: Location missing for stop $stop_a_id in depot $depot_id. Skipping pairs involving this stop.")
+                 continue
             end
+            loc_a = stop_locations[stop_a_id]
 
-            if isempty(route_j.locations) || isempty(route_j.stop_ids) continue end
-            start_j_stop_id = route_j.stop_ids[1]
-            start_j_lat, start_j_lon = route_j.locations[1]
+            for j in 1:length(stop_list)
+                if i == j continue end # Skip travel from a stop to itself
 
-            dist_i_j = haversine_distance(end_i_lat, end_i_lon, start_j_lat, start_j_lon)
-            time_i_j = calculate_travel_time_minutes(dist_i_j)
+                stop_b_id = stop_list[j]
+                 if !haskey(stop_locations, stop_b_id)
+                     # Warning already printed in outer loop if stop_a_id == stop_b_id was missing
+                     continue
+                 end
+                loc_b = stop_locations[stop_b_id]
 
-            push!(travel_times_list, TravelTime(
-                (route_id=route_i.route_id, trip_id=route_i.trip_id, trip_sequence=route_i.trip_sequence, stop_id=end_i_stop_id), # Origin: Route i End
-                (route_id=route_j.route_id, trip_id=route_j.trip_id, trip_sequence=route_j.trip_sequence, stop_id=start_j_stop_id), # Destination: Route j Start
-                route_i.day,
-                time_i_j,
-                false # is_depot_travel
-            ))
-        end # end inner routes loop
-    end # end outer routes loop
+                dist_ab = haversine_distance(loc_a[1], loc_a[2], loc_b[1], loc_b[2])
+                time_ab = calculate_travel_time_minutes(dist_ab)
 
-    println("Calculated $(length(travel_times_list)) intra-depot travel times.")
+                # Check if this travel involves the depot stop
+                is_depot = (stop_a_id == depot_id || stop_b_id == depot_id)
+
+                push!(travel_times_list, TravelTime(
+                    stop_a_id, # Origin Stop ID
+                    stop_b_id, # Destination Stop ID
+                    time_ab,
+                    is_depot
+                ))
+            end # end inner loop (stop_b)
+        end # end outer loop (stop_a)
+    end # end depot loop
+
+    println("Calculated $(length(travel_times_list)) all-pairs travel times within depot zones.")
     return travel_times_list
 end

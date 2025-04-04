@@ -1,31 +1,78 @@
 using Plots
 using ColorSchemes
+using Dates
+using ..Config # Assuming Config is accessible
+include("../types/structures.jl") # Ensure structs are included
+
 plotly() # Switch to the Plotly backend for interactive plots
 
-function plot_network(bus_lines::Vector{BusLine}, depot::Tuple{Float64, Float64})
+# Fix: Reinstate the PlottingBusLine struct definition for the 2D plot
+struct PlottingBusLine
+    bus_line_id::Int
+    locations::Vector{Tuple{Float64, Float64}}
+    stop_ids::Vector{Int}
+    depot_id::Int
+    day::String
+end
+
+function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
+    day_name = lowercase(Dates.dayname(date))
+    # Filter routes for the given depot and date
+    routes = filter(r -> r.depot_id == depot.depot_id && r.day == day_name, all_routes)
+
+    if isempty(routes)
+        println("No routes found for Depot $(depot.depot_name) on $date ($day_name). Skipping 2D plot.")
+        return plot() # Return an empty plot
+    end
+
+    # Derive unique bus lines (physical routes) from the filtered routes
+    bus_lines_dict = Dict{Int, PlottingBusLine}()
+    for r in routes
+        if !haskey(bus_lines_dict, r.route_id)
+            bus_lines_dict[r.route_id] = PlottingBusLine(
+                r.route_id,
+                r.locations,
+                r.stop_ids,
+                r.depot_id,
+                r.day
+            )
+        end
+    end
+    bus_lines = collect(values(bus_lines_dict)) # Vector{PlottingBusLine}
+    depot_coords = depot.location # Use location from Depot struct
+
     # Create a new plot
     p = plot(
-        title="Bus Network",
-        legend=false,  # Changed from true to false
+        title="Bus Network - Depot: $(depot.depot_name) on $date ($day_name)",
+        legend=false,
         aspect_ratio=:equal,
         size=(800, 800)
     )
-    
-    # Create color mapping for bus lines (updated to prevent colorbar)
+
+    # Create color mapping for bus lines
     unique_bus_line_ids = unique([line.bus_line_id for line in bus_lines])
-    colors = [RGB(get(ColorSchemes.seaborn_colorblind, i/length(unique_bus_line_ids))) for i in 1:length(unique_bus_line_ids)]
+    if isempty(unique_bus_line_ids)
+         println("Warning: No unique bus line IDs found after filtering.")
+         # Handle case with no lines, maybe return empty plot or specific message plot
+         return p # Or return plot()
+    end
+    # Ensure color generation doesn't fail if only one line exists
+    num_unique_lines = length(unique_bus_line_ids)
+    colors = [RGB(get(ColorSchemes.seaborn_colorblind, i / max(1, num_unique_lines))) for i in 1:num_unique_lines]
     color_map = Dict(id => color for (id, color) in zip(unique_bus_line_ids, colors))
 
-    # Add connections between bus line ends and other bus line starts
+
+    # Add connections between bus line ends and other bus line starts (within the filtered set)
     for line1 in bus_lines
+        if isempty(line1.locations) continue end # Skip if line has no locations
         end_x = line1.locations[end][1]
         end_y = line1.locations[end][2]
-        
+
         for line2 in bus_lines
-            if line1 !== line2
+            if line1 !== line2 && !isempty(line2.locations)
                 start_x = line2.locations[1][1]
                 start_y = line2.locations[1][2]
-                
+
                 plot!(p, [end_x, start_x], [end_y, start_y],
                     linestyle=:dash,
                     color=:grey,
@@ -37,14 +84,25 @@ function plot_network(bus_lines::Vector{BusLine}, depot::Tuple{Float64, Float64}
         end
     end
 
-    # Plot each bus line
+    # Plot each derived bus line
     for line in bus_lines
+         if isempty(line.locations) || isempty(line.stop_ids)
+             println("Warning: Skipping plotting for bus line $(line.bus_line_id) due to missing locations or stop IDs.")
+             continue
+         end
         x_coords = [loc[1] for loc in line.locations]
         y_coords = [loc[2] for loc in line.locations]
-        line_color = color_map[line.bus_line_id]  # Use the color from the map
-        
+        # Check if bus_line_id exists in color_map
+        if !haskey(color_map, line.bus_line_id)
+            println("Warning: bus_line_id $(line.bus_line_id) not found in color_map. Assigning default color.")
+            line_color = :grey # Assign a default color or handle error
+        else
+            line_color = color_map[line.bus_line_id]
+        end
+
+
         # Plot dotted depot lines with the line's color
-        plot!(p, [depot[1], x_coords[1]], [depot[2], y_coords[1]], 
+        plot!(p, [depot_coords[1], x_coords[1]], [depot_coords[2], y_coords[1]],
             linestyle=:dash,
             color=line_color,
             linewidth=1,
@@ -53,7 +111,7 @@ function plot_network(bus_lines::Vector{BusLine}, depot::Tuple{Float64, Float64}
         )
 
         # Same for end to depot
-        plot!(p, [depot[1], x_coords[end]], [depot[2], y_coords[end]], 
+        plot!(p, [depot_coords[1], x_coords[end]], [depot_coords[2], y_coords[end]],
             linestyle=:dash,
             color=line_color,
             linewidth=1,
@@ -66,7 +124,7 @@ function plot_network(bus_lines::Vector{BusLine}, depot::Tuple{Float64, Float64}
             plot!(p, [x_coords[i], x_coords[i+1]], [y_coords[i], y_coords[i+1]],
                 color=line_color,
                 linewidth=1.5,
-                label=(i == 1 ? "Line $(line.bus_line_id)" : nothing)  # Only label the first segment
+                label= nothing  # Only label the first segment
             )
         end
 
@@ -74,7 +132,7 @@ function plot_network(bus_lines::Vector{BusLine}, depot::Tuple{Float64, Float64}
         scatter!(p, x_coords, y_coords,
             marker=:circle,
             markercolor=:white,
-            markersize=9,
+            markersize=5,
             markerstrokewidth=0.5,
             markerstrokecolor=:black,
             label=nothing
@@ -82,30 +140,35 @@ function plot_network(bus_lines::Vector{BusLine}, depot::Tuple{Float64, Float64}
 
         # Add stop numbers inside circles
         for (i, (x, y)) in enumerate(zip(x_coords, y_coords))
-            annotate!(p, x, y, text(string(line.stop_ids[i]), 8, :black))
+             # Ensure stop_ids has enough elements
+             if i <= length(line.stop_ids)
+                annotate!(p, x, y, text(string(line.stop_ids[i]), 8, :black))
+            else
+                println("Warning: Mismatch between number of locations and stop IDs for line $(line.bus_line_id)")
+            end
         end
 
         # Add line number next to each stop
-        for (x, y) in zip(x_coords, y_coords)
-            annotate!(p, x + 0.7, y + 0.7, text("L$(line.bus_line_id)", 8, :black))
-        end
+        #for (x, y) in zip(x_coords, y_coords)
+        #    annotate!(p, x + 0.7, y + 0.7, text("L$(line.bus_line_id)", 8, :black))
+        #end
     end
 
 
     # Plot the depot with 'D' label
-    scatter!(p, [depot[1]], [depot[2]],
+    scatter!(p, [depot_coords[1]], [depot_coords[2]],
         marker=:circle,
-        markersize=15,
+        markersize=10,
         color=:white,
         markerstrokecolor=:black,
         markerstrokewidth=1,
         label=nothing
     )
-    annotate!(p, depot[1], depot[2], text("D", 10, :black))
+    annotate!(p, depot_coords[1], depot_coords[2], text("D", 10, :black))
 
     # Hide axes
-    plot!(p, 
-        xaxis=false, 
+    plot!(p,
+        xaxis=false,
         yaxis=false,
         grid=false,
         ticks=false
@@ -114,37 +177,114 @@ function plot_network(bus_lines::Vector{BusLine}, depot::Tuple{Float64, Float64}
     return p
 end
 
-function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, travel_times::Vector{TravelTime}, depot::Tuple{Float64, Float64})
-    # Calculate axis limits as before
-    x_coords = Float64[]
-    y_coords = Float64[]
-    z_coords = Float64[]
-    
-    push!(x_coords, depot[1])
-    push!(y_coords, depot[2])
-    push!(z_coords, 0.0)
-    
-    for bus_line in bus_lines
-        append!(x_coords, [loc[1] for loc in bus_line.locations])
-        append!(y_coords, [loc[2] for loc in bus_line.locations])
-    end
-    
-    for line in lines
-        append!(z_coords, line.stop_times)
-    end
-    
-    padding = 0.4
-    x_range = maximum(x_coords) - minimum(x_coords)
-    y_range = maximum(y_coords) - minimum(y_coords)
-    z_range = maximum(z_coords) - minimum(z_coords)
-    
-    x_lims = (minimum(x_coords) - padding * x_range, maximum(x_coords) + padding * x_range)
-    y_lims = (minimum(y_coords) - padding * y_range, maximum(y_coords) + padding * y_range)
-    z_lims = (minimum(z_coords), maximum(z_coords) + padding * z_range)
+# Note: The Route struct now replaces the previous Line struct for scheduled trips
+# The PlottingBusLine struct replaces the previous BusLine struct for physical paths
+function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{TravelTime}, depot::Depot, date::Date)
+    day_name = lowercase(Dates.dayname(date))
+    lines = filter(r -> r.depot_id == depot.depot_id && r.day == day_name, all_routes)
 
+    if isempty(lines)
+        println("No lines (routes) found for Depot $(depot.depot_name) on $date ($day_name). Skipping 3D plot.")
+        return plot()
+    end
+
+    depot_coords = depot.location
+    depot_id_for_lookup = depot.depot_id
+    travel_times = all_travel_times
+
+    # --- Build a Master Location Lookup ---
+    # Create a dictionary mapping stop_id to location (lat, lon)
+    println("Building location lookup table...")
+    stop_location_lookup = Dict{Int, Tuple{Float64, Float64}}()
+    stop_location_lookup[depot_id_for_lookup] = depot_coords # Add depot
+
+    # Iterate through the filtered lines (trips) to get all unique stop locations
+    for r in lines
+        if length(r.stop_ids) == length(r.locations)
+             for (idx, stop_id) in enumerate(r.stop_ids)
+                 stop_location_lookup[stop_id] = r.locations[idx] # Overwrite is fine
+             end
+        else
+             println("Warning: Data inconsistency in loaded Route object: trip_id=$(r.trip_id), route_id=$(r.route_id). Length mismatch between stop_ids ($(length(r.stop_ids))) and locations ($(length(r.locations))). Stop locations might be missing.")
+        end
+    end
+    println("Built location lookup table with $(length(stop_location_lookup)) unique stops (including depot).")
+    # --- End Location Lookup Build ---
+
+    # --- Calculate Axis Limits ---
+    println("Calculating axis limits...")
+    x_coords_all = Float64[depot_coords[1]]
+    y_coords_all = Float64[depot_coords[2]]
+    z_coords_all = Float64[] # Start empty for times
+    min_time = Inf
+    max_time = -Inf
+
+    for line in lines
+        # Add coordinates for limit calculation
+        for stop_id in line.stop_ids
+            if haskey(stop_location_lookup, stop_id)
+                loc = stop_location_lookup[stop_id]
+                push!(x_coords_all, loc[1])
+                push!(y_coords_all, loc[2])
+            end
+        end
+        # Add times for limit calculation
+        if !isempty(line.stop_times)
+             append!(z_coords_all, line.stop_times)
+             current_min = minimum(line.stop_times)
+             current_max = maximum(line.stop_times)
+             if current_min < min_time min_time = current_min end
+             if current_max > max_time max_time = current_max end
+
+             # Add depot connection times to z range calculation
+             if !isempty(line.stop_ids) # Need stops to calculate depot times
+                 depot_start_travel_idx = findfirst(tt -> tt.start_stop == depot_id_for_lookup && tt.end_stop == line.stop_ids[1] && tt.is_depot_travel, travel_times)
+                 depot_end_travel_idx = findfirst(tt -> tt.start_stop == line.stop_ids[end] && tt.end_stop == depot_id_for_lookup && tt.is_depot_travel, travel_times)
+
+                 if !isnothing(depot_start_travel_idx) && !isnothing(depot_end_travel_idx)
+                     depot_start_travel_time = travel_times[depot_start_travel_idx].time
+                     depot_end_travel_time = travel_times[depot_end_travel_idx].time
+                     start_depot_time = line.stop_times[1] - depot_start_travel_time
+                     end_depot_time = line.stop_times[end] + depot_end_travel_time
+                     if start_depot_time < min_time min_time = start_depot_time end
+                     if end_depot_time > max_time max_time = end_depot_time end
+                     push!(z_coords_all, start_depot_time)
+                     push!(z_coords_all, end_depot_time)
+                 end
+             end
+        end
+    end
+    # Ensure min/max_time are finite if z_coords_all was empty or contained NaNs
+    valid_times = filter(isfinite, z_coords_all)
+    if isempty(valid_times)
+        min_time = 0.0
+        max_time = 1440.0 # Default to a full day if no times found
+        push!(z_coords_all, 0.0) # Add a default Z for depot marker
+    else
+        # Update min/max based only on valid times if necessary
+        min_time = isfinite(min_time) ? min_time : minimum(valid_times)
+        max_time = isfinite(max_time) ? max_time : maximum(valid_times)
+    end
+    println("Time range: $min_time to $max_time")
+
+    padding = 0.4
+    x_range = isempty(x_coords_all) ? 1.0 : maximum(x_coords_all) - minimum(x_coords_all)
+    y_range = isempty(y_coords_all) ? 1.0 : maximum(y_coords_all) - minimum(y_coords_all)
+    z_range = (max_time - min_time) <= 1e-6 ? 60.0 : (max_time - min_time) # Default range if flat
+    x_range = x_range <= 1e-6 ? 1.0 : x_range
+    y_range = y_range <= 1e-6 ? 1.0 : y_range
+
+    x_lims = isempty(x_coords_all) ? (-1, 1) : (minimum(x_coords_all) - padding * x_range, maximum(x_coords_all) + padding * x_range)
+    y_lims = isempty(y_coords_all) ? (-1, 1) : (minimum(y_coords_all) - padding * y_range, maximum(y_coords_all) + padding * y_range)
+    z_lims = (min_time - padding * z_range, max_time + padding * z_range)
+
+    println("Axis limits calculated: X=$(x_lims), Y=$(y_lims), Z=$(z_lims)")
+
+    # --- Setup Plot ---
+    println("Setting up base plot object...")
     p = plot(
-        title="Bus Network Schedule (3D)",
-        legend=false,  # Changed from true to false
+        title="Bus Network Schedule - Depot: $(depot.depot_name) on $date ($day_name) (3D)",
+        legend=false,
         size=(1200, 800),
         aspect_ratio=:equal,
         xlims=x_lims,
@@ -152,349 +292,533 @@ function plot_network_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, travel
         zlims=z_lims
     )
 
-    # Change this part: color by unique bus_line_ids instead of lines
-    unique_bus_line_ids = unique([line.bus_line_id for line in lines])
-    colors = [RGB(get(ColorSchemes.seaborn_colorblind, i/length(unique_bus_line_ids))) for i in 1:length(unique_bus_line_ids)]
-    color_map = Dict(id => color for (id, color) in zip(unique_bus_line_ids, colors))
-
-    # Collect all depot connection times
-    depot_times = Float64[]
-    
-    for (i, line) in enumerate(lines)
-        bus_line_idx = findfirst(bl -> bl.bus_line_id == line.bus_line_id, bus_lines)
-        if isnothing(bus_line_idx)
-            println("Warning: No bus line found for line $(line.line_id) (bus_line_id: $(line.bus_line_id))")
-            continue
-        end
-        bus_line = bus_lines[bus_line_idx]
-        
-        x_coords = [loc[1] for loc in bus_line.locations]
-        y_coords = [loc[2] for loc in bus_line.locations]
-        z_coords = line.stop_times
-
-        # Main line plot
-        plot!(p, x_coords, y_coords, z_coords,
-            label="Line $(line.line_id) (Bus $(line.bus_line_id))",
-            color=color_map[line.bus_line_id],
-            linewidth=2,
-            marker=:circle,
-            markersize=3,
-            markerstrokewidth=1,
-            markerstrokecolor=:black
-        )
-
-        # Depot connections
-        # Find depot travel times
-        depot_start_travel = travel_times[findfirst(tt -> 
-            tt.bus_line_id_start == 0 && 
-            tt.bus_line_id_end == line.bus_line_id &&
-            tt.origin_stop_id == 0 && 
-            tt.destination_stop_id == bus_line.stop_ids[1] && 
-            tt.is_depot_travel,
-            travel_times)].time
-
-        depot_end_travel = travel_times[findfirst(tt -> 
-            tt.bus_line_id_start == line.bus_line_id &&
-            tt.bus_line_id_end == 0 &&
-            tt.origin_stop_id == bus_line.stop_ids[end] && 
-            tt.destination_stop_id == 0 && 
-            tt.is_depot_travel,
-            travel_times)].time
-
-        # Start connection - include travel time from depot
-        plot!(p, [depot[1], x_coords[1]], 
-                [depot[2], y_coords[1]], 
-                [line.start_time - depot_start_travel, line.stop_times[1]],
-            linestyle=:dash,
-            color=color_map[line.bus_line_id],
-            linewidth=1,
-            label=nothing
-        )
-        push!(depot_times, line.start_time - depot_start_travel)
-
-        # End connection - include travel time to depot
-        plot!(p, [x_coords[end], depot[1]], 
-                [y_coords[end], depot[2]], 
-                [line.stop_times[end], line.stop_times[end] + depot_end_travel],
-            linestyle=:dash,
-            color=color_map[line.bus_line_id],
-            linewidth=1,
-            label=nothing
-        )
-        # Add the final depot arrival time
-        push!(depot_times, line.stop_times[end] + depot_end_travel)
+    # Color by unique bus_line_ids (route_id in this context)
+    unique_route_ids = unique([line.route_id for line in lines])
+    if isempty(unique_route_ids)
+         println("Warning: No unique route IDs found after filtering for 3D plot.")
+         return p
     end
+    num_unique_routes = length(unique_route_ids)
+    colors = [RGB(get(ColorSchemes.seaborn_colorblind, i / max(1, num_unique_routes))) for i in 1:num_unique_routes]
+    color_map = Dict(id => color for (id, color) in zip(unique_route_ids, colors))
+    println("Base plot setup complete. Found $(length(lines)) trips to process.")
 
-    # Plot feasible connections between lines
-    for line1 in lines
-        bus_line1_idx = findfirst(bl -> bl.bus_line_id == line1.bus_line_id, bus_lines)
-        if isnothing(bus_line1_idx)
+
+    depot_times = Float64[]
+    trips_plotted_count = 0
+
+    # Plot each line (scheduled trip/route)
+    println("--- Starting to plot individual trips ---")
+    for (line_idx, line) in enumerate(lines) # Use enumerate for progress
+        println("  Processing trip $(line_idx)/$(length(lines)): trip_id=$(line.trip_id), route_id=$(line.route_id)...")
+
+        if isempty(line.stop_ids) || isempty(line.stop_times)
+            println("    Skipping: Empty stop IDs or times.")
             continue
         end
-        bus_line1 = bus_lines[bus_line1_idx]
-        
-        end_x = bus_line1.locations[end][1]
-        end_y = bus_line1.locations[end][2]
+
+        # --- Build coordinates ---
+        x_coords_line = Float64[]
+        y_coords_line = Float64[]
+        locations_found_for_line = true
+        for stop_id in line.stop_ids
+            if haskey(stop_location_lookup, stop_id)
+                loc = stop_location_lookup[stop_id]
+                push!(x_coords_line, loc[1])
+                push!(y_coords_line, loc[2])
+            else
+                println("    Skipping: Location not found for stop_id $(stop_id).")
+                locations_found_for_line = false
+                break
+            end
+        end
+
+        if !locations_found_for_line
+             continue
+        end
+        if length(x_coords_line) != length(line.stop_times)
+             println("    Skipping: Coordinate/time count mismatch ($(length(x_coords_line)) vs $(length(line.stop_times))).")
+             continue
+        end
+        z_coords_line = line.stop_times
+        line_color = color_map[line.route_id]
+
+        # --- Plot main line segment ---
+        try
+            # println("    Plotting main segment...") # Optional: can be too verbose
+            plot!(p, x_coords_line, y_coords_line, z_coords_line,
+                label="R$(line.route_id), T$(line.trip_id)", # Shorter label
+                color=line_color, linewidth=2, marker=:circle, markersize=1,
+                markerstrokewidth=1, markerstrokecolor=:black)
+        catch e
+            println("    ERROR plotting main segment for trip $(line.trip_id): $e")
+            continue # Skip to next trip on error
+        end
+
+        # --- Plot depot connections ---
+        try
+            depot_start_travel_idx = findfirst(tt -> tt.start_stop == depot_id_for_lookup && tt.end_stop == line.stop_ids[1] && tt.is_depot_travel, travel_times)
+            depot_end_travel_idx = findfirst(tt -> tt.start_stop == line.stop_ids[end] && tt.end_stop == depot_id_for_lookup && tt.is_depot_travel, travel_times)
+
+            if !isnothing(depot_start_travel_idx) && !isnothing(depot_end_travel_idx)
+                # println("    Plotting depot connections...") # Optional
+                depot_start_travel = travel_times[depot_start_travel_idx].time
+                depot_end_travel = travel_times[depot_end_travel_idx].time
+                start_depot_time = z_coords_line[1] - depot_start_travel
+                end_depot_time = z_coords_line[end] + depot_end_travel
+
+                plot!(p, [depot_coords[1], x_coords_line[1]], [depot_coords[2], y_coords_line[1]], [start_depot_time, z_coords_line[1]],
+                    linestyle=:dash, color=line_color, linewidth=1, label=nothing)
+                push!(depot_times, start_depot_time)
+
+                plot!(p, [x_coords_line[end], depot_coords[1]], [y_coords_line[end], depot_coords[2]], [z_coords_line[end], end_depot_time],
+                    linestyle=:dash, color=line_color, linewidth=1, label=nothing)
+                push!(depot_times, end_depot_time)
+            # else # Optional: Warning already printed if lookup failed
+            #     println("    Skipping depot connections (travel time not found).")
+            end
+        catch e
+            println("    ERROR plotting depot connections for trip $(line.trip_id): $e")
+            # Continue processing other parts if possible
+        end
+        trips_plotted_count += 1
+    end
+    println("--- Finished plotting individual trips. Plotted: $(trips_plotted_count) ---")
+
+    # --- Plot feasible connections between lines (USING THE DICTIONARY)---
+    println("--- Starting to plot feasible connections (using lookup table) ---")
+    connection_plot_count = 0
+    connection_check_count = 0
+    total_possible_connections = length(lines) * (length(lines) - 1)
+    report_interval = max(1, div(total_possible_connections, 20)) # Report ~every 5%
+
+    # Make sure this dictionary is created *before* the loops start:
+    println("Building travel time lookup table...")
+    travel_time_lookup = Dict{Tuple{Int, Int}, Float64}()
+    for tt in all_travel_times
+        travel_time_lookup[(tt.start_stop, tt.end_stop)] = tt.time
+    end
+    println("Built travel time lookup table with $(length(travel_time_lookup)) entries.")
+
+    for (line1_idx, line1) in enumerate(lines)
+        if isempty(line1.stop_ids) continue end
+        # Optional: Add progress for outer loop
+        if line1_idx % 50 == 0 || line1_idx == length(lines)
+              println("  Checking connections starting from trip $(line1_idx)/$(length(lines))")
+        end
+
+        end_stop_id = line1.stop_ids[end]
         end_time = line1.stop_times[end]
-        
-        for line2 in lines
-            # Skip self-connections
-            if line1 !== line2
-                bus_line2_idx = findfirst(bl -> bl.bus_line_id == line2.bus_line_id, bus_lines)
-                if isnothing(bus_line2_idx)
-                    continue
-                end
-                bus_line2 = bus_lines[bus_line2_idx]
-                
-                start_x = bus_line2.locations[1][1]
-                start_y = bus_line2.locations[1][2]
-                start_time = line2.stop_times[1]
-                
-                # Find travel time between the lines
-                travel_time_idx = findfirst(tt -> 
-                    tt.bus_line_id_start == line1.bus_line_id && 
-                    tt.bus_line_id_end == line2.bus_line_id &&
-                    tt.origin_stop_id == bus_line1.stop_ids[end] && 
-                    tt.destination_stop_id == bus_line2.stop_ids[1] && 
-                    !tt.is_depot_travel,
-                    travel_times)
-                
-                if !isnothing(travel_time_idx)
-                    travel_time = travel_times[travel_time_idx].time
-                    arrival_time = end_time + travel_time
-                    
+        if !haskey(stop_location_lookup, end_stop_id) continue end
+        end_loc = stop_location_lookup[end_stop_id]
+        end_x, end_y = end_loc
+
+        for (line2_idx, line2) in enumerate(lines)
+            connection_check_count += 1
+            if line1 === line2 || isempty(line2.stop_ids) || isempty(line2.stop_times) continue end
+
+            start_stop_id = line2.stop_ids[1]
+            start_time = line2.stop_times[1]
+
+            if !haskey(stop_location_lookup, start_stop_id) continue end
+            start_loc = stop_location_lookup[start_stop_id]
+            start_x, start_y = start_loc
+
+            # Progress reporting
+            if connection_check_count % report_interval == 0 || connection_check_count == total_possible_connections
+                  println("    Checked $(connection_check_count)/$(total_possible_connections) potential connections...")
+            end
+
+            if start_time > end_time 
+                continue 
+            end
+
+            if start_time - 240 > end_time
+                continue
+            end
+
+            try
+                # *** USE DICTIONARY LOOKUP ***
+                travel_time_val = get(travel_time_lookup, (end_stop_id, start_stop_id), nothing)
+
+                # Optional: Add check similar to !tt.is_depot_travel if needed
+                # This depends on whether travel_time_lookup includes depot travel
+                # and if you need to exclude it here. Let's assume non-depot for now.
+
+                if !isnothing(travel_time_val)
+                    arrival_time = end_time + travel_time_val
+
                     # Check if connection is temporally feasible
-                    if end_time < start_time && arrival_time <= start_time
-                        # Plot connection line
-                        plot!(p, [end_x, start_x],
-                                [end_y, start_y],
-                                [end_time, arrival_time],
-                            linestyle=:dot,
-                            color=:grey,
-                            linewidth=0.8,
-                            alpha=1.0,
-                            label=nothing
-                        )
-                        
-                        # If there's waiting time, plot it as a vertical line
-                        if arrival_time < start_time
-                            plot!(p, [start_x, start_x],
-                                    [start_y, start_y],
-                                    [arrival_time, start_time],
-                                linestyle=:dot,
-                                color=:grey,
-                                linewidth=0.8,
-                                alpha=1.0,
-                                label=nothing
-                            )
+                    if end_time < start_time && arrival_time <= start_time + 1e-6
+                        plot!(p, [end_x, start_x], [end_y, start_y], [end_time, arrival_time],
+                              linestyle=:dot, color=:grey, linewidth=1.8, alpha=1.0, label=nothing)
+                        connection_plot_count += 1
+                        # Plot waiting time
+                        if arrival_time < start_time - 1e-6
+                            plot!(p, [start_x, start_x], [start_y, start_y], [arrival_time, start_time],
+                                  linestyle=:dot, color=:grey, linewidth=1.8, alpha=1.0, label=nothing)
                         end
                     end
                 end
+            catch e
+                 println("    ERROR plotting connection between trip $(line1.trip_id) and $(line2.trip_id): $e")
             end
+        end # End inner connection loop
+    end # End outer connection loop
+    println("--- Finished plotting feasible connections. Checked: $(connection_check_count)/$(total_possible_connections), Plotted: $(connection_plot_count) ---")
+
+    # --- Plot depot waiting lines ---
+    println("--- Starting to plot depot waiting lines ---")
+    try
+        sort!(unique!(depot_times)) # Sort and remove duplicates
+        for i in 1:(length(depot_times)-1)
+             if depot_times[i+1] > depot_times[i] + 1e-6
+                plot!(p, [depot_coords[1], depot_coords[1]], [depot_coords[2], depot_coords[2]], [depot_times[i], depot_times[i+1]],
+                    linestyle=:dot, color=:black, linewidth=1, label=(i==1 ? "Depot Waiting" : nothing))
+             end
         end
+        println("Finished plotting depot waiting lines.")
+    catch e
+         println("ERROR plotting depot waiting lines: $e")
     end
 
-    # After plotting all bus lines and depot points, add depot waiting lines
-    sort!(depot_times)
-    for i in 1:(length(depot_times)-1)
-        plot!(p,
-            [depot[1], depot[1]],  # Same x coordinate
-            [depot[2], depot[2]],  # Same y coordinate
-            [depot_times[i], depot_times[i+1]],  # Connect consecutive times
-            linestyle=:dot,
-            color=:black,
-            linewidth=1,
-            label=(i==1 ? "Depot Waiting" : nothing)  # Only label the first line
-        )
+    # --- Plot depot marker ---
+    println("--- Starting to plot depot marker ---")
+    try
+        # Use min_time calculated earlier which handles empty/invalid cases
+        depot_z = isempty(valid_times) ? 0.0 : min_time
+        scatter!(p, [depot_coords[1]], [depot_coords[2]], [depot_z],
+                 marker=:circle, markersize=5, color=:white, markerstrokecolor=:black,
+                 markerstrokewidth=1.5, label="D")
+        println("Finished plotting depot marker.")
+    catch e
+        println("ERROR plotting depot marker: $e")
     end
 
-    plot!(p,
-        xlabel="X",
-        ylabel="Y",
-        zlabel="Time",
-        camera=(45, 30),
-        grid=true
-    )
+    # --- Final plot adjustments ---
+    println("--- Applying final plot adjustments (labels, camera) ---")
+    try
+        plot!(p, xlabel="X", ylabel="Y", zlabel="Time (minutes since midnight)",
+                camera=(45, 30), grid=true)
+        println("Plotting complete. Returning plot object.")
+    catch e
+        println("ERROR applying final plot adjustments: $e")
+    end
 
     return p
 end
 
-function plot_solution_3d(bus_lines::Vector{BusLine}, lines::Vector{Line}, depot::Tuple{Float64, Float64}, result, travel_times::Vector{TravelTime})
-    # First create the base 3D network visualization
-    p = plot_network_3d(bus_lines, lines, travel_times, depot)
-    
-    # Create a color gradient based on number of buses
+
+# --- plot_solution_3d ---
+# This function needs similar adjustments if it's intended to be called per depot/date.
+# It calls plot_network_3d, so that call needs updating.
+# It also uses bus_lines and lines internally, which should be filtered/derived based on depot/date.
+# Assuming 'result' object passed corresponds to the specific depot/date.
+
+function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, result, all_travel_times::Vector{TravelTime})
+
+     day_name = lowercase(Dates.dayname(date))
+     # Filter routes for the given depot and date. These represent the "lines" (scheduled trips)
+     lines = filter(r -> r.depot_id == depot.depot_id && r.day == day_name, all_routes)
+
+     if isempty(lines)
+         println("No lines (routes) found for solution plot for Depot $(depot.depot_name) on $date ($day_name). Skipping.")
+         return plot()
+     end
+
+     depot_coords = depot.location
+     depot_id_for_lookup = depot.depot_id # Use actual depot ID
+     travel_times = all_travel_times # Use unfiltered travel times for now
+
+    # First create the base 3D network visualization for the specific depot/date
+    # Pass the filtered routes (lines), unfiltered travel times, depot, and date
+    p = plot_network_3d(all_routes, travel_times, depot, date) # Use the updated plot_network_3d
+
+    # Check if result is valid and contains buses
+     if isnothing(result) || result.status != :Optimal || isnothing(result.buses) || isempty(result.buses)
+         println("No valid solution or buses found in the result for Depot $(depot.depot_name) on $date ($day_name). Returning base network plot.")
+         return p
+     end
+
+    # Create a color gradient based on number of buses in the result
     num_buses = length(result.buses)
-    colors = cgrad(:rainbow, num_buses)
-    
-    # Plot each bus path
-    for (bus_id, bus_info) in result.buses
-        # Get color for this bus (normalize bus_id to [0,1] range)
-        bus_color = colors[(bus_id - 1) / (num_buses - 1)]
-        
+     # Handle case with zero or one bus to avoid division by zero or empty range
+     if num_buses == 0
+         println("Result contains zero buses. Cannot plot solution paths.")
+         return p
+     elseif num_buses == 1
+         # Assign a single distinct color if only one bus
+         colors = cgrad([:blue]) # Example: Use a single color from a gradient
+     else
+         colors = cgrad(:rainbow, num_buses)
+     end
+
+    # Plot each bus path from the result
+    bus_ids = sort(collect(keys(result.buses))) # Ensure consistent coloring order
+    for (idx, bus_id) in enumerate(bus_ids)
+        bus_info = result.buses[bus_id]
+        # Get color for this bus
+         if num_buses == 1
+             bus_color = colors[1] # Use the single color
+         else
+             # Normalize index (idx goes from 1 to num_buses)
+             bus_color = colors[(idx - 1) / (num_buses - 1)]
+         end
+
         # Get timestamps for this bus
+        if isnothing(bus_info.timestamps)
+             println("Warning: Timestamps missing for bus $(bus_info.name). Skipping path plotting.")
+             continue
+        end
         timestamps = bus_info.timestamps  # Array of (arc, time) tuples
-        
+
         # Create a lookup dictionary for easier access
         timestamp_dict = Dict(arc => time for (arc, time) in timestamps)
-        
-        for (i, arc) in enumerate(bus_info.path)
-            from_node, to_node = arc.arc_start, arc.arc_end
-            
-            # Get coordinates and times
-            if from_node.stop_id == 0  # From depot
-                from_x, from_y = depot
-                from_time = timestamp_dict[arc]
 
-                # Add depot point
-                scatter!(p, 
-                    [depot[1]], 
-                    [depot[2]], 
+        for (i, arc) in enumerate(bus_info.path)
+             # The 'arc' structure needs to be understood. Assuming it has arc_start, arc_end
+             # which are Node-like structs containing stop_id, route_id (or bus_line_id), line_id (or trip_id)
+             # Need to ensure these IDs match the filtered data (lines and bus_lines)
+             from_node = arc.arc_start
+             to_node = arc.arc_end
+
+             # Check if arc is in timestamp_dict, skip if not (might indicate infeasible path segment)
+             if !haskey(timestamp_dict, arc)
+                  println("Warning: Timestamp not found for arc $arc in bus $(bus_info.name). Skipping segment.")
+                  continue
+             end
+             from_time = timestamp_dict[arc]
+
+            # Get coordinates and times
+            if from_node.stop_id == depot_id_for_lookup  # From depot
+                from_x, from_y = depot_coords
+                # 'from_time' is the departure time from depot for this arc
+
+                # Add depot departure point marker for this bus trip segment
+                scatter!(p,
+                    [depot_coords[1]],
+                    [depot_coords[2]],
                     [from_time],
                     marker=:diamond,
-                    markersize=4,
-                    color=:black,
-                    markerstrokewidth=1,
+                    markersize=5, # Slightly larger?
+                    color=bus_color, # Color by bus
+                    markerstrokewidth=0.5,
                     markerstrokecolor=:white,
                     label=""
                 )
             else
-                bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == from_node.bus_line_id, bus_lines)]
-                from_x = bus_line.locations[from_node.stop_id][1]
-                from_y = bus_line.locations[from_node.stop_id][2]
-                from_time = timestamp_dict[arc]
+                # Find the physical bus line corresponding to the from_node's route_id
+                 # Assuming from_node has route_id field (or bus_line_id)
+                 bus_line_idx = findfirst(bl -> bl.bus_line_id == from_node.route_id, bus_lines) # Use filtered bus_lines
+                 if isnothing(bus_line_idx)
+                      println("Warning: Physical bus line not found for from_node $(from_node) in bus $(bus_info.name). Skipping segment.")
+                      continue
+                 end
+                 bus_line = bus_lines[bus_line_idx]
+
+                 # Find the index of the stop_id within the bus_line's stop list
+                 stop_idx = findfirst(id -> id == from_node.stop_id, bus_line.stop_ids)
+                 if isnothing(stop_idx) || stop_idx > length(bus_line.locations)
+                      println("Warning: Stop ID $(from_node.stop_id) not found or index out of bounds in bus line $(bus_line.bus_line_id) for bus $(bus_info.name). Skipping segment.")
+                      continue
+                 end
+                from_x = bus_line.locations[stop_idx][1]
+                from_y = bus_line.locations[stop_idx][2]
+                # 'from_time' is the departure time from this stop
             end
-            
-            if to_node.stop_id == 0  # To depot
-                to_x, to_y = depot
-                # Find the next timestamp in sequence
-                if i < length(timestamps)
-                    to_time = timestamp_dict[bus_info.path[i+1]]
-                else
-                    # Find the correct travel time from the last stop to depot
-                    depot_travel_idx = findfirst(tt -> 
-                        tt.bus_line_id_start == from_node.bus_line_id && 
-                        tt.bus_line_id_end == 0 &&
-                        tt.origin_stop_id == from_node.stop_id && 
-                        tt.destination_stop_id == 0 && 
-                        tt.is_depot_travel,
-                        travel_times)
-                    
-                    if depot_travel_idx === nothing
-                        @warn "Could not find depot travel time for:" from_node
-                        # Fallback to using the travel time difference
-                        to_time = from_time + bus_info.travel_time
-                    else
-                        depot_travel = travel_times[depot_travel_idx]
-                        to_time = from_time + depot_travel.time
-                    end
-                end
-                
-                # Plot depot connections
-                plot!(p, [from_x, to_x], [from_y, to_y], [from_time, to_time],
+
+            arrival_time = NaN # Initialize arrival time
+
+            if to_node.stop_id == depot_id_for_lookup  # To depot
+                to_x, to_y = depot_coords
+
+                 # Calculate arrival time at depot using the correct travel time
+                 # Find the travel time from the last stop (from_node) to depot
+                 depot_travel_idx = findfirst(tt ->
+                     tt.start_stop == from_node.stop_id &&
+                     tt.end_stop == depot_id_for_lookup &&
+                     tt.is_depot_travel,
+                     travel_times)
+
+                 if isnothing(depot_travel_idx)
+                     @warn "Could not find travel time to depot for bus $(bus_info.name) from node $(from_node.stop_id) to depot $(depot_id_for_lookup)."
+                     println("Skipping depot arrival segment.")
+                     continue
+                 else
+                     depot_travel = travel_times[depot_travel_idx]
+                     arrival_time = from_time + depot_travel.time
+                 end
+
+                # Plot travel segment to depot
+                plot!(p, [from_x, to_x], [from_y, to_y], [from_time, arrival_time],
                     linewidth=3,
                     color=bus_color,
-                    label=(i == 1 ? bus_info.name : nothing),
+                    label=(i == 1 ? bus_info.name : nothing), # Label first segment of the bus path
                     linestyle=:solid
                 )
-                
-                # Add depot point
-                scatter!(p, 
-                    [depot[1]], 
-                    [depot[2]], 
-                    [to_time],
-                    marker=:diamond,
-                    markersize=4,
-                    color=:black,
-                    markerstrokewidth=1,
-                    markerstrokecolor=:white,
-                    label=""
-                )
-                continue
+
+                # Add depot arrival point marker
+                 scatter!(p,
+                     [depot_coords[1]],
+                     [depot_coords[2]],
+                     [arrival_time],
+                     marker=:diamond,
+                     markersize=5,
+                     color=bus_color, # Color by bus
+                     markerstrokewidth=0.5,
+                     markerstrokecolor=:white,
+                     label=""
+                 )
+                 continue # End processing for this arc (to depot)
             end
-            
-            bus_line = bus_lines[findfirst(bl -> bl.bus_line_id == to_node.bus_line_id, bus_lines)]
-            to_x = bus_line.locations[to_node.stop_id][1]
-            to_y = bus_line.locations[to_node.stop_id][2]
-            
-            # Get the arrival time using actual travel time
-            if from_node.bus_line_id == 0 || to_node.bus_line_id == 0  # Depot connection
-                depot_travel_idx = findfirst(tt -> 
-                    tt.bus_line_id_start == (from_node.bus_line_id == 0 ? to_node.bus_line_id : from_node.bus_line_id) && 
-                    tt.bus_line_id_end == (to_node.bus_line_id == 0 ? from_node.bus_line_id : 0) &&
-                    tt.origin_stop_id == (from_node.bus_line_id == 0 ? to_node.stop_id : from_node.stop_id) && 
-                    tt.destination_stop_id == 0 && 
-                    tt.is_depot_travel,
-                    travel_times)
-                
-                if depot_travel_idx === nothing
-                    @warn "Could not find depot travel time for:" from_node to_node
-                    arrival_time = i < length(timestamps) ? timestamp_dict[bus_info.path[i+1]] : from_time + bus_info.travel_time
-                else
-                    depot_travel = travel_times[depot_travel_idx]
-                    arrival_time = from_time + depot_travel.time
-                end
-            elseif from_node.bus_line_id != to_node.bus_line_id || 
-                   (from_node.bus_line_id == to_node.bus_line_id && from_node.line_id != to_node.line_id)  # Inter-line connection or same route different line
-                # Find the correct travel time between different lines or same route different lines
-                travel_time_idx = findfirst(tt -> 
-                    tt.bus_line_id_start == from_node.bus_line_id && 
-                    tt.bus_line_id_end == to_node.bus_line_id &&
-                    tt.origin_stop_id == from_node.stop_id && 
-                    tt.destination_stop_id == to_node.stop_id && 
-                    !tt.is_depot_travel,
-                    travel_times)
-                
-                if travel_time_idx === nothing
-                    @warn "Could not find travel time for connection:" from_node to_node
-                    arrival_time = i < length(timestamps) ? timestamp_dict[bus_info.path[i+1]] : from_time + bus_info.travel_time
-                else
-                    inter_line_travel = travel_times[travel_time_idx]
-                    arrival_time = from_time + inter_line_travel.time
-                end
-            else  # Same line connection (same route and line)
-                arrival_time = i < length(timestamps) ? timestamp_dict[bus_info.path[i+1]] : from_time + bus_info.travel_time
+
+            # If to_node is not depot:
+            # Find the physical bus line for the to_node
+             bus_line_idx_to = findfirst(bl -> bl.bus_line_id == to_node.route_id, bus_lines)
+             if isnothing(bus_line_idx_to)
+                  println("Warning: Physical bus line not found for to_node $(to_node) in bus $(bus_info.name). Skipping segment.")
+                  continue
+             end
+             bus_line_to = bus_lines[bus_line_idx_to]
+
+             # Find the index of the stop_id within the bus_line's stop list
+             stop_idx_to = findfirst(id -> id == to_node.stop_id, bus_line_to.stop_ids)
+             if isnothing(stop_idx_to) || stop_idx_to > length(bus_line_to.locations)
+                  println("Warning: Stop ID $(to_node.stop_id) not found or index out of bounds in bus line $(bus_line_to.bus_line_id) for bus $(bus_info.name). Skipping segment.")
+                  continue
+             end
+            to_x = bus_line_to.locations[stop_idx_to][1]
+            to_y = bus_line_to.locations[stop_idx_to][2]
+
+            # Calculate the arrival time based on the type of arc/travel
+            # This part requires careful matching with how travel times are defined and stored
+            travel_arc_time = NaN
+
+            # Case 1: Travel within the same route/trip (consecutive stops)
+            if from_node.route_id == to_node.route_id && from_node.trip_id == to_node.trip_id
+                 # Find the scheduled time difference OR look up in travel_times if defined per segment
+                 # Assuming TravelTime struct might have entries for segments within a route
+                 segment_travel_idx = findfirst(tt ->
+                     tt.start_stop == from_node.stop_id &&
+                     tt.end_stop == to_node.stop_id &&
+                     !tt.is_depot_travel,
+                     travel_times)
+                 if !isnothing(segment_travel_idx)
+                     travel_arc_time = travel_times[segment_travel_idx].time
+                 else
+                      # Fallback: estimate from scheduled times in the 'lines' (filtered routes)
+                      route_idx = findfirst(r -> r.route_id == from_node.route_id && r.trip_id == from_node.trip_id, lines)
+                      if !isnothing(route_idx)
+                          current_route = lines[route_idx]
+                          from_stop_seq_idx = findfirst(id -> id == from_node.stop_id, current_route.stop_ids)
+                          to_stop_seq_idx = findfirst(id -> id == to_node.stop_id, current_route.stop_ids)
+                          if !isnothing(from_stop_seq_idx) && !isnothing(to_stop_seq_idx) && to_stop_seq_idx == from_stop_seq_idx + 1
+                              travel_arc_time = current_route.stop_times[to_stop_seq_idx] - current_route.stop_times[from_stop_seq_idx]
+                          end
+                      end
+                 end
+
+            # Case 2: Travel between different routes/trips (connection)
+            else # Includes inter-route connections and potentially deadheading not to/from depot
+                 connection_travel_idx = findfirst(tt ->
+                     tt.start_stop == from_node.stop_id &&
+                     tt.end_stop == to_node.stop_id &&
+                     !tt.is_depot_travel,
+                     travel_times)
+                 if !isnothing(connection_travel_idx)
+                     travel_arc_time = travel_times[connection_travel_idx].time
+                 end
             end
-            
-            # Plot the actual travel
+
+             if isnan(travel_arc_time)
+                  @warn "Could not determine travel time for arc $(arc) for bus $(bus_info.name)."
+                  println("Skipping segment due to unknown travel time.")
+                  continue # Skip plotting this segment
+             else
+                 arrival_time = from_time + travel_arc_time
+             end
+
+            # Plot the actual travel segment
             plot!(p, [from_x, to_x], [from_y, to_y], [from_time, arrival_time],
                 linewidth=3,
                 color=bus_color,
                 label=(i == 1 ? bus_info.name : nothing),
                 linestyle=:solid
             )
-            
-            # Add square marker and waiting time visualization at arrival
-            if to_node.line_id != :depot
-                next_line = lines[findfirst(l -> 
-                    l.line_id == to_node.line_id && 
-                    l.bus_line_id == to_node.bus_line_id, 
-                    lines)]
-                
-                # Use the scheduled stop time for the specific stop
-                scheduled_time = next_line.stop_times[to_node.stop_id]
-                
-                # Plot waiting time if there is any
-                if arrival_time + 0.00000001 < scheduled_time 
-                    plot!(p, [to_x, to_x], [to_y, to_y], [arrival_time, scheduled_time],
-                        linewidth=3,
-                        color=bus_color,
-                        label=nothing,
-                        linestyle=:solid
-                    )
-                    # Add black circle at arrival point
-                    scatter!(p, [to_x], [to_y], [arrival_time],
-                        marker=:circle,
-                        markercolor=:black,
-                        markersize=3,
-                        label=nothing
-                    )
-                end
+
+            # Add marker at arrival stop and visualize waiting time
+            # Find the scheduled departure time for the *next* arc starting from 'to_node' by this bus
+            scheduled_departure_time = NaN
+             if i < length(bus_info.path) # If there is a next arc
+                 next_arc = bus_info.path[i+1]
+                 # Ensure the next arc starts where the current one ends
+                 if next_arc.arc_start == to_node && haskey(timestamp_dict, next_arc)
+                     scheduled_departure_time = timestamp_dict[next_arc] # This is the actual departure time used in solution
+                 end
+             end
+
+            # Plot waiting time if arrival_time < scheduled_departure_time
+            if !isnan(scheduled_departure_time) && arrival_time < scheduled_departure_time - 1e-6
+                plot!(p, [to_x, to_x], [to_y, to_y], [arrival_time, scheduled_departure_time],
+                    linewidth=3,
+                    color=bus_color, # Continue bus color for waiting line
+                    label=nothing,
+                    linestyle=:solid # Solid line for waiting segment on bus path
+                )
+                # Add marker at arrival point (start of waiting)
+                scatter!(p, [to_x], [to_y], [arrival_time],
+                    marker=:circle,
+                    markercolor=bus_color, # Circle colored by bus
+                    markersize=3,
+                    markerstrokecolor=:black,
+                    markerstrokewidth=0.5,
+                    label=nothing
+                )
+                 # Add marker at departure point (end of waiting)
+                 scatter!(p, [to_x], [to_y], [scheduled_departure_time],
+                     marker=:circle,
+                     markercolor=bus_color, # Circle colored by bus
+                     markersize=3,
+                     markerstrokecolor=:black,
+                     markerstrokewidth=0.5,
+                     label=nothing
+                 )
+            else
+                 # If no waiting or no next arc, just add marker at arrival time
+                 scatter!(p, [to_x], [to_y], [arrival_time],
+                     marker=:circle,
+                     markercolor=bus_color,
+                     markersize=3,
+                     markerstrokecolor=:black,
+                     markerstrokewidth=0.5,
+                     label=nothing
+                 )
             end
-        end
-    end
+        end # End loop through arcs in bus path
+    end # End loop through buses
+
+    # Add legend for buses if num_buses > 0
+     if num_buses > 0
+         # Manually create legend entries because automatic labeling might be inconsistent
+         bus_names = [result.buses[bus_id].name for bus_id in bus_ids]
+         # Recreate colors based on sorted order
+         bus_colors_sorted = if num_buses == 1
+                                [colors[1]]
+                            else
+                                [colors[(idx - 1) / (num_buses - 1)] for idx in 1:num_buses]
+                            end
+
+         for (name, color) in zip(bus_names, bus_colors_sorted)
+             # Plot a dummy series for the legend entry
+             plot!(p, [NaN], [NaN], [NaN], label=name, linewidth=3, color=color)
+         end
+         plot!(p, legend=:outertopright) # Adjust legend position if needed
+     end
+
+
     return p
 end
+
 
 
 

@@ -41,9 +41,8 @@ struct PassengerDemand
 end
 
 struct TravelTime
-    origin::NamedTuple{(:route_id, :trip_id, :trip_sequence, :stop_id), Tuple{Int, Int, Int, Int}}
-    destination::NamedTuple{(:route_id, :trip_id, :trip_sequence, :stop_id), Tuple{Int, Int, Int, Int}}
-    day::String
+    start_stop::Int
+    end_stop::Int
     time::Float64
     is_depot_travel::Bool
 end
