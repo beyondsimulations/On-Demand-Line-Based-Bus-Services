@@ -348,7 +348,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     end
                 end
                 
-                # Calculate capacity usage at this arc
+                # Calculate capacity usage at this arcz
                 capacity = 0
                 # Track passengers that are on the bus for this arc
                 for demand in parameters.passenger_demands

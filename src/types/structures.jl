@@ -44,6 +44,7 @@ struct TravelTime
     end_stop::Int
     time::Float64
     is_depot_travel::Bool
+    depot_id::Int
 end
 
 struct Depot
@@ -81,7 +82,7 @@ end
 mutable struct ModelArc
     arc_start::ModelStation
     arc_end::ModelStation
-    bus_id::Int
+    bus_id::String
     demand_id::Tuple{Int, Int}
     demand::Int
     kind::String

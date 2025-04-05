@@ -67,9 +67,9 @@ function create_parameters(
             bus = Bus(
                 string(i), # Simple ID
                 1000.0, # Effectively infinite capacity
-                0.0, # Generic start
-                0.0, 0.0, # No breaks
-                0.0, 0.0, # No breaks
+                -60.0, # Generic start
+                -60, 0.0, # No breaks
+                -60, 0.0, # No breaks
                 latest_end_target_day # Generic end
             )
             bus.depot_id = depot.depot_id # Assign depot ID
@@ -89,9 +89,9 @@ function create_parameters(
             bus = Bus(
                 string(bus_id),
                 capacity,
-                0.0, # Generic start
-                0.0, 0.0, # No breaks
-                0.0, 0.0, # No breaks
+                -60, # Generic start
+                -60, -60, # No breaks
+                -60, -60, # No breaks
                 latest_end_target_day # Generic end
             )
             bus.depot_id = depot.depot_id # Assign depot ID
@@ -148,11 +148,11 @@ function create_parameters(
                 if calculated_shift_end >= 1440.0 # Check if it runs into target day
                     println("    Found overnight shift: $(row.shiftnr), original end: $(calculated_shift_end)")
                     # ... (Adjust times: adj_start, adj_end, adj_breaks) ...
-                    adj_start = 0.0
+                    adj_start = -60.0
                     adj_end = calculated_shift_end - 1440.0
-                    adj_break_start_1 = max(0.0, calculated_break_start_1 - 1440.0)
+                    adj_break_start_1 = max(-60.0, calculated_break_start_1 - 1440.0)
                     adj_break_end_1 = calculated_break_end_1 - 1440.0
-                    adj_break_start_2 = max(0.0, calculated_break_start_2 - 1440.0)
+                    adj_break_start_2 = max(-60.0, calculated_break_start_2 - 1440.0)
                     adj_break_end_2 = calculated_break_end_2 - 1440.0
                     if adj_break_end_1 < adj_break_start_1 adj_break_end_1 = adj_break_start_1 end
                     if adj_break_end_2 < adj_break_start_2 adj_break_end_2 = adj_break_start_2 end

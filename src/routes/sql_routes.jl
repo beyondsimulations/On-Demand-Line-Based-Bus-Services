@@ -261,6 +261,7 @@ if !isempty(all_daily_timetables)
 
     # Reorder columns for clarity
     final_cols = ["day", "route_id", "trip_sequence_in_line", "trip_id", "stop_sequence", "stop_id", "stop_name", "x", "y", "arrival_time", "arrival_minutes_since_midnight"]
+    combined_timetable.stop_sequence = combined_timetable.stop_sequence .+ 1
     existing_final_cols = filter(col -> col in names(combined_timetable), final_cols)
     select!(combined_timetable, existing_final_cols)
 

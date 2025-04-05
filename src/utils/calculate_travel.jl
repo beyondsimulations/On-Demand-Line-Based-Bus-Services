@@ -116,7 +116,8 @@ function compute_travel_times(routes::Vector{Route}, depots::Vector{Depot})::Vec
                     stop_a_id, # Origin Stop ID
                     stop_b_id, # Destination Stop ID
                     time_ab,
-                    is_depot
+                    is_depot,
+                    depot_id
                 ))
             end # end inner loop (stop_b)
         end # end outer loop (stop_a)

@@ -20,20 +20,20 @@ include("models/solve_models.jl")
 include("data/loader.jl")
 
 # Set the depots to run the model for
-depots_to_process_names = ["VLP Schwerin"]
+depots_to_process_names = ["VLP Parchim"]
 dates_to_process = [Date(2024, 8, 22)]
 
 # Define settings for solving
 settings = [
-    # NO_CAPACITY_CONSTRAINT,
-    # CAPACITY_CONSTRAINT,
-    CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+    NO_CAPACITY_CONSTRAINT,
+    #CAPACITY_CONSTRAINT,
+    #CAPACITY_CONSTRAINT_DRIVER_BREAKS,
 ]
 
 subsettings = [
-    #ALL_LINES,
-    # ALL_LINES_WITH_DEMAND,
-    ONLY_DEMAND,
+    ALL_LINES,
+    #ALL_LINES_WITH_DEMAND,
+    #ONLY_DEMAND,
 ]
 
 # Load all data
@@ -56,17 +56,17 @@ for depot in depots_to_process
         # Plot 2D Network
         println("  Generating 2D plot...")
         # Pass all routes, the specific depot, and date
-        network_plot_2d = plot_network(data.routes, depot, date)
+        #network_plot_2d = plot_network(data.routes, depot, date)
         # Display or save the plot
-        display(network_plot_2d)
+        #display(network_plot_2d)
         # savefig(network_plot_2d, "network_2d_$(depot.depot_name)_$(date).html") # Optional: Save plot
 
         # Plot 3D Network
         println("  Generating 3D plot...")
         # Pass all routes, all travel times, the specific depot, and date
-        network_plot_3d = plot_network_3d(data.routes, data.travel_times, depot, date)
+        #network_plot_3d = plot_network_3d(data.routes, data.travel_times, depot, date)
         # Display or save the plot
-        display(network_plot_3d)
+        #display(network_plot_3d)
         # savefig(network_plot_3d, "network_3d_$(depot.depot_name)_$(date).html") # Optional: Save plot
     end
 end
