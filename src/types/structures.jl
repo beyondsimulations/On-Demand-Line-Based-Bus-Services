@@ -12,8 +12,7 @@ struct Route
 end
 
 mutable struct Bus
-    bus_id::Int
-    day::String
+    bus_id::String
     capacity::Float64
     shift_start::Float64
     break_start_1::Float64
@@ -23,8 +22,8 @@ mutable struct Bus
     shift_end::Float64
     depot_id::Int
     # Constructor for Setting
-    function Bus(id::Int, capacity::Union{Int,Float64}, shift_start::Union{Int,Float64}, break_start_1::Union{Int,Float64}, break_end_1::Union{Int,Float64}, break_start_2::Union{Int,Float64}, break_end_2::Union{Int,Float64}, shift_end::Union{Int,Float64})
-        new(id, Float64(capacity), Float64(shift_start), Float64(break_start_1), Float64(break_end_1), Float64(break_start_2), Float64(break_end_2), Float64(shift_end))
+    function Bus(id::String, capacity::Union{Int,Float64}, shift_start::Union{Int,Float64}, break_start_1::Union{Int,Float64}, break_end_1::Union{Int,Float64}, break_start_2::Union{Int,Float64}, break_end_2::Union{Int,Float64}, shift_end::Union{Int,Float64})
+        new(string(id), Float64(capacity), Float64(shift_start), Float64(break_start_1), Float64(break_end_1), Float64(break_start_2), Float64(break_end_2), Float64(shift_end))
     end
 
 end
@@ -60,7 +59,7 @@ struct ProblemParameters
     buses::Vector{Bus}
     travel_times::Vector{TravelTime}
     passenger_demands::Vector{PassengerDemand}
-    depots::Vector{Depot}
+    depot::Depot
 end
 
 mutable struct ModelStation
