@@ -20,7 +20,7 @@ include("models/solve_models.jl")
 include("data/loader.jl")
 
 # Set the depots to run the model for
-depots_to_process_names = ["VLP Schwerin"]
+depots_to_process_names = ["VLP Boizenburg"]
 dates_to_process = [Date(2024, 8, 22)]
 
 # Define settings for solving
@@ -32,8 +32,8 @@ settings = [
 
 subsettings = [
     #ALL_LINES,
-    #ALL_LINES_WITH_DEMAND,
-    ONLY_DEMAND,
+    ALL_LINES_WITH_DEMAND,
+    #ONLY_DEMAND,
 ]
 
 # Load all data
