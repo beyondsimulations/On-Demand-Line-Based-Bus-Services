@@ -28,14 +28,20 @@ mutable struct Bus
 
 end
 
+mutable struct ModelStation
+    id::Int
+    route_id::Int
+    trip_id::Int
+    trip_sequence::Int
+    stop_sequence::Int
+end
+
 struct PassengerDemand
     demand_id::Int
     date::Date
-    route_id::Int
-    trip_id::Int
+    origin::ModelStation
+    destination::ModelStation
     depot_id::Int
-    origin_stop_id::Int
-    destination_stop_id::Int
     demand::Float64
 end
 
@@ -63,20 +69,17 @@ struct ProblemParameters
     depot::Depot
 end
 
-mutable struct ModelStation
-    route_id::Int
-    trip_id::Int
-    stop_id::Int
-end
 
 import Base: hash, isequal
 function Base.hash(x::ModelStation, h::UInt)
-    hash((x.route_id, x.stop_id), h)
+    hash((x.route_id, x.trip_id, x.trip_sequence, x.stop_sequence), h)
 end
 
 function Base.isequal(x::ModelStation, y::ModelStation)
     return x.route_id == y.route_id && 
-           x.stop_id == y.stop_id
+           x.trip_id == y.trip_id &&
+           x.trip_sequence == y.trip_sequence &&
+           x.stop_sequence == y.stop_sequence
 end
 
 mutable struct ModelArc
@@ -92,8 +95,7 @@ end
 struct NetworkFlowSolution
     status::Symbol
     objective_value::Union{Float64, Nothing}
-    timestamps::Union{Dict, Nothing}
-    buses::Union{Dict{Int, NamedTuple{(:name, :path, :travel_time, :capacity_usage, :timestamps), 
+    buses::Union{Dict{String, NamedTuple{(:name, :path, :travel_time, :capacity_usage, :timestamps), 
         Tuple{String, Vector{Any}, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}, Nothing}
     solve_time::Union{Float64, Nothing}
 end 

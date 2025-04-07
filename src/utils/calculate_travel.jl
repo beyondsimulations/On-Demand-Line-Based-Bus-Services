@@ -97,7 +97,7 @@ function compute_travel_times(routes::Vector{Route}, depots::Vector{Depot})::Vec
             loc_a = stop_locations[stop_a_id]
 
             for j in 1:length(stop_list)
-                if i == j continue end # Skip travel from a stop to itself
+                # if i == j continue end # Skip travel from a stop to itself # REMOVED
 
                 stop_b_id = stop_list[j]
                  if !haskey(stop_locations, stop_b_id)
@@ -106,8 +106,9 @@ function compute_travel_times(routes::Vector{Route}, depots::Vector{Depot})::Vec
                  end
                 loc_b = stop_locations[stop_b_id]
 
-                dist_ab = haversine_distance(loc_a[1], loc_a[2], loc_b[1], loc_b[2])
-                time_ab = calculate_travel_time_minutes(dist_ab)
+                # When i == j, loc_a will be the same as loc_b
+                dist_ab = haversine_distance(loc_a[1], loc_a[2], loc_b[1], loc_b[2]) # Should be 0 if i == j
+                time_ab = calculate_travel_time_minutes(dist_ab) # Should be 0 if i == j
 
                 # Check if this travel involves the depot stop
                 is_depot = (stop_a_id == depot_id || stop_b_id == depot_id)
@@ -123,6 +124,6 @@ function compute_travel_times(routes::Vector{Route}, depots::Vector{Depot})::Vec
         end # end outer loop (stop_a)
     end # end depot loop
 
-    println("Calculated $(length(travel_times_list)) all-pairs travel times within depot zones.")
+    println("Calculated $(length(travel_times_list)) all-pairs travel times within depot zones (including self-loops).") # UPDATED print message
     return travel_times_list
 end

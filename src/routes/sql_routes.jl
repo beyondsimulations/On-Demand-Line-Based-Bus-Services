@@ -211,6 +211,11 @@ for day in days
             # 3. Sort DataFrame correctly in Julia
             sort!(timetable, [:route_id, :trip_start_minute, :trip_id, :stop_sequence])
 
+            # 3.5 Recalculate stop_sequence within each trip to be consecutive
+            println("Recalculating stop sequences for $day...")
+            timetable = transform(groupby(timetable, :trip_id), eachindex => :stop_sequence)
+            println("Stop sequences recalculated.")
+
             # 4. Calculate trip sequence based on the new Julia sort order
             unique_trips = unique(timetable[!, [:route_id, :trip_id]]) # Order preserved from sort!
             trip_sequences = transform(groupby(unique_trips, :route_id), eachindex => :trip_sequence_in_line)
@@ -261,7 +266,6 @@ if !isempty(all_daily_timetables)
 
     # Reorder columns for clarity
     final_cols = ["day", "route_id", "trip_sequence_in_line", "trip_id", "stop_sequence", "stop_id", "stop_name", "x", "y", "arrival_time", "arrival_minutes_since_midnight"]
-    combined_timetable.stop_sequence = combined_timetable.stop_sequence .+ 1
     existing_final_cols = filter(col -> col in names(combined_timetable), final_cols)
     select!(combined_timetable, existing_final_cols)
 

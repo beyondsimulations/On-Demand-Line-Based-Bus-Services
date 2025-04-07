@@ -71,7 +71,8 @@ function load_routes(depots::Vector{Depot})
     grouped_routes = groupby(routes_df, [:day,:route_id, :trip_id, :trip_sequence_in_line])
 
     for group_df in grouped_routes
-        # Sort stops within the trip by sequence
+        # Sort stops within the trip by sequence from the original file first
+        # This ensures the order of stops remains correct even if sequences have gaps
         sorted_group = sort(group_df, :stop_sequence)
 
         # Extract data for the Route struct
@@ -80,21 +81,20 @@ function load_routes(depots::Vector{Depot})
         trip_id = Int(first(sorted_group.trip_id))     # From CSV trip_id
         trip_sequence = Int(first(sorted_group.trip_sequence_in_line)) # From CSV trip_sequence_in_line
 
-        stop_sequence = Vector{Int}(sorted_group.stop_sequence)
         stop_ids = Vector{Int}(sorted_group.stop_id)
         stop_names = Vector{String}(sorted_group.stop_name)
         stop_times = Vector{Float64}(sorted_group.arrival_minutes_since_midnight)
         locations = Vector{Tuple{Float64, Float64}}([(row.x, row.y) for row in eachrow(sorted_group)])
-
         depot_id = Int(depot_dict[first(sorted_group.depot)])
+        original_stop_sequence = Vector{Int}(sorted_group.stop_sequence)
 
-        # Create and add the Route object
+        # Create and add the Route object using the original sequence
         push!(routes_list, Route(
             route_id,
             day,
             trip_id,
             trip_sequence,
-            stop_sequence,
+            original_stop_sequence,
             stop_ids,
             stop_names,
             stop_times,

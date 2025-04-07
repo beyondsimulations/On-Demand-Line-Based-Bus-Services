@@ -22,6 +22,9 @@ function get_day_abbr(date::Date)::Symbol
     return day_map[day_idx]
 end
 
+# Define a constant for the effective start time buffer for buses starting before the target day
+const EFFECTIVE_START_TIME_BUFFER = -60.0 # Minutes before target day midnight
+
 function create_parameters(
     setting::Setting, 
     subsetting::SubSetting,
@@ -67,9 +70,9 @@ function create_parameters(
             bus = Bus(
                 string(i), # Simple ID
                 1000.0, # Effectively infinite capacity
-                -60.0, # Generic start
-                -60, 0.0, # No breaks
-                -60, 0.0, # No breaks
+                EFFECTIVE_START_TIME_BUFFER, # Generic start using the constant
+                EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
+                EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
                 latest_end_target_day # Generic end
             )
             bus.depot_id = depot.depot_id # Assign depot ID
@@ -89,9 +92,9 @@ function create_parameters(
             bus = Bus(
                 string(bus_id),
                 capacity,
-                -60, # Generic start
-                -60, -60, # No breaks
-                -60, -60, # No breaks
+                EFFECTIVE_START_TIME_BUFFER, # Generic start using the constant
+                EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
+                EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
                 latest_end_target_day # Generic end
             )
             bus.depot_id = depot.depot_id # Assign depot ID
@@ -148,12 +151,15 @@ function create_parameters(
                 if calculated_shift_end >= 1440.0 # Check if it runs into target day
                     println("    Found overnight shift: $(row.shiftnr), original end: $(calculated_shift_end)")
                     # ... (Adjust times: adj_start, adj_end, adj_breaks) ...
-                    adj_start = -60.0
+                    # Use the constant for the effective start time
+                    adj_start = EFFECTIVE_START_TIME_BUFFER 
                     adj_end = calculated_shift_end - 1440.0
-                    adj_break_start_1 = max(-60.0, calculated_break_start_1 - 1440.0)
+                    # Ensure breaks starting before target day midnight also use the buffer if needed
+                    adj_break_start_1 = max(EFFECTIVE_START_TIME_BUFFER, calculated_break_start_1 - 1440.0)
                     adj_break_end_1 = calculated_break_end_1 - 1440.0
-                    adj_break_start_2 = max(-60.0, calculated_break_start_2 - 1440.0)
+                    adj_break_start_2 = max(EFFECTIVE_START_TIME_BUFFER, calculated_break_start_2 - 1440.0)
                     adj_break_end_2 = calculated_break_end_2 - 1440.0
+                    # Ensure break end is not before break start after adjustment
                     if adj_break_end_1 < adj_break_start_1 adj_break_end_1 = adj_break_start_1 end
                     if adj_break_end_2 < adj_break_start_2 adj_break_end_2 = adj_break_start_2 end
 
@@ -175,6 +181,8 @@ function create_parameters(
         end
 
         # --- 2. Process Shifts for the Target Day ---
+        # IMPORTANT: These shifts start *on* the target day and should use their actual start times.
+        # Do NOT use EFFECTIVE_START_TIME_BUFFER for these.
         target_day_abbr = get_day_abbr(date)
         println("  Checking for shifts defined for target day ($date, :$target_day_abbr)...")
         target_day_shifts_df = filter(row -> row.depot == depot.depot_name && !ismissing(row[target_day_abbr]) && !isempty(string(row[target_day_abbr])), data.shifts_df)
@@ -187,7 +195,8 @@ function create_parameters(
              println("    Processing target day shift: $bus_id_str")
 
              # --- Calculate times relative to target day's start ---
-             shift_start = time_string_to_minutes(string(row.shiftstart))
+             # Use the actual shift start time from the data
+             shift_start = time_string_to_minutes(string(row.shiftstart)) 
              break_start_1 = time_string_to_minutes(string(row."breakstart 1"))
              break_end_1 = time_string_to_minutes(string(row."breakend 1"))
              break_start_2 = time_string_to_minutes(string(row."breakstart 2"))
@@ -207,7 +216,7 @@ function create_parameters(
              # Note: calculated_shift_end_today might be > 1440 here, that's okay.
 
              bus = Bus(
-                bus_id_str, default_capacity, shift_start,
+                bus_id_str, default_capacity, shift_start, # Use actual shift_start
                 break_start_1, break_end_1, # Use potentially adjusted break times
                 break_start_2, break_end_2, # Use potentially adjusted break times
                 calculated_shift_end_today # Use the potentially > 1440 end time
@@ -251,16 +260,21 @@ function create_parameters(
         # Ensure correct parsing, handle potential missing or non-integer values gracefully
         route_id_val = tryparse(Int, string(row.Linie))
         trip_id_val = tryparse(Int, string(row.trip_id))
-        origin_stop_id_val = tryparse(Int, string(row.einstieg_stop_id))
-        destination_stop_id_val = tryparse(Int, string(row.ausstieg_stop_id))
+        trip_sequence_val = tryparse(Int, string(row.trip_sequence_in_line))
+        origin_id_val = tryparse(Int, string(row.einstieg_stop_id))
+        destination_id_val = tryparse(Int, string(row.ausstieg_stop_id))
+        origin_stop_sequence_val = tryparse(Int, string(row.einstieg_stop_sequence))
+        destination_stop_sequence_val = tryparse(Int, string(row.ausstieg_stop_sequence))
         demand_value_val = tryparse(Float64, string(row."angem.Pers"))
 
          # Add a check for invalid parsed IDs or demand
-         if isnothing(route_id_val) || isnothing(trip_id_val) || isnothing(origin_stop_id_val) || isnothing(destination_stop_id_val) || isnothing(demand_value_val)
+         # Also check the stop sequence values which are crucial for ModelStation
+         if isnothing(route_id_val) || isnothing(trip_id_val) || isnothing(trip_sequence_val) || isnothing(origin_id_val) || isnothing(destination_id_val) || isnothing(demand_value_val) || isnothing(origin_stop_sequence_val) || isnothing(destination_stop_sequence_val)
              skipped_parsing += 1
              if rows_checked_detail < 5
                  println("  [Debug Row $processed_count] Skipped: Parsing error.")
-                 println("    Parsed values: route=$(route_id_val), trip=$(trip_id_val), origin=$(origin_stop_id_val), dest=$(destination_stop_id_val), demand=$(demand_value_val)")
+                 # Include all parsed values in the debug output for clarity
+                 println("    Parsed values: route=$(route_id_val), trip=$(trip_id_val), trip_seq=$(trip_sequence_val), origin_id=$(origin_id_val), dest_id=$(destination_id_val), origin_seq=$(origin_stop_sequence_val), dest_seq=$(destination_stop_sequence_val), demand=$(demand_value_val)")
                  rows_checked_detail += 1
              end
              continue
@@ -275,19 +289,20 @@ function create_parameters(
         current_demand_id += 1
         route_id = route_id_val
         trip_id = trip_id_val
-        origin_stop_id = origin_stop_id_val
-        destination_stop_id = destination_stop_id_val
+        trip_sequence = trip_sequence_val
+        origin_stop_id = origin_id_val
+        destination_stop_id = destination_id_val
+        origin_stop_sequence = origin_stop_sequence_val
+        destination_stop_sequence = destination_stop_sequence_val
         demand_value = demand_value_val
 
 
         push!(passenger_demands, PassengerDemand(
             current_demand_id,
             date,
-            route_id,
-            trip_id,
+            ModelStation(origin_stop_id, route_id, trip_id, trip_sequence, origin_stop_sequence),
+            ModelStation(destination_stop_id, route_id, trip_id, trip_sequence, destination_stop_sequence),
             depot_id,
-            origin_stop_id,
-            destination_stop_id,
             demand_value
         ))
     end
@@ -308,9 +323,11 @@ function create_parameters(
                  # Ensure stop_ids is not empty before accessing elements
                  if !isempty(route.stop_ids)
                     push!(passenger_demands, PassengerDemand(
-                        start_id + synthetic_added_count, date, route.route_id, route.trip_id, depot.depot_id,
-                        route.stop_ids[1], # first stop
-                        route.stop_ids[end], # last stop
+                        start_id + synthetic_added_count, 
+                        date, 
+                        ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]),
+                        ModelStation(route.stop_ids[end], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[end]),
+                        depot.depot_id,
                         0.0 # no actual demand
                     ))
                     synthetic_added_count +=1
@@ -336,9 +353,10 @@ function create_parameters(
 
                      if !is_existing_synthetic
                         push!(passenger_demands, PassengerDemand(
-                            start_id + synthetic_added_count, date, route.route_id, route.trip_id, depot.depot_id,
-                            route.stop_ids[1], # first stop
-                            route.stop_ids[end], # last stop
+                            start_id + synthetic_added_count, date,
+                            ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]),
+                            ModelStation(route.stop_ids[end], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[end]),
+                            depot.depot_id,
                             0.0 # no actual demand
                         ))
                         synthetic_added_count += 1
