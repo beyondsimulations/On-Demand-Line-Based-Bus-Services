@@ -23,7 +23,7 @@ function get_day_abbr(date::Date)::Symbol
 end
 
 # Define a constant for the effective start time buffer for buses starting before the target day
-const EFFECTIVE_START_TIME_BUFFER = -60.0 # Minutes before target day midnight
+const EFFECTIVE_START_TIME_BUFFER = -120.0 # Minutes before target day midnight
 
 function create_parameters(
     setting::Setting, 
@@ -303,7 +303,7 @@ function create_parameters(
             ModelStation(origin_stop_id, route_id, trip_id, trip_sequence, origin_stop_sequence),
             ModelStation(destination_stop_id, route_id, trip_id, trip_sequence, destination_stop_sequence),
             depot_id,
-            demand_value
+            demand_value,
         ))
     end
     println("  Finished processing rows. Total: $(processed_count), Skipped (Date/Depot): $(skipped_date_depot), Skipped (Parsing): $(skipped_parsing)")
@@ -339,16 +339,18 @@ function create_parameters(
         elseif subsetting == ALL_LINES_WITH_DEMAND
             # Find routes that had *any* real demand associated in the original filtering
             # Use a set of tuples (route_id, trip_id) from the demands created *before* synthetic ones.
-            routes_with_real_demand_ids = Set((d.route_id, d.trip_id) for d in passenger_demands if d.demand > 0.0) # Check based on already created demands
+            # Access route_id and trip_id via the origin field
+            routes_with_real_demand_ids = Set((d.origin.route_id, d.origin.trip_id) for d in passenger_demands if d.demand > 0.0) # Check based on already created demands
              println("    Checking $(length(relevant_routes)) relevant routes for existing real demand...")
              synthetic_added_count = 0
             for route in relevant_routes # No need for enumerate here
                  if (route.route_id, route.trip_id) in routes_with_real_demand_ids && !isempty(route.stop_ids)
                     # Check if a synthetic demand for this exact route doesn't already exist (in case real demand covered the full line)
-                     is_existing_synthetic = any(pd -> pd.route_id == route.route_id &&
-                                                      pd.trip_id == route.trip_id &&
-                                                      pd.origin_stop_id == route.stop_ids[1] &&
-                                                      pd.destination_stop_id == route.stop_ids[end] &&
+                     # Access fields via origin and destination
+                     is_existing_synthetic = any(pd -> pd.origin.route_id == route.route_id &&
+                                                      pd.origin.trip_id == route.trip_id &&
+                                                      pd.origin.id == route.stop_ids[1] &&
+                                                      pd.destination.id == route.stop_ids[end] &&
                                                       pd.demand == 0.0, passenger_demands)
 
                      if !is_existing_synthetic
@@ -383,6 +385,7 @@ function create_parameters(
         busses,
         data.travel_times,
         passenger_demands,
-        depot
+        depot,
+        lowercase(Dates.dayname(date))
     )
 end

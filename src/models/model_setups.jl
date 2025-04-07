@@ -4,9 +4,26 @@ function setup_network_flow(parameters::ProblemParameters)
     
     buses = parameters.buses
     depot = parameters.depot
-    routes = filter(r -> r.depot_id == depot.depot_id, parameters.routes)
+    target_day = parameters.day
+    routes = filter(r -> r.depot_id == depot.depot_id && r.day == target_day, parameters.routes)
     passenger_demands = filter(d -> d.depot_id == depot.depot_id, parameters.passenger_demands)
     travel_times = filter(tt -> tt.depot_id == depot.depot_id, parameters.travel_times)
+
+    println("Routes: $(length(routes))")
+    println("Demands: $(length(passenger_demands))")
+    
+    # Print the first 5 demands (or fewer if less than 5 exist)
+    println("First 5 demands (filtered by depot):")
+    num_demands_to_print = min(length(passenger_demands), 5)
+    if num_demands_to_print > 0
+        for i in 1:num_demands_to_print
+            println("  Demand $(i): $(passenger_demands[i])")
+        end
+    else
+        println("  No demands found for this depot.")
+    end
+    
+    println("Travel times: $(length(travel_times))")
 
     print_level = 0
 
@@ -61,7 +78,8 @@ function setup_network_flow(parameters::ProblemParameters)
 
         if !isempty(line_arcs)
             shift_end_time = buses[1].shift_end
-            depot_start_arcs, depot_end_arcs = add_depot_arcs_no_capacity_constraint!(line_arcs, routes, shift_end_time, travel_times, depot)
+            bus_shift_start_time = buses[1].shift_start
+            depot_start_arcs, depot_end_arcs = add_depot_arcs_no_capacity_constraint!(line_arcs, routes, shift_end_time, bus_shift_start_time, travel_times, depot)
         else
             println("Skipping depot arcs creation as no line arcs were generated.")
         end
@@ -254,9 +272,12 @@ function add_line_arcs_with_demand(routes, passenger_demands)
         for demand in passenger_demands
     )
 
+    println("Routes with demand: $(length(routes_with_demand))")
+
     for route in routes
         # Only add arc if this route has any associated demand
         if (route.route_id, route.trip_id, route.trip_sequence) in routes_with_demand
+            println("Adding arc for route $(route.route_id) $(route.trip_id) $(route.trip_sequence)")
             push!(line_arcs, ModelArc(
                 ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]), 
                 ModelStation(route.stop_ids[end], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[end]),
@@ -456,7 +477,7 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
     return line_arcs
 end
 
-function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::Vector{Route}, shift_end::Float64, travel_times::Vector{TravelTime}, depot::Depot)
+function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::Vector{Route}, shift_end::Float64, bus_shift_start::Float64, travel_times::Vector{TravelTime}, depot::Depot)
     # Create travel time lookup: (start_stop_id, end_stop_id) -> time
     println("Creating travel time lookup for depot arcs...")
     travel_time_lookup = Dict{Tuple{Int, Int}, Float64}()
@@ -517,7 +538,7 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
         if depot_to_start_time == Inf
              println("  Warning: Missing travel time from Depot $depot_id to Stop $first_stop_id (Route $route_id, Trip $trip_id, TripSequence $trip_sequence). Skipping start arc.")
              skipped_time_lookup += 1
-        elseif start_stop_time >= depot_to_start_time
+        elseif bus_shift_start + depot_to_start_time <= start_stop_time
                 push!(depot_start_arcs, ModelArc(
                 # Depot is represented by stop_sequence 0 for the specific route/trip
                 ModelStation(depot_id, route_id, trip_id, trip_sequence, 0),
@@ -528,6 +549,8 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
                 0,      # Demand value not relevant
                     "depot-start-arc"
                 ))
+        else # Added else block for debugging
+            println("  Info: Skipping depot start arc for Route=$route_id, Trip=$trip_id, TripSequence=$trip_sequence, StartStop=$first_stop_id. Reason: Start time ($start_stop_time) < Travel time from depot ($depot_to_start_time).")
         end
 
         # Check temporal feasibility for depot end arc

@@ -25,8 +25,8 @@ dates_to_process = [Date(2024, 8, 22)]
 
 # Define settings for solving
 settings = [
-    NO_CAPACITY_CONSTRAINT,
-    #CAPACITY_CONSTRAINT,
+    #NO_CAPACITY_CONSTRAINT,
+    CAPACITY_CONSTRAINT,
     #CAPACITY_CONSTRAINT_DRIVER_BREAKS,
 ]
 

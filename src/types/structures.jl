@@ -67,6 +67,7 @@ struct ProblemParameters
     travel_times::Vector{TravelTime}
     passenger_demands::Vector{PassengerDemand}
     depot::Depot
+    day::String
 end
 
 
