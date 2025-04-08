@@ -809,10 +809,10 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
                    color=bus_color,                 # Color for line and potentially marker
                    linewidth=1.5,
                    linestyle=:solid,
-                   # Specify marker attributes: shape, size. Color might be inherited.
-                   marker=(:circle, 1.5, stroke(0)), # stroke(0) removes marker border
-                   #hover="Bus: $(bus_info.name), $(bus_info.path)"
-             )
+                   marker=:circle,
+                   markersize = 1.5, # stroke(0) removes marker border
+                   markerstrokewidth = 0,
+                   )
         else
             println("    No path segments to plot for bus $(bus_info.name).")
             if legend_setting !== nothing

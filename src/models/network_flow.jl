@@ -211,6 +211,7 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
                  # Construct JuMP expressions efficiently
                  incoming_term = @expression(model, sum(x[arc] for arc in bus_incoming if arc.demand_id[2] == demand_id; init=0))
                  outgoing_term = @expression(model, sum(x[arc] for arc in bus_outgoing if arc.demand_id[1] == demand_id; init=0))
+
                  @constraint(model, incoming_term - outgoing_term == 0)
                  flow_con_count += 1
 
