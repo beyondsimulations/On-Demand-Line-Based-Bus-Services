@@ -84,15 +84,17 @@ function create_parameters(
         # Use shiftnr as ID, generic timings, and a default capacity.
         println("  Creating buses based on shifts (capacity constraint, shiftnr ID, generic times).")
 
-        # Calculate default capacity (e.g., max capacity of vehicles at this depot)
-        default_capacity = 0.0
+        # --- Get unique capacities for this depot ---
+        unique_capacities = Float64[]
         if !isempty(depot_vehicles_df)
-            default_capacity = Float64(maximum(depot_vehicles_df.seats))
-            println("  Using default capacity: $default_capacity (from largest vehicle)")
+            unique_capacities = unique(Float64.(depot_vehicles_df.seats))
+             println("  Found unique vehicle capacities at depot: $unique_capacities")
         else
-            default_capacity = 3.0 # Fallback if no vehicles defined
-             println("  Warning: No vehicles for depot, using fallback capacity: $default_capacity")
+             println("  Warning: No vehicles found for depot. Using fallback capacity: 3.0")
+             unique_capacities = [3.0] # Fallback if no vehicles defined
         end
+        # --- End Get unique capacities ---
+
 
         total_buses_created = 0
 
@@ -102,40 +104,50 @@ function create_parameters(
         # depot_shifts_df is already filtered for the target day and depot
         println("    Found $(nrow(depot_shifts_df)) shifts starting on target day.")
         for row in eachrow(depot_shifts_df)
-            bus_id_str = String(string(row.shiftnr)) # Use shiftnr directly
-            println("      Creating bus for target day shift: $bus_id_str")
-            bus = Bus(
-                 bus_id_str,
-                 default_capacity,
-                 EFFECTIVE_START_TIME_BUFFER, # Generic start using the constant
-                 EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
-                 EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
-                 latest_end_target_day # Generic end
-             )
-            bus.depot_id = depot.depot_id # Assign depot ID
-            push!(busses, bus)
-            total_buses_created += 1
-            target_day_shifts_added += 1
-        end
-         println("    Added $target_day_shifts_added buses for target day shifts.")
+             # --- Create a bus for each capacity type ---
+             original_shift_id = string(row.shiftnr)
+             for capacity in unique_capacities
+                 # Create unique ID: shiftnr_cap<Capacity>
+                 bus_id_str = original_shift_id * "_cap" * string(Int(capacity)) # Ensure capacity is Int for cleaner ID
+                 println("      Creating bus for shift $original_shift_id with capacity $capacity: $bus_id_str")
 
-         println("  Finished creating $total_buses_created buses based on shifts with generic times and shiftnr IDs.")
+                 bus = Bus(
+                      bus_id_str,
+                      capacity, # Use the specific capacity
+                      EFFECTIVE_START_TIME_BUFFER, # Generic start using the constant
+                      EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
+                      EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
+                      latest_end_target_day # Generic end
+                  )
+                 bus.depot_id = depot.depot_id # Assign depot ID
+                 push!(busses, bus)
+                 total_buses_created += 1
+             end
+             # --- End create bus per capacity ---
+            target_day_shifts_added += 1 # Count shifts processed, not buses created
+        end
+         println("    Processed $target_day_shifts_added target day shifts.") # Changed log message
+
+         println("  Finished creating $total_buses_created buses (multiple capacities per shift) with generic times and combined IDs.") # Changed log message
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
         println("  Processing shifts for CAPACITY_CONSTRAINT_DRIVER_BREAKS...")
-        # Create one Bus struct per applicable SHIFT at the depot.
-        # Use shift/break times. Capacity is tricky - use default/average from vehicles.
-        default_capacity = 0.0
+        # Create one Bus struct per applicable SHIFT *and* per unique VEHICLE CAPACITY at the depot.
+        # Use shift/break times.
+        # --- Get unique capacities for this depot ---
+        unique_capacities = Float64[]
         if !isempty(depot_vehicles_df)
-            # Use capacity of the largest vehicle found for this depot as default
-            default_capacity = Float64(maximum(depot_vehicles_df.seats))
-            println("  Using default capacity: $default_capacity (from largest vehicle)")
+            unique_capacities = unique(Float64.(depot_vehicles_df.seats))
+            println("  Found unique vehicle capacities at depot: $unique_capacities")
         else
-            default_capacity = 3.0 # Fallback if no vehicles defined
-             println("  Warning: No vehicles for depot, using fallback capacity: $default_capacity")
+            println("  Warning: No vehicles found for depot. Using fallback capacity: 3.0")
+            unique_capacities = [3.0] # Fallback if no vehicles defined
         end
+        # --- End Get unique capacities ---
+
 
         println("  Creating buses based on $(nrow(depot_shifts_df)) shifts found (capacity and breaks constraint).")
+        total_buses_created = 0 # Counter for total buses
 
         # --- 1. Process Shifts from Previous Day (Overnight) ---
         previous_date = date - Day(1)
@@ -173,7 +185,8 @@ function create_parameters(
 
 
                 if calculated_shift_end >= 1440.0 # Check if it runs into target day
-                    println("    Found overnight shift: $(row.shiftnr), original calculated end: $(calculated_shift_end)")
+                    original_shift_id = string(row.shiftnr)
+                    println("    Found overnight shift: $original_shift_id, original calculated end: $(calculated_shift_end)")
 
                     # --- Adjust times for the part on the target day ---
                     adj_start = EFFECTIVE_START_TIME_BUFFER
@@ -214,17 +227,24 @@ function create_parameters(
                     end
                     # --- End Break Processing ---
 
-                    bus_id_str = String(string(row.shiftnr) * "_cont") # Unique ID for continuation part
+                    # --- Create a bus for each capacity type ---
+                    for capacity in unique_capacities
+                         # Unique ID for continuation part + capacity: shiftnr_cont_cap<Capacity>
+                         bus_id_str = original_shift_id * "_cont_cap" * string(Int(capacity))
+                         println("      Creating continuation bus for shift $original_shift_id with capacity $capacity: $bus_id_str")
 
-                    bus = Bus(
-                        bus_id_str, default_capacity, adj_start,
-                        final_break_start_1, final_break_end_1, # Use final calculated values
-                        final_break_start_2, final_break_end_2, # Use final calculated values
-                        adj_end
-                    )
-                    bus.depot_id = depot.depot_id
-                    push!(busses, bus)
-                    println("      Added continuation bus. Target day times: Start=$(adj_start), End=$(adj_end), Breaks=[$(final_break_start_1)-$(final_break_end_1), $(final_break_start_2)-$(final_break_end_2)]")
+                         bus = Bus(
+                             bus_id_str, capacity, adj_start,
+                             final_break_start_1, final_break_end_1, # Use final calculated values
+                             final_break_start_2, final_break_end_2, # Use final calculated values
+                             adj_end
+                         )
+                         bus.depot_id = depot.depot_id
+                         push!(busses, bus)
+                         total_buses_created += 1
+                         println("        Target day times: Start=$(adj_start), End=$(adj_end), Breaks=[$(final_break_start_1)-$(final_break_end_1), $(final_break_start_2)-$(final_break_end_2)]")
+                    end
+                    # --- End create bus per capacity ---
                 end
             end
         else
@@ -233,7 +253,6 @@ function create_parameters(
 
         # --- 2. Process Shifts for the Target Day ---
         # IMPORTANT: These shifts start *on* the target day and should use their actual start times.
-        # Do NOT use EFFECTIVE_START_TIME_BUFFER for these.
         target_day_abbr = get_day_abbr(date)
         println("  Checking for shifts defined for target day ($date, :$target_day_abbr)...")
         target_day_shifts_df = filter(row -> row.depot == depot.depot_name && !ismissing(row[target_day_abbr]) && !isempty(string(row[target_day_abbr])), data.shifts_df)
@@ -242,12 +261,12 @@ function create_parameters(
         for row in eachrow(target_day_shifts_df)
 
              # Use the original shift number as the ID for the part starting today
-             bus_id_str = String(string(row.shiftnr))
-             println("    Processing target day shift: $bus_id_str")
+             original_shift_id = string(row.shiftnr)
+             println("    Processing target day shift: $original_shift_id")
 
              # --- Calculate times relative to target day's start ---
              # Use the actual shift start time from the data
-             shift_start = time_string_to_minutes(string(row.shiftstart)) 
+             shift_start = time_string_to_minutes(string(row.shiftstart))
              break_start_1 = time_string_to_minutes(string(row."breakstart 1"))
              break_end_1 = time_string_to_minutes(string(row."breakend 1"))
              break_start_2 = time_string_to_minutes(string(row."breakstart 2"))
@@ -266,20 +285,29 @@ function create_parameters(
              end
              # Note: calculated_shift_end_today might be > 1440 here, that's okay.
 
-             bus = Bus(
-                bus_id_str, default_capacity, shift_start, # Use actual shift_start
-                break_start_1, break_end_1, # Use potentially adjusted break times
-                break_start_2, break_end_2, # Use potentially adjusted break times
-                calculated_shift_end_today # Use the potentially > 1440 end time
-            )
-             bus.depot_id = depot.depot_id
-             push!(busses, bus)
-             println("      Added target day bus. Times: Start=$(shift_start), End=$(calculated_shift_end_today), Breaks=[$(break_start_1)-$(break_end_1), $(break_start_2)-$(break_end_2)]")
+             # --- Create a bus for each capacity type ---
+             for capacity in unique_capacities
+                 # Create unique ID: shiftnr_cap<Capacity>
+                 bus_id_str = original_shift_id * "_cap" * string(Int(capacity))
+                 println("      Creating bus for shift $original_shift_id with capacity $capacity: $bus_id_str")
+
+                 bus = Bus(
+                     bus_id_str, capacity, shift_start, # Use actual shift_start
+                     break_start_1, break_end_1, # Use potentially adjusted break times
+                     break_start_2, break_end_2, # Use potentially adjusted break times
+                     calculated_shift_end_today # Use the potentially > 1440 end time
+                 )
+                 bus.depot_id = depot.depot_id
+                 push!(busses, bus)
+                 total_buses_created += 1
+                 println("        Times: Start=$(shift_start), End=$(calculated_shift_end_today), Breaks=[$(break_start_1)-$(break_end_1), $(break_start_2)-$(break_end_2)]")
+             end
+             # --- End create bus per capacity ---
         end
     else
         throw(ArgumentError("Invalid setting: $setting"))
     end
-    println("  Finished creating $(length(busses)) Bus objects (including overnight splits).")
+    println("  Finished creating $(length(busses)) Bus objects (multiple capacities per shift, including overnight splits).") # Updated log message
 
     # --- Create passenger demands ---
     println("Creating passenger demands for Depot $(depot.depot_name) on $date...")
@@ -418,6 +446,21 @@ function create_parameters(
     end
     # Note: The original code passed passenger_demands_df to ProblemParameters.
     # Now we pass the created vector of PassengerDemand structs.
+
+    # --- Calculate vehicle counts per capacity for the depot ---
+    vehicle_capacity_counts = Dict{Float64, Int}()
+    if !isempty(depot_vehicles_df)
+        for capacity in depot_vehicles_df.seats
+            cap_float = Float64(capacity)
+            vehicle_capacity_counts[cap_float] = get(vehicle_capacity_counts, cap_float, 0) + 1
+        end
+        println("Calculated vehicle counts per capacity for depot $(depot.depot_name): $vehicle_capacity_counts")
+    else
+        println("Warning: No vehicles found for depot $(depot.depot_name), vehicle_capacity_counts will be empty.")
+        # Optionally, handle fallback if needed, but an empty dict signifies no vehicles
+    end
+    # --- End Calculate vehicle counts ---
+
     println("Finished creating parameters.")
 
     return ProblemParameters(
@@ -428,6 +471,7 @@ function create_parameters(
         data.travel_times,
         passenger_demands,
         depot,
-        lowercase(Dates.dayname(date))
+        lowercase(Dates.dayname(date)),
+        vehicle_capacity_counts # Pass the newly calculated counts
     )
 end

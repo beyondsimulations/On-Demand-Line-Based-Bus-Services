@@ -372,6 +372,41 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     end # End group loop
     println("Added $constraint_5_count passenger capacity constraints.")
 
+
+    # --- NEW Constraint 6: Limit number of buses per capacity type ---
+    println("Creating vehicle count constraints per capacity type (Constraint 6)...")
+    constraint_6_count = 0
+    # Use parameters.vehicle_capacity_counts (Dict{Float64, Int}) and bus_capacity_lookup (Dict{String, Float64})
+    if !isempty(parameters.vehicle_capacity_counts) && !isempty(network.depot_start_arcs)
+        for (capacity, available_count) in parameters.vehicle_capacity_counts
+             # Find all depot start arcs associated with buses of this specific capacity
+             arcs_for_this_capacity = ModelArc[]
+             for arc in network.depot_start_arcs
+                 # Look up the capacity of the bus associated with this arc
+                 bus_id = string(arc.bus_id)
+                 arc_bus_capacity = get(bus_capacity_lookup, bus_id, nothing)
+
+                 # Check if lookup was successful and capacity matches
+                 if !isnothing(arc_bus_capacity) && arc_bus_capacity == capacity
+                     push!(arcs_for_this_capacity, arc)
+                 end
+             end
+
+             # Add the constraint if any arcs were found for this capacity
+             if !isempty(arcs_for_this_capacity)
+                 @constraint(model, sum(x[arc] for arc in arcs_for_this_capacity) <= available_count)
+                 constraint_6_count += 1
+                 println("  Added constraint for capacity $capacity: max $available_count vehicles.")
+             else
+                  println("  No depot start arcs found for capacity $capacity, skipping constraint.")
+             end
+        end
+    else
+         println("  Skipping vehicle count constraints (no vehicle counts provided or no depot start arcs).")
+    end
+    println("Added $constraint_6_count vehicle count constraints.")
+    # --- End NEW Constraint 6 ---
+
     println("Model building complete.")
     return solve_and_return_results(model, network, parameters, parameters.buses)
 end

@@ -578,7 +578,7 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
                            base_alpha::Float64 = 0.8,
                            base_plot_connections::Bool = false,
                            base_plot_trip_markers::Bool = false,
-                           base_plot_trip_lines::Bool = false)
+                           base_plot_trip_lines::Bool = true)
 
      day_name = lowercase(Dates.dayname(date))
      # Filter routes for the given depot and date. These represent the "lines" (scheduled trips)

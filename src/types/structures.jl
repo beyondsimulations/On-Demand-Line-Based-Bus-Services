@@ -68,6 +68,7 @@ struct ProblemParameters
     passenger_demands::Vector{PassengerDemand}
     depot::Depot
     day::String
+    vehicle_capacity_counts::Dict{Float64, Int}
 end
 
 
