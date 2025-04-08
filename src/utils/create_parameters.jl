@@ -80,11 +80,9 @@ function create_parameters(
         end
 
     elseif setting == CAPACITY_CONSTRAINT
-        # Create buses based on the maximum trip_sequence number observed across
-        # all routes for the depot on the given day. This represents the peak
-        # number of concurrently operating buses needed from this depot.
-        # Use a default capacity based on vehicles at the depot.
-        println("  Creating buses based on max concurrent trip sequences across ALL routes (capacity constraint).")
+        # Create buses based on the number of applicable shifts for the depot on the given day.
+        # Use shiftnr as ID, generic timings, and a default capacity.
+        println("  Creating buses based on shifts (capacity constraint, shiftnr ID, generic times).")
 
         # Calculate default capacity (e.g., max capacity of vehicles at this depot)
         default_capacity = 0.0
@@ -96,36 +94,32 @@ function create_parameters(
              println("  Warning: No vehicles for depot, using fallback capacity: $default_capacity")
         end
 
-        # Filter routes for the current depot and date
-        relevant_routes = filter(r -> r.depot_id == depot.depot_id && lowercase(Dates.dayname(date)) == r.day, data.routes)
-
-        # Find the maximum trip_sequence value across all relevant routes
-        max_concurrent_trips = 0
-        if !isempty(relevant_routes)
-            max_concurrent_trips = maximum(r.trip_sequence for r in relevant_routes)
-        end
-
-        println("  Maximum concurrent trip sequence found for depot $(depot.depot_name) on $date: $max_concurrent_trips.")
-        println("  Creating $max_concurrent_trips buses total.")
-
         total_buses_created = 0
-        for i in 1:max_concurrent_trips
-            # Create a unique bus ID combining depot_id and an index
-            bus_id_str = string(depot.depot_id) * "_bus" * string(i) # Changed ID format
 
+        # --- 1. Process Shifts for the Target Day ---
+        target_day_shifts_added = 0
+        println("  Checking for shifts starting on target day ($date, :$day_abbr)...")
+        # depot_shifts_df is already filtered for the target day and depot
+        println("    Found $(nrow(depot_shifts_df)) shifts starting on target day.")
+        for row in eachrow(depot_shifts_df)
+            bus_id_str = String(string(row.shiftnr)) # Use shiftnr directly
+            println("      Creating bus for target day shift: $bus_id_str")
             bus = Bus(
-                bus_id_str,
-                default_capacity,
-                EFFECTIVE_START_TIME_BUFFER, # Generic start using the constant
-                EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
-                EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
-                latest_end_target_day # Generic end
-            )
+                 bus_id_str,
+                 default_capacity,
+                 EFFECTIVE_START_TIME_BUFFER, # Generic start using the constant
+                 EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
+                 EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
+                 latest_end_target_day # Generic end
+             )
             bus.depot_id = depot.depot_id # Assign depot ID
             push!(busses, bus)
             total_buses_created += 1
+            target_day_shifts_added += 1
         end
-        println("  Finished creating $total_buses_created buses based on overall max concurrent trips.")
+         println("    Added $target_day_shifts_added buses for target day shifts.")
+
+         println("  Finished creating $total_buses_created buses based on shifts with generic times and shiftnr IDs.")
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
         println("  Processing shifts for CAPACITY_CONSTRAINT_DRIVER_BREAKS...")
@@ -308,10 +302,6 @@ function create_parameters(
         row_date = strip(string(row."Abfahrt-Datum")) # Ensure string conversion and strip
         row_depot = strip(string(row.depot))          # Ensure string conversion and strip
 
-        if rows_checked_detail < 5
-            println("  [Debug Row $processed_count] Passed Date/Depot filter. Attempting parse...")
-        end
-
         # All checks passed, create PassengerDemand
         depot_id = depot_name_to_id[row_depot] # Use row_depot which we know matches target_depot_name
         # Ensure correct parsing, handle potential missing or non-integer values gracefully
@@ -336,11 +326,6 @@ function create_parameters(
              end
              continue
          end
-
-        if rows_checked_detail < 5
-            println("  [Debug Row $processed_count] Parsed successfully.")
-            rows_checked_detail += 1 # Increment even on success to limit output
-        end
 
         # Assign parsed values
         current_demand_id += 1

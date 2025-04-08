@@ -31,9 +31,9 @@ settings = [
 ]
 
 subsettings = [
-    ALL_LINES,
+    #ALL_LINES,
     #ALL_LINES_WITH_DEMAND,
-    #ONLY_DEMAND,
+    ONLY_DEMAND,
 ]
 
 # Load all data
