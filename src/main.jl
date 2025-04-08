@@ -6,6 +6,8 @@ using HiGHS
 using DataFrames
 using CSV
 using Dates
+
+
 include("Config.jl")
 using .Config
 include("types/settings.jl")
@@ -13,6 +15,7 @@ include("types/structures.jl")
 include("utils/calculate_end.jl")
 include("utils/calculate_travel.jl")
 include("utils/plot_network.jl")
+include("utils/plot_network_makiel.jl")
 include("utils/create_parameters.jl")
 include("models/model_setups.jl")
 include("models/network_flow.jl")
@@ -20,8 +23,11 @@ include("models/solve_models.jl")
 include("data/loader.jl")
 
 # Set the depots to run the model for
-depots_to_process_names = ["VLP Parchim"]
+depots_to_process_names = ["VLP Boizenburg"]
 dates_to_process = [Date(2024, 8, 22)]
+
+# Set the plots
+interactive_plots = false
 
 # Define settings for solving
 settings = [
@@ -31,9 +37,9 @@ settings = [
 ]
 
 subsettings = [
-    ALL_LINES,
+    #ALL_LINES,
     #ALL_LINES_WITH_DEMAND,
-    #ONLY_DEMAND,
+    ONLY_DEMAND,
 ]
 
 # Load all data
@@ -59,19 +65,28 @@ for depot in depots_to_process
 
         # Plot 2D Network
         println("  Generating 2D plot...")
-        # Pass all routes, the specific depot, and date
-        network_plot_2d = plot_network(data.routes, depot, date)
-        # Display or save the plot
-        #display(network_plot_2d)
-        savefig(network_plot_2d, "plots/network_2d_$(depot.depot_name)_$(date).html") # Optional: Save plot
+        
+        if interactive_plots
+            println("    Generating plot with Plotly...")
+            network_plot_2d = plot_network(data.routes, depot, date)
+            display(network_plot_2d)
+        end
+
+        println("    Generating plot with Makie...")
+        network_plot_2d_makie = plot_network_makie(data.routes, depot, date)
+        save("plots/network_2d_$(depot.depot_name)_$(date).pdf", network_plot_2d_makie)
 
         # Plot 3D Network
         println("  Generating 3D plot...")
-        # Pass all routes, all travel times, the specific depot, and date
-        network_plot_3d = plot_network_3d(data.routes, data.travel_times, depot, date)
-        # Display or save the plot
-        #display(network_plot_3d)
-        savefig(network_plot_3d, "plots/network_3d_$(depot.depot_name)_$(date).html") # Optional: Save plot
+        if interactive_plots
+            println("    Generating plot with Plotly...")
+            network_plot_3d = plot_network_3d(data.routes, data.travel_times, depot, date)
+            display(network_plot_3d)
+        end
+
+        println("    Generating plot with Makie...")
+        network_plot_3d_makie = plot_network_3d_makie(data.routes, data.travel_times, depot, date)
+        save("plots/network_3d_$(depot.depot_name)_$(date).pdf", network_plot_3d_makie)
     end
 end
 println("=== Network Plotting Finished ===")
@@ -126,9 +141,41 @@ for depot in depots_to_process
                     end
 
                     # Display solution visualization
-                    solution_plot = plot_solution_3d(data.routes, depot, date, result, data.travel_times)
-                    #display(solution_plot)
-                    savefig(solution_plot, "plots/solution_3d_$(depot.depot_name)_$(date).html") # Optional: Save plot
+                    if !isnothing(result)
+                        println("  Generating solution plot...")
+
+                        if interactive_plots
+                            println("    Generating plot with Plotly...")
+                            solution_plot = plot_solution_3d(
+                                data.routes, 
+                                depot, 
+                                date, 
+                                result, 
+                                data.travel_times,
+                                base_alpha=0.1,
+                                base_plot_connections=false,
+                                base_plot_trip_markers=false,
+                                base_plot_trip_lines=false
+                            )
+                            display(solution_plot)
+                        end
+
+                        println("    Generating plot with Makie...")
+                        solution_plot_makie = plot_solution_3d_makie(
+                            data.routes, 
+                            depot, 
+                            date, 
+                            result, 
+                            data.travel_times,
+                            base_alpha=0.1, 
+                            base_plot_connections=false,
+                            base_plot_trip_markers=true,
+                            base_plot_trip_lines=true
+                        )
+                        save("plots/solution_3d_$(depot.depot_name)_$(date).pdf", solution_plot_makie)
+
+                        
+                    end
                 else
                     println("No optimal solution found! Status: $(result.status)")
                     if result.status == :Infeasible && hasproperty(result, :dual_ray) && result.dual_ray !== nothing

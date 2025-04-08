@@ -4,7 +4,7 @@ using Dates
 using ..Config # Assuming Config is accessible
 include("../types/structures.jl") # Ensure structs are included
 
-plotly() # Switch to the Plotly backend for interactive plots
+Plots.plotly() # Switch to the Plotly backend for interactive plots
 
 # Fix: Reinstate the PlottingBusLine struct definition for the 2D plot
 struct PlottingBusLine
@@ -21,7 +21,7 @@ function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
 
     if isempty(routes)
         println("No routes found for Depot $(depot.depot_name) on $date ($day_name). Skipping 2D plot.")
-        return plot()
+        return Plots.plot()
     end
 
     # --- Build Stop Name Lookup ---
@@ -56,7 +56,7 @@ function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
     bus_lines = collect(values(bus_lines_dict))
     depot_coords = depot.location
 
-    p = plot(
+    p = Plots.plot(
         title="Depot: $(depot.depot_name) on $date ($day_name)",
         legend=false,
         aspect_ratio=:equal,
@@ -87,7 +87,7 @@ function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
                 start_x = line2.locations[1][1]
                 start_y = line2.locations[1][2]
 
-                plot!(p, [end_x, start_x], [end_y, start_y],
+                Plots.plot!(p, [end_x, start_x], [end_y, start_y],
                     linestyle=:dash,
                     color=:grey,
                     linewidth=0.3,
@@ -109,14 +109,14 @@ function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
         line_color = get(color_map, line.bus_line_id, :grey) # Use get for safety
 
         # Plot dotted depot lines with the line's color
-        plot!(p, [depot_coords[1], x_coords[1]], [depot_coords[2], y_coords[1]],
+        Plots.plot!(p, [depot_coords[1], x_coords[1]], [depot_coords[2], y_coords[1]],
             linestyle=:dash, color=line_color, linewidth=1, dash=(4, 12), label=nothing)
-        plot!(p, [depot_coords[1], x_coords[end]], [depot_coords[2], y_coords[end]],
+        Plots.plot!(p, [depot_coords[1], x_coords[end]], [depot_coords[2], y_coords[end]],
             linestyle=:dash, color=line_color, linewidth=1, dash=(4, 12), label=nothing)
 
         # Plot segments between stops with the line's color
         for i in 1:length(x_coords)-1
-            plot!(p, [x_coords[i], x_coords[i+1]], [y_coords[i], y_coords[i+1]],
+            Plots.plot!(p, [x_coords[i], x_coords[i+1]], [y_coords[i], y_coords[i+1]],
                 color=line_color, linewidth=1.5, label=nothing) # Label only first segment if needed later
         end
 
@@ -134,7 +134,7 @@ function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
              end
         end
         if !isempty(valid_indices_for_plot)
-             scatter!(p, x_coords[valid_indices_for_plot], y_coords[valid_indices_for_plot],
+             Plots.scatter!(p, x_coords[valid_indices_for_plot], y_coords[valid_indices_for_plot],
                  marker=:circle,
                  markercolor=line_color,    
                  markersize=5,             
@@ -147,7 +147,7 @@ function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
 
 
     # Plot the depot with 'D' label
-    scatter!(p, [depot_coords[1]], [depot_coords[2]],
+    Plots.scatter!(p, [depot_coords[1]], [depot_coords[2]],
         marker=:circle,
         markersize=15,
         color=:white,
@@ -156,10 +156,10 @@ function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
         label=nothing,
         hover="Depot: $(depot.depot_name)" # Add hover for depot too
     )
-    annotate!(p, depot_coords[1], depot_coords[2], text("D", 10, :black))
+    Plots.annotate!(p, depot_coords[1], depot_coords[2], Plots.text("D", 10, :black))
 
     # Hide axes
-    plot!(p,
+    Plots.plot!(p,
         xaxis=false,
         yaxis=false,
         grid=false,
@@ -179,7 +179,7 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
 
     if isempty(lines)
         println("No lines (routes) found for Depot $(depot.depot_name) on $date ($day_name). Skipping 3D plot.")
-        return plot()
+        return Plots.plot()
     end
 
     depot_coords = depot.location
@@ -291,7 +291,7 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
     println("Axis limits calculated: X=$(x_lims), Y=$(y_lims), Z=$(z_lims)")
 
     println("Setting up base plot object...")
-    p = plot(
+    p = Plots.plot(
         title="Depot: $(depot.depot_name) on $date ($day_name) (3D)",
         legend=true,
         size=(1200, 1200),
@@ -359,7 +359,7 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
         # Conditionally plot trip lines and markers
         if plot_trip_lines
             try
-                plot!(p, x_coords_line, y_coords_line, z_coords_line,
+                Plots.plot!(p, x_coords_line, y_coords_line, z_coords_line,
                     label=nothing,
                     color=line_color,
                     linewidth=2,
@@ -393,12 +393,12 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
 
                     # Apply alpha to depot connection lines
                     # Plot start connection with hover
-                    plot!(p, [depot_coords[1], x_coords_line[1]], [depot_coords[2], y_coords_line[1]], [start_depot_time, z_coords_line[1]],
+                    Plots.plot!(p, [depot_coords[1], x_coords_line[1]], [depot_coords[2], y_coords_line[1]], [start_depot_time, z_coords_line[1]],
                         linestyle=:dash, color=line_color, linewidth=1, label=nothing, hover=[hover_start_depot, hover_start_depot], alpha=alpha)
                     push!(depot_times, start_depot_time)
 
                     # Plot end connection with hover
-                    plot!(p, [x_coords_line[end], depot_coords[1]], [y_coords_line[end], depot_coords[2]], [z_coords_line[end], end_depot_time],
+                    Plots.plot!(p, [x_coords_line[end], depot_coords[1]], [y_coords_line[end], depot_coords[2]], [z_coords_line[end], end_depot_time],
                         linestyle=:dash, color=line_color, linewidth=1, label=nothing, hover=[hover_end_depot, hover_end_depot], alpha=alpha)
                     push!(depot_times, end_depot_time)
                 end
@@ -484,7 +484,7 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
                             """
 
                             # Apply alpha to connection lines
-                            plot!(p, [end_x, start_x], [end_y, start_y], [end_time, arrival_time],
+                            Plots.plot!(p, [end_x, start_x], [end_y, start_y], [end_time, arrival_time],
                                   linestyle=:dot, color=:lightgrey, linewidth=0.8, label=nothing,
                                   hover=[hover_connection_text, hover_connection_text],
                                   alpha=alpha # Apply alpha here
@@ -501,7 +501,7 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
                                   Wait Time: $(round(wait_time, digits=1)) min
                                  (For R$(line2.route_id) T$(line2.trip_id))
                                  """
-                                 plot!(p, [start_x, start_x], [start_y, start_y], [arrival_time, start_time],
+                                 Plots.plot!(p, [start_x, start_x], [start_y, start_y], [arrival_time, start_time],
                                       linestyle=:dot, color=:lightgrey, linewidth=0.8, label=nothing,
                                       hover=[hover_wait_text, hover_wait_text],
                                       alpha=alpha # Apply alpha here
@@ -528,14 +528,14 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
         depot_z_end = z_lims[2] # Use the calculated upper Z limit
 
         # Plot the vertical line for the depot
-        plot!(p, [depot_coords[1], depot_coords[1]], [depot_coords[2], depot_coords[2]], [depot_z_start, depot_z_end],
+        Plots.plot!(p, [depot_coords[1], depot_coords[1]], [depot_coords[2], depot_coords[2]], [depot_z_start, depot_z_end],
             color=:black,
             linewidth=1.5,
             linestyle=:solid,
             label=nothing)
 
         # Plot the depot marker at the start (bottom)
-        scatter!(p, [depot_coords[1]], [depot_coords[2]], [depot_z_start],
+        Plots.scatter!(p, [depot_coords[1]], [depot_coords[2]], [depot_z_start],
                  marker=:circle, markersize=3, # Slightly smaller than before?
                  markercolor=:white, # White fill with alpha
                  markerstrokecolor=:black, # Black stroke with alpha
@@ -545,7 +545,7 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
                  )
 
         # Plot the depot marker at the end (top) - identical style
-        scatter!(p, [depot_coords[1]], [depot_coords[2]], [depot_z_end],
+        Plots.scatter!(p, [depot_coords[1]], [depot_coords[2]], [depot_z_end],
                  marker=:circle, markersize=3,
                  markercolor=:white, # White fill with alpha
                  markerstrokecolor=:black, # Black stroke with alpha
@@ -561,7 +561,7 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
 
     println("--- Applying final plot adjustments (labels, camera) ---")
     try
-        plot!(p, xlabel="X", ylabel="Y", zlabel="Time (minutes since midnight)",
+        Plots.plot!(p, xlabel="X", ylabel="Y", zlabel="Time (minutes since midnight)",
                 camera=(45, 30), grid=true)
         println("Plotting complete. Returning plot object.")
     catch e
@@ -586,7 +586,7 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
 
      if isempty(lines)
          println("No lines (routes) found for solution plot for Depot $(depot.depot_name) on $date ($day_name). Skipping.")
-         return plot()
+         return Plots.plot()
      end
 
      depot_coords = depot.location
@@ -863,7 +863,7 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
 
         if !isempty(bus_path_x)
              # Plot lines AND markers together in one series
-             plot!(p, bus_path_x, bus_path_y, bus_path_z,
+             Plots.plot!(p, bus_path_x, bus_path_y, bus_path_z,
                    label=current_bus_label,         # Label for the legend
                    color=bus_color,                 # Color for line and potentially marker
                    linewidth=1.5,
