@@ -294,7 +294,7 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
     p = plot(
         title="Bus Network Schedule - Depot: $(depot.depot_name) on $date ($day_name) (3D)",
         legend=true,
-        size=(1200, 800),
+        size=(800, 600),
         xlims=x_lims,
         ylims=y_lims,
         zlims=z_lims
@@ -664,90 +664,135 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
 
         println("  Processing path for bus $(bus_info.name)...")
         for (i, arc) in enumerate(bus_info.path)
-             # --- Coordinate and Time Calculation (same as previous attempts) ---
+             # --- Coordinate and Time Calculation (Modified) ---
              from_node = arc.arc_start
              to_node = arc.arc_end
              from_x, from_y, to_x, to_y = NaN, NaN, NaN, NaN
-             from_time, arrival_time = NaN, NaN
+             from_time, segment_end_time = NaN, NaN # Renamed arrival_time -> segment_end_time
 
              if !haskey(timestamp_dict, arc)
-                  @warn "Timestamp missing for arc $arc. Skipping segment."
+                  println("  Warning: Timestamp missing for arc $arc. Skipping segment.")
                   continue
              end
-             from_time = timestamp_dict[arc]
+             from_time = timestamp_dict[arc] # Time at the start of the current arc
 
+             # Determine spatial coordinates (from_x, from_y, to_x, to_y)
              is_from_depot = from_node.stop_sequence == 0
+             is_to_depot = to_node.stop_sequence == 0
+
              if is_from_depot
                 from_x, from_y = depot_coords
              else
                  loc = get(stop_location_lookup, from_node.id, nothing)
-                 if isnothing(loc) @warn "Location missing for from_node $(from_node.id). Skipping."; continue end
+                 if isnothing(loc) println("  Warning: Location missing for from_node $(from_node.id). Skipping."); continue end
                  from_x, from_y = loc
              end
 
-             travel_arc_time = NaN
-             is_to_depot = to_node.stop_sequence == 0
-             lookup_key = (0, 0, false)
-
-             if is_from_depot && !is_to_depot # Depot -> Stop
-                 lookup_key = (depot_id_for_lookup, to_node.id, true)
-                 loc = get(stop_location_lookup, to_node.id, nothing)
-                 if isnothing(loc) continue end; to_x, to_y = loc
-             elseif !is_from_depot && is_to_depot # Stop -> Depot
-                 lookup_key = (from_node.id, depot_id_for_lookup, true)
+             if is_to_depot
                  to_x, to_y = depot_coords
-             elseif !is_from_depot && !is_to_depot # Stop -> Stop
-                 lookup_key = (from_node.id, to_node.id, false)
+             else
                  loc = get(stop_location_lookup, to_node.id, nothing)
-                 if isnothing(loc) continue end; to_x, to_y = loc
-             else # Depot -> Depot
-                  @warn "Invalid arc: Depot -> Depot."
-                  continue
+                 if isnothing(loc) println("  Warning: Location missing for to_node $(to_node.id). Skipping."); continue end
+                 to_x, to_y = loc
              end
-             travel_arc_time = get(travel_time_lookup_full, lookup_key, NaN)
-             if isnan(travel_arc_time) || travel_arc_time < 0 @warn "No valid travel time for $(lookup_key). Skipping."; continue end
-             arrival_time = from_time + travel_arc_time
+
+             # Determine segment_end_time
+             is_backward_intra_line = arc.kind == "intra-line-arc" && to_node.stop_sequence < from_node.stop_sequence
+
+             if is_backward_intra_line
+                 # For backward arcs, the segment ends at the start time of the *next* arc
+                 if i < length(bus_info.path)
+                     next_arc = bus_info.path[i+1]
+                     if haskey(timestamp_dict, next_arc)
+                         segment_end_time = timestamp_dict[next_arc]
+                     else
+                         println("  Warning: Timestamp missing for arc following backward arc $arc. Cannot determine segment end time.")
+                         segment_end_time = from_time # Fallback: draw flat line if next timestamp missing
+                     end
+                 else
+                     println("  Warning: Backward arc $arc is the last in path. Using start time as end time.")
+                     segment_end_time = from_time # Fallback if it's the last arc
+                 end
+                 println("  Info: Plotting time travel arc $arc from $from_time down to $segment_end_time")
+
+             else
+                 # For all other arcs, calculate arrival time based on travel duration
+                 travel_arc_time = NaN
+                 lookup_key = (0, 0, false)
+
+                 if is_from_depot && !is_to_depot # Depot -> Stop
+                     lookup_key = (depot_id_for_lookup, to_node.id, true)
+                 elseif !is_from_depot && is_to_depot # Stop -> Depot
+                     lookup_key = (from_node.id, depot_id_for_lookup, true)
+                 elseif !is_from_depot && !is_to_depot # Stop -> Stop
+                     lookup_key = (from_node.id, to_node.id, false)
+                 else # Depot -> Depot (Should not happen)
+                     println("  Warning: Invalid arc: Depot -> Depot.")
+                     continue
+                 end
+
+                 travel_arc_time = get(travel_time_lookup_full, lookup_key, NaN)
+
+                 if isnan(travel_arc_time) || travel_arc_time < 0
+                     println("  Warning: No valid travel time for $(lookup_key). Segment end time might be inaccurate.")
+                     segment_end_time = from_time # Fallback: flat line
+                 else
+                     segment_end_time = from_time + travel_arc_time
+                 end
+             end
              # --- End Coordinate/Time Calculation ---
 
+
             # --- Add Data to Combined Path Vectors ---
-            # Add segment start point (will have marker)
-            push!(bus_path_x, from_x)
-            push!(bus_path_y, from_y)
-            push!(bus_path_z, from_time)
-            # Add segment end point (will have marker)
-            push!(bus_path_x, to_x)
-            push!(bus_path_y, to_y)
-            push!(bus_path_z, arrival_time)
-            # Add NaN separator for line break ONLY
-            push!(bus_path_x, NaN)
-            push!(bus_path_y, NaN)
-            push!(bus_path_z, NaN)
-
-            if is_to_depot continue end # No waiting at depot end
-
-            # --- Handle Waiting Time ---
-            scheduled_departure_time = NaN
-            if i < length(bus_info.path)
-                next_arc = bus_info.path[i+1]
-                if isequal(next_arc.arc_start, to_node) && haskey(timestamp_dict, next_arc)
-                    scheduled_departure_time = timestamp_dict[next_arc]
-                end
-            end
-
-            if !isnan(scheduled_departure_time) && arrival_time < scheduled_departure_time - 1e-6
-                # Add waiting line segment (vertical)
-                # Start point (arrival time - already added effectively by previous segment end)
+            if !isnan(from_x) && !isnan(to_x) && !isnan(from_time) && !isnan(segment_end_time)
+                # Add segment start point (will have marker)
+                push!(bus_path_x, from_x)
+                push!(bus_path_y, from_y)
+                push!(bus_path_z, from_time)
+                # Add segment end point (will have marker)
                 push!(bus_path_x, to_x)
                 push!(bus_path_y, to_y)
-                push!(bus_path_z, arrival_time)
-                # End point (departure time - will have marker)
-                push!(bus_path_x, to_x)
-                push!(bus_path_y, to_y)
-                push!(bus_path_z, scheduled_departure_time)
-                 # Add NaN separator
+                push!(bus_path_z, segment_end_time)
+                # Add NaN separator for line break ONLY
                 push!(bus_path_x, NaN)
                 push!(bus_path_y, NaN)
                 push!(bus_path_z, NaN)
+            else
+                 println("  Warning: Skipping plotting segment due to NaN coordinates or times for arc $arc.")
+            end
+
+            # --- Handle Waiting Time ---
+            # Waiting time occurs *after* the current segment ends (at arrival_time)
+            # and *before* the next segment starts.
+            # Use segment_end_time as the arrival time for waiting calculation.
+            if !is_to_depot && !is_backward_intra_line # No waiting at depot end or after time travel
+                scheduled_departure_time = NaN
+                if i < length(bus_info.path)
+                    next_arc = bus_info.path[i+1]
+                    # Check if the next arc starts where the current one ends *and* has a timestamp
+                    if isequal(next_arc.arc_start, to_node) && haskey(timestamp_dict, next_arc)
+                        scheduled_departure_time = timestamp_dict[next_arc]
+                    end
+                end
+
+                # Check if arrival time (segment_end_time) is before the scheduled departure
+                if !isnan(scheduled_departure_time) && segment_end_time < scheduled_departure_time - 1e-6
+                    # Add waiting line segment (vertical)
+                    if !isnan(to_x) # Ensure coordinates are valid
+                        # Start point (arrival time)
+                        push!(bus_path_x, to_x)
+                        push!(bus_path_y, to_y)
+                        push!(bus_path_z, segment_end_time)
+                        # End point (departure time)
+                        push!(bus_path_x, to_x)
+                        push!(bus_path_y, to_y)
+                        push!(bus_path_z, scheduled_departure_time)
+                         # Add NaN separator
+                        push!(bus_path_x, NaN)
+                        push!(bus_path_y, NaN)
+                        push!(bus_path_z, NaN)
+                    end
+                end
             end
             # --- End Waiting Time ---
         end # End loop through arcs
@@ -765,7 +810,8 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
                    linewidth=1.5,
                    linestyle=:solid,
                    # Specify marker attributes: shape, size. Color might be inherited.
-                   marker=(:circle, 2, stroke(0)), # stroke(0) removes marker border
+                   marker=(:circle, 1.5, stroke(0)), # stroke(0) removes marker border
+                   #hover="Bus: $(bus_info.name), $(bus_info.path)"
              )
         else
             println("    No path segments to plot for bus $(bus_info.name).")

@@ -125,7 +125,7 @@ function create_parameters(
             previous_day_shifts_df = filter(row -> row.depot == depot.depot_name && !ismissing(row[previous_day_abbr]) && !isempty(string(row[previous_day_abbr])), data.shifts_df)
             println("    Found $(nrow(previous_day_shifts_df)) shifts active on previous day.")
             for row in eachrow(previous_day_shifts_df)
-                # ... (Calculate original times: shift_start_orig, calculated_shift_end, etc.) ...
+                # Calculate original times relative to previous day start
                  shift_start_orig = time_string_to_minutes(string(row.shiftstart))
                  break_start_1_orig = time_string_to_minutes(string(row."breakstart 1"))
                  break_end_1_orig = time_string_to_minutes(string(row."breakend 1"))
@@ -133,7 +133,8 @@ function create_parameters(
                  break_end_2_orig = time_string_to_minutes(string(row."breakend 2"))
                  shift_end_orig = time_string_to_minutes(string(row.shiftend))
 
-                 calculated_shift_end = shift_end_orig # Store original before potential adjustment
+                 # Calculate times potentially spanning midnight relative to original start
+                 calculated_shift_end = shift_end_orig
                  calculated_break_start_1 = break_start_1_orig
                  calculated_break_end_1 = break_end_1_orig
                  calculated_break_start_2 = break_start_2_orig
@@ -146,34 +147,64 @@ function create_parameters(
                      if calculated_break_start_2 < shift_start_orig calculated_break_start_2 += 1440.0 end
                      if calculated_break_end_2 < shift_start_orig calculated_break_end_2 += 1440.0 end
                  end
+                 # Ensure breaks are consistent within the potentially extended single shift context
+                 if calculated_break_end_1 < calculated_break_start_1 calculated_break_end_1 = calculated_break_start_1 end
+                 if calculated_break_end_2 < calculated_break_start_2 calculated_break_end_2 = calculated_break_start_2 end
 
 
                 if calculated_shift_end >= 1440.0 # Check if it runs into target day
-                    println("    Found overnight shift: $(row.shiftnr), original end: $(calculated_shift_end)")
-                    # ... (Adjust times: adj_start, adj_end, adj_breaks) ...
-                    # Use the constant for the effective start time
-                    adj_start = EFFECTIVE_START_TIME_BUFFER 
-                    adj_end = calculated_shift_end - 1440.0
-                    # Ensure breaks starting before target day midnight also use the buffer if needed
-                    adj_break_start_1 = max(EFFECTIVE_START_TIME_BUFFER, calculated_break_start_1 - 1440.0)
-                    adj_break_end_1 = calculated_break_end_1 - 1440.0
-                    adj_break_start_2 = max(EFFECTIVE_START_TIME_BUFFER, calculated_break_start_2 - 1440.0)
-                    adj_break_end_2 = calculated_break_end_2 - 1440.0
-                    # Ensure break end is not before break start after adjustment
-                    if adj_break_end_1 < adj_break_start_1 adj_break_end_1 = adj_break_start_1 end
-                    if adj_break_end_2 < adj_break_start_2 adj_break_end_2 = adj_break_start_2 end
+                    println("    Found overnight shift: $(row.shiftnr), original calculated end: $(calculated_shift_end)")
 
+                    # --- Adjust times for the part on the target day ---
+                    adj_start = EFFECTIVE_START_TIME_BUFFER
+                    adj_end = calculated_shift_end - 1440.0 # End time relative to target day midnight
+
+                    # --- Process Break 1 (Intersection Logic) ---
+                    adj_break_start_1_raw = calculated_break_start_1 - 1440.0 # Break start relative to target day midnight
+                    adj_break_end_1_raw = calculated_break_end_1 - 1440.0   # Break end relative to target day midnight
+
+                    # Find intersection of adjusted break [raw_start, raw_end] with target day shift part [adj_start, adj_end]
+                    effective_break_start_1 = max(adj_break_start_1_raw, adj_start)
+                    effective_break_end_1 = min(adj_break_end_1_raw, adj_end)
+
+                    # If intersection is invalid (start >= end), set to no break (start=end=adj_start)
+                    if effective_break_start_1 >= effective_break_end_1
+                        final_break_start_1 = adj_start
+                        final_break_end_1 = adj_start
+                    else
+                        final_break_start_1 = effective_break_start_1
+                        final_break_end_1 = effective_break_end_1
+                    end
+
+                    # --- Process Break 2 (Intersection Logic) ---
+                    adj_break_start_2_raw = calculated_break_start_2 - 1440.0 # Break start relative to target day midnight
+                    adj_break_end_2_raw = calculated_break_end_2 - 1440.0   # Break end relative to target day midnight
+
+                    # Find intersection of adjusted break [raw_start, raw_end] with target day shift part [adj_start, adj_end]
+                    effective_break_start_2 = max(adj_break_start_2_raw, adj_start)
+                    effective_break_end_2 = min(adj_break_end_2_raw, adj_end)
+
+                    # If intersection is invalid (start >= end), set to no break (start=end=adj_start)
+                    if effective_break_start_2 >= effective_break_end_2
+                        final_break_start_2 = adj_start
+                        final_break_end_2 = adj_start
+                    else
+                        final_break_start_2 = effective_break_start_2
+                        final_break_end_2 = effective_break_end_2
+                    end
+                    # --- End Break Processing ---
 
                     bus_id_str = String(string(row.shiftnr) * "_cont") # Unique ID for continuation part
 
                     bus = Bus(
                         bus_id_str, default_capacity, adj_start,
-                        adj_break_start_1, adj_break_end_1,
-                        adj_break_start_2, adj_break_end_2, adj_end
+                        final_break_start_1, final_break_end_1, # Use final calculated values
+                        final_break_start_2, final_break_end_2, # Use final calculated values
+                        adj_end
                     )
                     bus.depot_id = depot.depot_id
                     push!(busses, bus)
-                    println("      Added continuation bus. Target day times: Start=$(adj_start), End=$(adj_end), Breaks=[$(adj_break_start_1)-$(adj_break_end_1), $(adj_break_start_2)-$(adj_break_end_2)]")
+                    println("      Added continuation bus. Target day times: Start=$(adj_start), End=$(adj_end), Breaks=[$(final_break_start_1)-$(final_break_end_1), $(final_break_start_2)-$(final_break_end_2)]")
                 end
             end
         else

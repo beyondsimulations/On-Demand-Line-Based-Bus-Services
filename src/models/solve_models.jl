@@ -209,9 +209,9 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
         end
 
         # --- Calculate travel times, capacities, and timestamps for each bus path ---
-        # This section needs significant updates based on new structures
         println("Calculating Timestamps, Travel Times, and Capacity Usage...")
-        final_bus_info = Dict{String, NamedTuple{(:name, :path, :travel_time, :capacity_usage, :timestamps), Tuple{String, Vector{Any}, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}()
+        # Modify the NamedTuple structure to store operational_duration and waiting_time
+        final_bus_info = Dict{String, NamedTuple{(:name, :path, :operational_duration, :waiting_time, :capacity_usage, :timestamps), Tuple{String, Vector{Any}, Float64, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}()
         travel_time_lookup = Dict((tt.start_stop, tt.end_stop) => tt.time for tt in parameters.travel_times)
         route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in parameters.routes) # Lookup for route data
 
@@ -219,163 +219,191 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
         for (bus_id_key, path) in bus_paths # bus_id_key is String
              if isempty(path) continue end
 
-            total_travel_duration = 0.0 # Accumulates actual travel/wait duration
+            # Initialize accumulators
             current_time = 0.0 # Tracks the time progression along the path
-            arc_capacities = Vector{Tuple{Any, Int}}() # Using Int for capacity count now
-            arc_timestamps = Vector{Tuple{Any, Float64}}() # Timestamp at the START of the arc
+            total_waiting_time = 0.0 # Accumulates only waiting times
+            arc_capacities = Vector{Tuple{Any, Int}}()
+            arc_timestamps = Vector{Tuple{Any, Float64}}()
 
-            # Initialize start time based on the first arc
+            # --- Determine Initial Depot Departure Time ---
+            depot_departure_time = 0.0
             first_arc = path[1]
             if first_arc.arc_start.stop_sequence == 0 # Starts from depot
                 depot_id = parameters.depot.depot_id
                 start_node = first_arc.arc_end
-                 # Find travel time from depot
-                 depot_travel_key = (depot_id, start_node.id)
-                 depot_tt = get(travel_time_lookup, depot_travel_key, nothing)
-                 if isnothing(depot_tt)
-                     println("  Warning: Missing depot travel time for $depot_travel_key for bus $bus_id_key start. Cannot accurately set initial time.")
-                     # Find the route for the first actual stop to get its scheduled time
-                     first_route = get(route_lookup, (start_node.route_id, start_node.trip_id, start_node.trip_sequence), nothing)
-                     if !isnothing(first_route) && start_node.stop_sequence <= length(first_route.stop_times)
-                          current_time = first_route.stop_times[start_node.stop_sequence] # Start at scheduled time if TT missing
-                     else
-                          current_time = 0.0 # Default if route/time also missing
-                     end
-                 else
-                      # Find the route for the first actual stop
-                      first_route = get(route_lookup, (start_node.route_id, start_node.trip_id, start_node.trip_sequence), nothing)
-                      if isnothing(first_route) || start_node.stop_sequence > length(first_route.stop_times)
-                          println("  Warning: Cannot find route or stop time for first stop $(start_node) of bus $bus_id_key. Initial time might be inaccurate.")
-                          current_time = depot_tt # Estimate start time based only on travel from depot (less accurate)
-                      else
-                           scheduled_arrival = first_route.stop_times[start_node.stop_sequence]
-                           # Bus must leave depot such that current_time + depot_tt = scheduled_arrival
-                           current_time = scheduled_arrival - depot_tt
-                      end
-                 end
+                depot_travel_key = (depot_id, start_node.id)
+                depot_tt = get(travel_time_lookup, depot_travel_key, nothing)
+                first_route = get(route_lookup, (start_node.route_id, start_node.trip_id, start_node.trip_sequence), nothing)
+
+                if !isnothing(depot_tt) && !isnothing(first_route) && start_node.stop_sequence > 0 && start_node.stop_sequence <= length(first_route.stop_times)
+                    scheduled_arrival = first_route.stop_times[start_node.stop_sequence]
+                    depot_departure_time = scheduled_arrival - depot_tt # Time bus leaves depot
+                elseif !isnothing(first_route) && start_node.stop_sequence > 0 && start_node.stop_sequence <= length(first_route.stop_times)
+                     println("  Warning: Missing depot travel time for $depot_travel_key. Initial time based on first stop schedule might be inaccurate.")
+                     depot_departure_time = first_route.stop_times[start_node.stop_sequence] # Fallback: start time is arrival time
+                else
+                     println("  Warning: Cannot determine initial time for bus $bus_id_key due to missing depot travel time or route info. Setting to 0.0.")
+                     depot_departure_time = 0.0
+                end
             else
-                 # If path doesn't start at depot (unexpected?), start time is 0 or first stop's time?
                  println("  Warning: Path for bus $bus_id_key does not start at depot. Initial time set to 0.0.")
-                 current_time = 0.0
+                 depot_departure_time = 0.0
             end
-            
+            current_time = depot_departure_time # Initialize current_time to depot departure
+            # --- End Initial Time Determination ---
+
+
             for (i, arc) in enumerate(path)
                 from_node = arc.arc_start
                 to_node = arc.arc_end
-                
+
                 # Record timestamp at the start of this arc
-                push!(arc_timestamps, (arc, current_time))
+                start_time_for_arc = current_time
+                push!(arc_timestamps, (arc, start_time_for_arc))
 
-                # Calculate duration of this arc
-                arc_duration = 0.0
-                
-                # Case 1: Traveling from Depot (stop_sequence == 0)
-                if from_node.stop_sequence == 0
-                     travel_key = (parameters.depot.depot_id, to_node.id)
-                     arc_duration = get(travel_time_lookup, travel_key, 0.0)
-                     if arc_duration == 0.0
-                          println("  Warning: Missing travel time for $travel_key (Depot Start). Duration assumed 0.")
-                     end
-                     # Advance time by travel duration
-                     current_time += arc_duration
-                      # Check against scheduled arrival at the first stop
-                      route = get(route_lookup, (to_node.route_id, to_node.trip_id, to_node.trip_sequence), nothing)
-                      if !isnothing(route) && to_node.stop_sequence <= length(route.stop_times)
-                          scheduled_arrival = route.stop_times[to_node.stop_sequence]
-                          wait_time = max(0.0, scheduled_arrival - current_time)
-                          arc_duration += wait_time # Include waiting time in effective duration
-                          current_time = scheduled_arrival # Arrive exactly on schedule (or later if impossible)
-                      end
+                # Calculate duration and update time for the *next* arc's start
+                arrival_time = start_time_for_arc # Default arrival if duration is zero
 
-                # Case 2: Traveling to Depot (stop_sequence == 0)
-                elseif to_node.stop_sequence == 0
-                     travel_key = (from_node.id, parameters.depot.depot_id)
-                     arc_duration = get(travel_time_lookup, travel_key, 0.0)
-                     if arc_duration == 0.0
-                         println("  Warning: Missing travel time for $travel_key (Depot End). Duration assumed 0.")
-                     end
-                     current_time += arc_duration # Advance time
+                # --- Handle the Special Case: Backward Intra-line Arc (Time Travel) ---
+                if arc.kind == "intra-line-arc" && to_node.stop_sequence < from_node.stop_sequence
+                    # Find the route to get the scheduled time at the destination (earlier stop)
+                    route = get(route_lookup, (to_node.route_id, to_node.trip_id, to_node.trip_sequence), nothing)
+                    if !isnothing(route) && to_node.stop_sequence > 0 && to_node.stop_sequence <= length(route.stop_times)
+                        scheduled_reset_time = route.stop_times[to_node.stop_sequence]
+                        # Reset current_time for the start of the next arc
+                        current_time = scheduled_reset_time # This becomes the start_time_for_arc of the next iteration
+                        arrival_time = start_time_for_arc # Arrival time is same as start for zero duration arc
+                        println("  Info $(bus_id_key): Time travel arc $arc processed. Resetting time for next arc start to scheduled $current_time at stop seq $(to_node.stop_sequence).")
+                    else
+                        println("  Warning $(bus_id_key): Cannot find route/time for destination of time-travel arc $arc. Time not reset.")
+                        current_time = start_time_for_arc # If reset fails, continue from current time
+                        arrival_time = start_time_for_arc
+                    end
+                    # No waiting time added for time travel
 
-                # Case 3: Traveling between stops on the same route/trip/sequence
-                elseif from_node.route_id == to_node.route_id && from_node.trip_id == to_node.trip_id && from_node.trip_sequence == to_node.trip_sequence
-                     route = get(route_lookup, (from_node.route_id, from_node.trip_id, from_node.trip_sequence), nothing)
-                     if !isnothing(route) && from_node.stop_sequence <= length(route.stop_times) && to_node.stop_sequence <= length(route.stop_times)
-                         scheduled_departure = route.stop_times[from_node.stop_sequence]
-                         scheduled_arrival = route.stop_times[to_node.stop_sequence]
-                         # Ensure we don't depart before scheduled time
-                         wait_time_at_start = max(0.0, scheduled_departure - current_time)
-                         actual_departure_time = current_time + wait_time_at_start
-                         # Arc duration includes wait time + scheduled travel time
-                         scheduled_travel = max(0.0, scheduled_arrival - scheduled_departure) # Scheduled duration can't be negative
-                         arc_duration = wait_time_at_start + scheduled_travel
-                         current_time = actual_departure_time + scheduled_travel # Update time to actual arrival
-                     else
-                         println("  Warning: Missing route/stop times for intra-route arc $arc. Using travel time lookup.")
-                         travel_key = (from_node.id, to_node.id)
-                         arc_duration = get(travel_time_lookup, travel_key, 0.0)
-                         current_time += arc_duration
-                     end
-
-                # Case 4: Traveling between different routes/trips/sequences (Inter-line arc)
+                # --- Handle All Other Arc Types ---
                 else
-                     travel_key = (from_node.id, to_node.id)
-                     arc_duration = get(travel_time_lookup, travel_key, 0.0)
-                     if arc_duration == 0.0
-                         println("  Warning: Missing travel time for $travel_key (Inter-line). Duration assumed 0.")
-                     end
-                     current_time += arc_duration
-                     # Check if we need to wait for the scheduled departure of the next route
-                     route = get(route_lookup, (to_node.route_id, to_node.trip_id, to_node.trip_sequence), nothing)
-                     if !isnothing(route) && to_node.stop_sequence <= length(route.stop_times)
-                         scheduled_departure_next = route.stop_times[to_node.stop_sequence]
-                         wait_time = max(0.0, scheduled_departure_next - current_time)
-                         arc_duration += wait_time # Include waiting time
-                         current_time = scheduled_departure_next # Update time to when we actually start the next segment
-                     end
-                end
+                    arc_travel_duration = 0.0 # Duration purely for physical travel
+                    wait_duration = 0.0      # Duration purely for waiting
 
-                total_travel_duration += arc_duration # Accumulate the effective duration
+                    # Case 1: Traveling from Depot
+                    if from_node.stop_sequence == 0
+                         travel_key = (parameters.depot.depot_id, to_node.id)
+                         arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
+                         arrival_time = start_time_for_arc + arc_travel_duration
+                         # Check against scheduled arrival at the first stop
+                         route = get(route_lookup, (to_node.route_id, to_node.trip_id, to_node.trip_sequence), nothing)
+                         if !isnothing(route) && to_node.stop_sequence > 0 && to_node.stop_sequence <= length(route.stop_times)
+                             scheduled_arrival = route.stop_times[to_node.stop_sequence]
+                             # Ensure arrival isn't *before* scheduled time (waiting happened at depot)
+                             arrival_time = max(arrival_time, scheduled_arrival)
+                         else
+                              if arc_travel_duration == 0.0 println("  Warning: Missing travel time for $travel_key (Depot Start).") end
+                         end
+                         current_time = arrival_time # Time for next arc starts at arrival time
 
-                # Calculate capacity usage for this specific arc segment
+                    # Case 2: Traveling to Depot
+                    elseif to_node.stop_sequence == 0
+                         travel_key = (from_node.id, parameters.depot.depot_id)
+                         arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
+                         if arc_travel_duration == 0.0 println("  Warning: Missing travel time for $travel_key (Depot End).") end
+                         arrival_time = start_time_for_arc + arc_travel_duration
+                         current_time = arrival_time # Time for next arc starts at arrival time
+
+                    # Case 3: Traveling between stops on the same route/trip/sequence (Intra-Route)
+                    elseif from_node.route_id == to_node.route_id && from_node.trip_id == to_node.trip_id && from_node.trip_sequence == to_node.trip_sequence
+                         route = get(route_lookup, (from_node.route_id, from_node.trip_id, from_node.trip_sequence), nothing)
+                         if !isnothing(route) && from_node.stop_sequence > 0 && from_node.stop_sequence <= length(route.stop_times) && to_node.stop_sequence > 0 && to_node.stop_sequence <= length(route.stop_times)
+                             scheduled_departure = route.stop_times[from_node.stop_sequence]
+                             scheduled_arrival = route.stop_times[to_node.stop_sequence]
+
+                             # Calculate wait time at the start of this segment
+                             wait_duration = max(0.0, scheduled_departure - start_time_for_arc)
+                             actual_departure_time = start_time_for_arc + wait_duration
+
+                             # Calculate travel time based on schedule
+                             arc_travel_duration = max(0.0, scheduled_arrival - scheduled_departure)
+                             arrival_time = actual_departure_time + arc_travel_duration
+
+                             current_time = arrival_time # Time for next arc starts at arrival time
+                         else
+                             println("  Warning $(bus_id_key): Missing route/stop times for intra-route arc $arc. Using travel time lookup.")
+                             travel_key = (from_node.id, to_node.id)
+                             arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
+                             arrival_time = start_time_for_arc + arc_travel_duration
+                             current_time = arrival_time
+                         end
+
+                    # Case 4: Traveling between different routes/trips/sequences (Inter-line arc)
+                    else
+                         travel_key = (from_node.id, to_node.id)
+                         arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
+                         if arc_travel_duration == 0.0 println("  Warning $(bus_id_key): Missing travel time for $travel_key (Inter-line).") end
+                         arrival_time_at_next_stop = start_time_for_arc + arc_travel_duration
+
+                         # Check if we need to wait for the scheduled departure of the next route
+                         route = get(route_lookup, (to_node.route_id, to_node.trip_id, to_node.trip_sequence), nothing)
+                         wait_duration = 0.0
+                         if !isnothing(route) && to_node.stop_sequence > 0 && to_node.stop_sequence <= length(route.stop_times)
+                             scheduled_departure_next = route.stop_times[to_node.stop_sequence]
+                             wait_duration = max(0.0, scheduled_departure_next - arrival_time_at_next_stop)
+                             arrival_time = arrival_time_at_next_stop + wait_duration # Actual time when next segment can start
+                         else
+                              arrival_time = arrival_time_at_next_stop # No schedule to wait for
+                         end
+                         current_time = arrival_time # Time for next arc starts after waiting
+                    end
+                    # Accumulate waiting time
+                    total_waiting_time += wait_duration
+                end # End if/else for arc types
+
+                # --- Calculate capacity usage (remains the same) ---
                 current_capacity = 0
-                for demand in parameters.passenger_demands
-                     # Check if demand's route/trip matches arc's route/trip
-                    if demand.origin.route_id == from_node.route_id && demand.origin.trip_id == from_node.trip_id && demand.origin.trip_sequence == from_node.trip_sequence &&
-                        # Check if arc's start sequence is >= demand's origin sequence
-                        from_node.stop_sequence >= demand.origin.stop_sequence &&
-                        # Check if arc's start sequence is < demand's destination sequence
-                        from_node.stop_sequence < demand.destination.stop_sequence
-                        current_capacity += demand.demand
+                if arc.kind != "intra-line-arc" || to_node.stop_sequence > from_node.stop_sequence
+                    for demand in parameters.passenger_demands
+                        if demand.origin.route_id == from_node.route_id && demand.origin.trip_id == from_node.trip_id && demand.origin.trip_sequence == from_node.trip_sequence &&
+                           to_node.stop_sequence > 0 && from_node.stop_sequence > 0 &&
+                           demand.origin.stop_sequence <= from_node.stop_sequence &&
+                           demand.destination.stop_sequence > from_node.stop_sequence
+                            current_capacity += demand.demand
+                        end
                     end
                 end
-                 push!(arc_capacities, (arc, Int(round(current_capacity)))) # Store arc and capacity (rounded Int)
+                push!(arc_capacities, (arc, Int(round(current_capacity))))
             end # End loop through path arcs
-            
+
+            # --- Final Duration Calculation ---
+            # 'current_time' now holds the arrival time at the depot (or the last stop)
+            final_arrival_time = current_time
+            total_operational_duration = final_arrival_time - depot_departure_time
+            # --- End Final Duration Calculation ---
+
             # Store results for this bus
-             final_bus_info[bus_id_key] = (
-                name=bus_id_key, 
-                path=path, # Store the expanded path
-                travel_time=total_travel_duration,
+            final_bus_info[bus_id_key] = (
+                name=bus_id_key,
+                path=path,
+                operational_duration=total_operational_duration, # Store total time from depot departure to arrival
+                waiting_time=total_waiting_time,            # Store accumulated waiting time
                 capacity_usage=arc_capacities,
                 timestamps=arc_timestamps
             )
-        end
+        end # End loop through buses
 
         println("Finished calculations.")
         return NetworkFlowSolution(
             :Optimal,
             objective_value(model),
-            final_bus_info, # Use the new structure containing per-bus timestamps
+            final_bus_info, # Updated structure
             solve_time(model)
         )
     else
         status_symbol = termination_status(model) == MOI.INFEASIBLE ? :Infeasible : Symbol(termination_status(model))
          println("Solver finished with status: $status_symbol")
         return NetworkFlowSolution(
-            status_symbol, # Return specific non-optimal status
+            status_symbol,
             nothing,
             nothing,
-            nothing
+            solve_time(model)
         )
     end
 end

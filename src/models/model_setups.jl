@@ -22,9 +22,17 @@ function setup_network_flow(parameters::ProblemParameters)
     else
         println("  No demands found for this depot.")
     end
-    
-    println("Travel times: $(length(travel_times))")
 
+    # Print the first 5 busses (or fewer if less than 5 exist)
+    println("First 5 buses:")
+    num_buses_to_print = min(length(buses), 5)
+    if num_buses_to_print > 0
+        for i in 1:num_buses_to_print
+            println("  Bus $(i): $(buses[i])")
+        end
+    else
+        println("  No buses found for this depot.")
+    end
     print_level = 0
 
     line_arcs = ModelArc[]
@@ -394,7 +402,7 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
     arcs_created = 0
     skipped_route_lookup = 0
     skipped_stop_lookup = 0
-    skipped_feasibility = 0
+    unservable_demands = PassengerDemand[] # Store demands with no feasible bus
 
     # Pre-build a lookup for routes for efficiency
     route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in routes)
@@ -432,48 +440,95 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
         demand_dest_time = route.stop_times[dest_pos]
 
         # Check feasibility for each bus
-    for bus in buses
+        bus_found_for_demand = false # Flag to check if *any* bus could serve this demand
+        for bus in buses
             # Basic shift window check
             if demand_origin_time < bus.shift_start || demand_dest_time > bus.shift_end
+                # --- Add Debug Log ---
+                # println("  DEBUG Line Arc Skip (Bus $(bus.bus_id) - Demand $(demand.demand_id)): Shift conflict.")
+                # println("    Demand Times: [$(demand_origin_time), $(demand_dest_time)]")
+                # println("    Bus Shift:    [$(bus.shift_start), $(bus.shift_end)]")
+                # --- End Debug Log ---
                 continue # Bus shift doesn't cover this demand segment
             end
 
             # Break overlap check
             break1_overlap = false
+            reason_break1 = ""
             if bus.break_start_1 < bus.break_end_1 # Check if break 1 exists
-                # Overlaps if latest start time is before earliest end time
                 break1_overlap = max(demand_origin_time, bus.break_start_1) < min(demand_dest_time, bus.break_end_1)
+                # if break1_overlap
+                #     reason_break1 = "Break 1 [$(bus.break_start_1), $(bus.break_end_1))"
+                # end
             end
 
             break2_overlap = false
+            reason_break2 = ""
             if bus.break_start_2 < bus.break_end_2 # Check if break 2 exists
                 break2_overlap = max(demand_origin_time, bus.break_start_2) < min(demand_dest_time, bus.break_end_2)
+                #  if break2_overlap
+                #     reason_break2 = "Break 2 [$(bus.break_start_2), $(bus.break_end_2))"
+                #  end
             end
 
             if break1_overlap || break2_overlap
+                # --- Add Debug Log ---
+                println("  DEBUG Line Arc Skip (Bus $(bus.bus_id) - Demand $(demand.demand_id)): Break conflict.")
+                println("    Demand Times: [$(demand_origin_time), $(demand_dest_time)]")
+                overlap_reason = filter(!isempty, [reason_break1, reason_break2]) # Filter out empty reasons
+                println("    Conflict with: $(join(overlap_reason, " and "))")
+                # --- End Debug Log ---
                 continue # Demand segment overlaps with a break for this bus
             end
 
+            bus_found_for_demand = true # Mark that at least one bus is feasible for this demand
+
             # If all checks pass, create the arc for this bus-demand pair
             push!(line_arcs, ModelArc(
-                # Use stop *positions* (indices) for ModelStation
                 ModelStation(route.stop_ids[origin_pos], route.route_id, route.trip_id, route.trip_sequence, origin_pos),
                 ModelStation(route.stop_ids[dest_pos], route.route_id, route.trip_id, route.trip_sequence, dest_pos),
-                bus.bus_id, # Assign the specific bus ID
-                (demand.demand_id, demand.demand_id), # Use demand ID
-                demand.demand, # Use actual demand value
-                            "line-arc"
-                        ))
+                bus.bus_id,
+                (demand.demand_id, demand.demand_id),
+                demand.demand,
+                "line-arc"
+            ))
             arcs_created += 1
         end # End bus loop
-         if isempty(buses) # If no buses, count demand as skipped feasibility
-             skipped_feasibility +=1
+
+        # If no bus was found feasible for this demand, add it to the list
+        if !bus_found_for_demand && !isempty(buses)
+             push!(unservable_demands, demand)
+        # else if isempty(buses)
+             # Technically unservable, but should be handled by the check below
+        #     push!(unservable_demands, demand)
          end
 
     end # End demand loop
+
+    # --- Check if any demands were unservable ---
+    if !isempty(unservable_demands)
+        error_message = "Model infeasible: The following demands cannot be served by any available bus due to shift/break constraints:\n"
+        for d in unservable_demands
+             # Find the route again to get times (could optimize by storing earlier)
+             route_key = (d.origin.route_id, d.origin.trip_id, d.origin.trip_sequence)
+             route = get(route_lookup, route_key, nothing)
+             demand_times_str = "N/A"
+             if !isnothing(route)
+                  origin_pos = findfirst(id -> id == d.origin.stop_sequence, route.stop_sequence)
+                  dest_pos = findfirst(id -> id == d.destination.stop_sequence, route.stop_sequence)
+                  if !isnothing(origin_pos) && !isnothing(dest_pos) && origin_pos <= length(route.stop_times) && dest_pos <= length(route.stop_times)
+                      demand_times_str = "[$(route.stop_times[origin_pos]), $(route.stop_times[dest_pos])]"
+                  end
+             end
+             error_message *= "  - Demand ID $(d.demand_id): Route=$(d.origin.route_id), Trip=$(d.origin.trip_id), Seq=$(d.origin.trip_sequence), Stops=$(d.origin.stop_sequence)->$(d.destination.stop_sequence), Times=$(demand_times_str)\n"
+        end
+        @warn error_message
+    end
+    # --- End check ---
+
+     # Updated log message
      println("Finished line arcs (Capacity Constraint). Processed demands: $processed_demands, Skipped (Route): $skipped_route_lookup, Skipped (Stop): $skipped_stop_lookup. Arcs created: $arcs_created.")
 
-    # Note: The original function returned here, but the main setup function expects it implicitly
     return line_arcs
 end
 
@@ -641,19 +696,23 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         # --- Check Depot Start Arc Feasibility ---
         depot_to_start_tt = get(travel_time_lookup, (depot_id, start_stop_id), Inf)
         start_feasible = true
+        skip_reason = "" # Variable to store reason
 
         if depot_to_start_tt == Inf
             println("  Warning: Missing travel time Depot $depot_id -> Stop $start_stop_id for bus $bus_id_str, arc $(arc.demand_id).")
             skipped_time_lookup += 1
             start_feasible = false
+            skip_reason = "Missing travel time"
         elseif !(bus.shift_start + depot_to_start_tt <= start_time)
-            # println("  Info: Bus $bus_id_str cannot reach start Stop $start_stop_id by time $start_time (needs until $(bus.shift_start + depot_to_start_tt)).")
             start_feasible = false
-        # Check if start time falls within a break
-        elseif (bus.break_start_1 < bus.break_end_1 && bus.break_start_1 <= start_time < bus.break_end_1) ||
-               (bus.break_start_2 < bus.break_end_2 && bus.break_start_2 <= start_time < bus.break_end_2)
-             # println("  Info: Start time $start_time for arc $(arc.demand_id) falls within break for bus $bus_id_str.")
+            skip_reason = "Shift Start ($(bus.shift_start)) + TT ($(depot_to_start_tt)) > Stop Start Time ($(start_time))"
+         # Check if start time falls within a break
+        elseif (bus.break_start_1 < bus.break_end_1 && bus.break_start_1 <= start_time < bus.break_end_1)
              start_feasible = false
+             skip_reason = "Stop Start Time ($(start_time)) within Break 1 [$(bus.break_start_1), $(bus.break_end_1))"
+        elseif (bus.break_start_2 < bus.break_end_2 && bus.break_start_2 <= start_time < bus.break_end_2)
+             start_feasible = false
+             skip_reason = "Stop Start Time ($(start_time)) within Break 2 [$(bus.break_start_2), $(bus.break_end_2))"
         end
 
         if start_feasible
@@ -668,27 +727,40 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             start_arcs_created += 1
         else
              skipped_feasibility += 1 # Count skips due to any feasibility issue for start
+             # --- Add Detailed Logging for Start Skip ---
+             println("  DEBUG Depot Start Skip (Bus $(bus_id_str)):")
+             println("    Line Arc Start: $(arc.arc_start)")
+             println("    Stop Start Time: $(start_time)")
+             println("    Travel Time Depot -> Stop: $(depot_to_start_tt)")
+             println("    Bus Shift: [$(bus.shift_start), $(bus.shift_end)]")
+             println("    Bus Breaks: [$(bus.break_start_1), $(bus.break_end_1)], [$(bus.break_start_2), $(bus.break_end_2)]")
+             println("    Reason: $skip_reason")
+             # --- End Detailed Logging ---
         end
 
         # --- Check Depot End Arc Feasibility ---
         end_to_depot_tt = get(travel_time_lookup, (end_stop_id, depot_id), Inf)
         end_feasible = true
+        skip_reason = "" # Reset reason
 
         if end_to_depot_tt == Inf
             println("  Warning: Missing travel time Stop $end_stop_id -> Depot $depot_id for bus $bus_id_str, arc $(arc.demand_id).")
              # Avoid double counting skip if start was also skipped for time
-            if depot_to_start_tt != Inf && start_feasible # Only count if start arc wasn't already skipped for time
+            if start_feasible && depot_to_start_tt != Inf # Count if start wasn't skipped for time
                  skipped_time_lookup += 1
             end
             end_feasible = false
+            skip_reason = "Missing travel time"
         elseif !(end_time + end_to_depot_tt <= bus.shift_end)
-            # println("  Info: Bus $bus_id_str cannot reach depot from end Stop $end_stop_id by shift end $(bus.shift_end) (needs until $(end_time + end_to_depot_tt)).")
             end_feasible = false
+            skip_reason = "Stop End Time ($(end_time)) + TT ($(end_to_depot_tt)) > Shift End ($(bus.shift_end))"
          # Check if end time falls within a break
-        elseif (bus.break_start_1 < bus.break_end_1 && bus.break_start_1 <= end_time < bus.break_end_1) ||
-               (bus.break_start_2 < bus.break_end_2 && bus.break_start_2 <= end_time < bus.break_end_2)
-             # println("  Info: End time $end_time for arc $(arc.demand_id) falls within break for bus $bus_id_str.")
+        elseif (bus.break_start_1 < bus.break_end_1 && bus.break_start_1 <= end_time < bus.break_end_1)
              end_feasible = false
+             skip_reason = "Stop End Time ($(end_time)) within Break 1 [$(bus.break_start_1), $(bus.break_end_1))"
+        elseif (bus.break_start_2 < bus.break_end_2 && bus.break_start_2 <= end_time < bus.break_end_2)
+             end_feasible = false
+             skip_reason = "Stop End Time ($(end_time)) within Break 2 [$(bus.break_start_2), $(bus.break_end_2))"
         end
 
         if end_feasible
@@ -703,6 +775,15 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             end_arcs_created += 1
         elseif start_feasible # Only count skip if start arc was feasible
             skipped_feasibility += 1 # Count skips due to end feasibility issue
+            # --- Add Detailed Logging for End Skip ---
+             println("  DEBUG Depot End Skip (Bus $(bus_id_str)):")
+             println("    Line Arc End: $(arc.arc_end)")
+             println("    Stop End Time: $(end_time)")
+             println("    Travel Time Stop -> Depot: $(end_to_depot_tt)")
+             println("    Bus Shift: [$(bus.shift_start), $(bus.shift_end)]")
+             println("    Bus Breaks: [$(bus.break_start_1), $(bus.break_end_1)], [$(bus.break_start_2), $(bus.break_end_2)]")
+             println("    Reason: $skip_reason")
+            # --- End Detailed Logging ---
     end
     
     end # End line_arc loop
@@ -908,36 +989,46 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
 
             # Check time feasibility using correctly obtained times
             if time1_end + travel_time <= route2_start_time
-                            push!(inter_line_arcs, ModelArc(
-                                # From the end station of arc1 - Use the consistent node data
-                                ModelStation(route1_end_stop_id, route_id1, trip_id1, trip_sequence1, arc1.arc_end.stop_sequence), # Use original sequence number here
-                                # To the start station of arc2 - Use the consistent node data
-                                ModelStation(route2_start_stop_id, route_id2, trip_id2, trip_sequence2, arc2.arc_start.stop_sequence), # Use original sequence number here
-                                string(route_id1, "-", trip_id1, "-", route_id2, "-", trip_id2, "-", arc1.arc_end.stop_sequence, "-", arc2.arc_start.stop_sequence), # Bus ID not relevant
-                                (isnothing(arc1.demand_id) ? 0 : arc1.demand_id[1], isnothing(arc2.demand_id) ? 0 : arc2.demand_id[1]), # Link demands if needed
-                                0, # Demand not relevant
-                                "inter-line-arc"
-                            ))
-                            arcs_created += 1
-                        end
-                    end
-                end
+                push!(inter_line_arcs, ModelArc(
+                    # From the end station of arc1 - Use the consistent node data
+                    ModelStation(route1_end_stop_id, route_id1, trip_id1, trip_sequence1, arc1.arc_end.stop_sequence), # Use original sequence number here
+                    # To the start station of arc2 - Use the consistent node data
+                    ModelStation(route2_start_stop_id, route_id2, trip_id2, trip_sequence2, arc2.arc_start.stop_sequence), # Use original sequence number here
+                    string(route_id1, "-", trip_id1, "-", route_id2, "-", trip_id2, "-", arc1.arc_end.stop_sequence, "-", arc2.arc_start.stop_sequence), # Bus ID not relevant
+                    (isnothing(arc1.demand_id) ? 0 : arc1.demand_id[1], isnothing(arc2.demand_id) ? 0 : arc2.demand_id[1]), # Link demands if needed
+                    0, # Demand not relevant
+                    "inter-line-arc"
+                ))
+                arcs_created += 1
+            else
+                skipped_feasibility += 1
+                # --- Add Detailed Logging ---
+                println("  DEBUG Inter-Line Skip (Bus $(arc1.bus_id)):")
+                println("    Arc1 End: $(arc1.arc_end)")
+                println("    Arc2 Start: $(arc2.arc_start)")
+                println("    End Time Arc1: $(time1_end)")
+                println("    route2_start_time: $(route2_start_time)")
+                println("    travel_time (base): $(travel_time)")
+                println("    adjusted_travel_time (incl. breaks): $(time1_end + travel_time - route2_start_time)")
+                println("    Bus Breaks: [$(bus.break_start_1), $(bus.break_end_1)], [$(bus.break_start_2), $(bus.break_end_2)]")
+                println("    Check Failed: $(time1_end) + $(travel_time) <= $(route2_start_time)")
+                # --- End Detailed Logging ---
+            end
+        end
+    end
     println("Finished inter-line arcs. Processed pairs: $processed_pairs (approx), Skipped (Route Lookup): $skipped_route_lookup, Skipped (Stop Index): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup. Arcs created: $arcs_created")
     return inter_line_arcs
 end
 
 function add_intra_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes::Vector{Route}, buses::Vector{Bus})
-    println("Generating intra-line arcs for capacity/break constraints...")
+    println("Generating intra-line arcs (Capacity Constraint - Virtual Connections)...")
     intra_line_arcs = Vector{ModelArc}()
-
-    # Create lookups
-    route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in routes)
-    bus_lookup = Dict(b.bus_id => b for b in buses)
 
     # Group line arcs by (route_id, trip_id, trip_sequence, bus_id)
     arcs_by_trip_bus = Dict{Tuple{Int, Int, Int, String}, Vector{ModelArc}}()
     for arc in line_arcs
-        key = (arc.arc_start.route_id, arc.arc_start.trip_id, arc.arc_start.trip_sequence, arc.bus_id)
+        # Ensure arc.bus_id is treated as a String key if it isn't already
+        key = (arc.arc_start.route_id, arc.arc_start.trip_id, arc.arc_start.trip_sequence, string(arc.bus_id))
         if !haskey(arcs_by_trip_bus, key)
             arcs_by_trip_bus[key] = []
         end
@@ -946,98 +1037,41 @@ function add_intra_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
 
     processed_groups = 0
     arcs_created = 0
-    skipped_route_lookup = 0
-    skipped_bus_lookup = 0
-    skipped_stop_index = 0
-    skipped_feasibility = 0
 
     for ((route_id, trip_id, trip_sequence, bus_id_str), group_arcs) in arcs_by_trip_bus
         processed_groups += 1
 
-        # Find the route using the correct key structure
-        route_key = (route_id, trip_id, trip_sequence)
-        if !haskey(route_lookup, route_key)
-            println("  Warning: Cannot find route $route_key for intra-line check. Skipping group.")
-            skipped_route_lookup += length(group_arcs) # Approximate skip count
-            continue
-        end
-        route = route_lookup[route_key]
+        # Sort arcs using the specified logic: start sequence ascending, end sequence descending
+        # This uses the stop_sequence field which represents the position index.
+        sort!(group_arcs, by = arc -> (arc.arc_start.stop_sequence, -arc.arc_end.stop_sequence))
 
-        # Find the bus
-        if !haskey(bus_lookup, bus_id_str)
-            println("  Warning: Cannot find bus '$bus_id_str' for intra-line check. Skipping group.")
-            skipped_bus_lookup += length(group_arcs) # Approximate skip count
-            continue
-        end
-        bus = bus_lookup[bus_id_str]
-
-        # Sort arcs in the group by start position
-        sort!(group_arcs, by = x -> x.arc_start.stop_sequence)
-
-        # Iterate through pairs within the group
+        # Iterate through ordered pairs (i, j) where j > i
         for i in 1:length(group_arcs)
             arc1 = group_arcs[i]
-            pos1_end = arc1.arc_end.stop_sequence
-
-            # Validate index arc1 end
-             if pos1_end < 1 || pos1_end > length(route.stop_ids) || pos1_end > length(route.stop_times)
-                 # println("  Warning: Invalid end index pos1_end=$pos1_end for arc1 $(arc1.demand_id). Skipping connections from this arc.")
-                 skipped_stop_index += (length(group_arcs) - i) # Approx skips
-                 break # Stop checking pairs starting with invalid arc1
-             end
-             time1_end = route.stop_times[pos1_end]
-
-
-            for j in i+1:length(group_arcs) # Only check pairs where j > i
+            for j in (i+1):length(group_arcs)
                 arc2 = group_arcs[j]
-                pos2_start = arc2.arc_start.stop_sequence
 
-                 # Validate index arc2 start
-                 if pos2_start < 1 || pos2_start > length(route.stop_ids) || pos2_start > length(route.stop_times)
-                      # println("  Warning: Invalid start index pos2_start=$pos2_start for arc2 $(arc2.demand_id). Skipping this pair.")
-                      skipped_stop_index += 1
-                      continue # Skip this specific pair
-                 end
-                 time2_start = route.stop_times[pos2_start]
-
-                # Check: arc1 ends at or before arc2 starts (sequence-wise)
-                # And arc1 ends temporally before or at the same time arc2 starts
-                if pos1_end <= pos2_start && time1_end <= time2_start
-
-                    # Check for break overlap during the connection interval [time1_end, time2_start]
-                    break1_overlap = false
-                    if bus.break_start_1 < bus.break_end_1
-                        break1_overlap = max(time1_end, bus.break_start_1) < min(time2_start, bus.break_end_1)
-                    end
-
-                    break2_overlap = false
-                    if bus.break_start_2 < bus.break_end_2
-                        break2_overlap = max(time1_end, bus.break_start_2) < min(time2_start, bus.break_end_2)
-                    end
-
-                    if break1_overlap || break2_overlap
-                        skipped_feasibility += 1
-                        continue # Connection interval overlaps with a break
-                    end
-
-                    # If feasible, create the arc
-                    push!(intra_line_arcs, ModelArc(
-                        ModelStation(route.stop_ids[pos1_end], route_id, trip_id, trip_sequence, pos1_end),
-                        ModelStation(route.stop_ids[pos2_start], route_id, trip_id, trip_sequence, pos2_start),
-                        bus.bus_id,
-                        (arc1.demand_id[1], arc2.demand_id[1]), # Link demands
-                        0,
-                        "intra-line-arc"
-                    ))
-                    arcs_created += 1
-                 else # Sequence or time invalid
-                     skipped_feasibility += 1
-                 end
+                # Create the connecting arc without feasibility checks
+                push!(intra_line_arcs, ModelArc(
+                    # End station of the first arc
+                    arc1.arc_end,
+                    # Start station of the second arc
+                    arc2.arc_start,
+                    bus_id_str, # Use the bus_id from the group key
+                    # Link demand IDs if needed, ensure they are tuples
+                    (
+                        isa(arc1.demand_id, Tuple) ? arc1.demand_id[1] : arc1.demand_id,
+                        isa(arc2.demand_id, Tuple) ? arc2.demand_id[1] : arc2.demand_id
+                    ),
+                    0, # Demand value not relevant for connection arc
+                    "intra-line-arc"
+                ))
+                arcs_created += 1
             end # End inner loop (arc2)
         end # End outer loop (arc1)
     end # End group loop
 
-    println("Finished intra-line arcs (Capacity Constraint). Processed groups: $processed_groups, Skipped (Route): $skipped_route_lookup, Skipped (Bus): $skipped_bus_lookup, Skipped (StopIdx): $skipped_stop_index, Skipped (Feasibility): $skipped_feasibility. Arcs created: $arcs_created.")
+    println("Finished intra-line arcs (Virtual Connections). Processed groups: $processed_groups. Arcs created: $arcs_created.")
     return intra_line_arcs
 end
 
@@ -1197,6 +1231,17 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
                 arcs_created += 1
             else
                 skipped_feasibility += 1
+                # --- Add Detailed Logging ---
+                println("  DEBUG Inter-Line Skip (Bus $(bus_id_str)):")
+                println("    Arc1 End: $(arc1.arc_end)")
+                println("    Arc2 Start: $(arc2.arc_start)")
+                println("    time1_end: $(time1_end)")
+                println("    route2_start_time: $(route2_start_time)")
+                println("    travel_time (base): $(travel_time)")
+                println("    adjusted_travel_time (incl. breaks): $(adjusted_travel_time)")
+                println("    Bus Breaks: [$(bus.break_start_1), $(bus.break_end_1)], [$(bus.break_start_2), $(bus.break_end_2)]")
+                println("    Check Failed: $(time1_end) + $(adjusted_travel_time) <= $(route2_start_time)")
+                # --- End Detailed Logging ---
             end
 
         end # End inner loop (arc2)
