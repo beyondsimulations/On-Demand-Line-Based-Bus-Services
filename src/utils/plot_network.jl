@@ -575,10 +575,10 @@ end
 # --- plot_solution_3d ---
 # Add parameters to control base network plotting complexity
 function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, result, all_travel_times::Vector{TravelTime};
-                           base_alpha::Float64 = 0.8,
+                           base_alpha::Float64 = 1.0,
                            base_plot_connections::Bool = false,
                            base_plot_trip_markers::Bool = false,
-                           base_plot_trip_lines::Bool = true)
+                           base_plot_trip_lines::Bool = false)
 
      day_name = lowercase(Dates.dayname(date))
      # Filter routes for the given depot and date. These represent the "lines" (scheduled trips)
@@ -605,6 +605,21 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
      end
      println("Built location lookup with $(length(stop_location_lookup)) entries for solution plot.")
      # --- End Lookup Build ---
+
+     # --- Build Stop Name Lookup ---
+     println("Building stop name lookup for solution plot...")
+     stop_name_lookup = Dict{Int, String}()
+     for r in lines
+         if length(r.stop_ids) == length(r.stop_names)
+             for (id, name) in zip(r.stop_ids, r.stop_names)
+                 stop_name_lookup[id] = name
+             end
+         else
+             println("Warning: Stop ID/Name mismatch in route $(r.route_id), trip $(r.trip_id). Some names might be missing.")
+         end
+     end
+     println("Built stop name lookup with $(length(stop_name_lookup)) entries.")
+     # --- End Stop Name Lookup Build ---
 
      # --- Build Full Travel Time Lookup (Improvement 1) ---
      # Create a more comprehensive lookup including depot flag for solution plotting
@@ -661,6 +676,7 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
         bus_path_x = Float64[]
         bus_path_y = Float64[]
         bus_path_z = Float64[]
+        hover_texts = String[]
 
         println("  Processing path for bus $(bus_info.name)...")
         for (i, arc) in enumerate(bus_info.path)
@@ -745,18 +761,61 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
 
             # --- Add Data to Combined Path Vectors ---
             if !isnan(from_x) && !isnan(to_x) && !isnan(from_time) && !isnan(segment_end_time)
-                # Add segment start point (will have marker)
+                # Get stop names
+                from_stop_name = if is_from_depot
+                    "Depot"
+                else
+                    get(stop_name_lookup, from_node.id, "ID: $(from_node.id) (Name N/A)")
+                end
+                
+                to_stop_name = if is_to_depot
+                    "Depot"
+                else
+                    get(stop_name_lookup, to_node.id, "ID: $(to_node.id) (Name N/A)")
+                end
+
+                # Get capacity for this arc
+                capacity = get(Dict(bus_info.capacity_usage), arc, 0)
+
+                # Create hover text for start point
+                hover_start = """
+                Bus: $(bus_info.name)
+
+                Location: $from_stop_name
+                Time: $(round(from_time, digits=1))
+                Route: $(from_node.route_id)
+
+                Capacity Usage: $capacity
+                """
+
+                # Create hover text for end point
+                hover_end = """
+                Bus: $(bus_info.name)
+
+                Location: $to_stop_name
+                Time: $(round(segment_end_time, digits=1))
+                Route: $(to_node.route_id)
+
+                Capacity Usage: $capacity
+                """
+
+                # Add segment start point with hover
                 push!(bus_path_x, from_x)
                 push!(bus_path_y, from_y)
                 push!(bus_path_z, from_time)
-                # Add segment end point (will have marker)
+                push!(hover_texts, hover_start)
+
+                # Add segment end point with hover
                 push!(bus_path_x, to_x)
                 push!(bus_path_y, to_y)
                 push!(bus_path_z, segment_end_time)
-                # Add NaN separator for line break ONLY
+                push!(hover_texts, hover_end)
+
+                # Add NaN separator for line break
                 push!(bus_path_x, NaN)
                 push!(bus_path_y, NaN)
                 push!(bus_path_z, NaN)
+                push!(hover_texts, "") # Empty hover for NaN point
             else
                  println("  Warning: Skipping plotting segment due to NaN coordinates or times for arc $arc.")
             end
@@ -812,6 +871,7 @@ function plot_solution_3d(all_routes::Vector{Route}, depot::Depot, date::Date, r
                    marker=:circle,
                    markersize = 1.5, # stroke(0) removes marker border
                    markerstrokewidth = 0,
+                   hover=hover_texts
                    )
         else
             println("    No path segments to plot for bus $(bus_info.name).")
