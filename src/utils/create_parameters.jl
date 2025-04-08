@@ -80,18 +80,42 @@ function create_parameters(
         end
 
     elseif setting == CAPACITY_CONSTRAINT
-        # Create one Bus struct per VEHICLE at the depot.
-        # Use vehicle capacity, generic shift times.
-        println("  Creating buses based on $(nrow(depot_vehicles_df)) vehicles found (capacity constraint).")
-        bus_counter = 0
-        for row in eachrow(depot_vehicles_df)
-            bus_counter += 1
-            bus_id = bus_counter 
-            capacity = Float64(row.seats)
+        # Create buses based on the maximum trip_sequence number observed across
+        # all routes for the depot on the given day. This represents the peak
+        # number of concurrently operating buses needed from this depot.
+        # Use a default capacity based on vehicles at the depot.
+        println("  Creating buses based on max concurrent trip sequences across ALL routes (capacity constraint).")
+
+        # Calculate default capacity (e.g., max capacity of vehicles at this depot)
+        default_capacity = 0.0
+        if !isempty(depot_vehicles_df)
+            default_capacity = Float64(maximum(depot_vehicles_df.seats))
+            println("  Using default capacity: $default_capacity (from largest vehicle)")
+        else
+            default_capacity = 3.0 # Fallback if no vehicles defined
+             println("  Warning: No vehicles for depot, using fallback capacity: $default_capacity")
+        end
+
+        # Filter routes for the current depot and date
+        relevant_routes = filter(r -> r.depot_id == depot.depot_id && lowercase(Dates.dayname(date)) == r.day, data.routes)
+
+        # Find the maximum trip_sequence value across all relevant routes
+        max_concurrent_trips = 0
+        if !isempty(relevant_routes)
+            max_concurrent_trips = maximum(r.trip_sequence for r in relevant_routes)
+        end
+
+        println("  Maximum concurrent trip sequence found for depot $(depot.depot_name) on $date: $max_concurrent_trips.")
+        println("  Creating $max_concurrent_trips buses total.")
+
+        total_buses_created = 0
+        for i in 1:max_concurrent_trips
+            # Create a unique bus ID combining depot_id and an index
+            bus_id_str = string(depot.depot_id) * "_bus" * string(i) # Changed ID format
 
             bus = Bus(
-                string(bus_id),
-                capacity,
+                bus_id_str,
+                default_capacity,
                 EFFECTIVE_START_TIME_BUFFER, # Generic start using the constant
                 EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
                 EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks (start==end)
@@ -99,7 +123,9 @@ function create_parameters(
             )
             bus.depot_id = depot.depot_id # Assign depot ID
             push!(busses, bus)
+            total_buses_created += 1
         end
+        println("  Finished creating $total_buses_created buses based on overall max concurrent trips.")
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
         println("  Processing shifts for CAPACITY_CONSTRAINT_DRIVER_BREAKS...")

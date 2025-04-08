@@ -31,9 +31,9 @@ settings = [
 ]
 
 subsettings = [
-    #ALL_LINES,
+    ALL_LINES,
     #ALL_LINES_WITH_DEMAND,
-    ONLY_DEMAND,
+    #ONLY_DEMAND,
 ]
 
 # Load all data
@@ -48,10 +48,10 @@ if isempty(depots_to_process)
 end
 
 # Plot network for each specified depot and date
-println("\n=== Generating Network Plots ===")
+println("=== Generating Network Plots ===")
 for depot in depots_to_process
     for date in dates_to_process
-        println("\nPlotting network for Depot: $(depot.depot_name) on Date: $date")
+        println("Plotting network for Depot: $(depot.depot_name) on Date: $date")
 
         # Plot 2D Network
         println("  Generating 2D plot...")
@@ -74,16 +74,16 @@ println("=== Network Plotting Finished ===")
 
 
 for depot in depots_to_process
-    println("\n=== Solving for depot: $(depot.depot_name) ===\n")
+    println("=== Solving for depot: $(depot.depot_name) ===")
 
     for date in dates_to_process
-        println("\n=== Solving for date: $date ===\n")
+        println("=== Solving for date: $date ===")
 
         for setting in settings
-            println("\n=== Solving for setting: $(setting) ===\n")
+            println("=== Solving for setting: $(setting) ===")
 
             for subsetting in subsettings
-                println("=== Solving for subsetting: $(subsetting) ===\n")
+                println("=== Solving for subsetting: $(subsetting) ===")
             
                 # Create parameters for current setting
                 parameters = create_parameters(

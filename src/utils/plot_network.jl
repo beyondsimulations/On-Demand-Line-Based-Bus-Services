@@ -57,10 +57,10 @@ function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
     depot_coords = depot.location
 
     p = plot(
-        title="Bus Network - Depot: $(depot.depot_name) on $date ($day_name)",
+        title="Depot: $(depot.depot_name) on $date ($day_name)",
         legend=false,
         aspect_ratio=:equal,
-        size=(800, 800)
+        size=(1200, 1200)
     )
 
     # Create color mapping for bus lines
@@ -292,9 +292,9 @@ function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{Tra
 
     println("Setting up base plot object...")
     p = plot(
-        title="Bus Network Schedule - Depot: $(depot.depot_name) on $date ($day_name) (3D)",
+        title="Depot: $(depot.depot_name) on $date ($day_name) (3D)",
         legend=true,
-        size=(800, 600),
+        size=(1200, 1200),
         xlims=x_lims,
         ylims=y_lims,
         zlims=z_lims

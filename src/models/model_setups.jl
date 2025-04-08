@@ -12,27 +12,6 @@ function setup_network_flow(parameters::ProblemParameters)
     println("Routes: $(length(routes))")
     println("Demands: $(length(passenger_demands))")
     
-    # Print the first 5 demands (or fewer if less than 5 exist)
-    println("First 5 demands (filtered by depot):")
-    num_demands_to_print = min(length(passenger_demands), 5)
-    if num_demands_to_print > 0
-        for i in 1:num_demands_to_print
-            println("  Demand $(i): $(passenger_demands[i])")
-        end
-    else
-        println("  No demands found for this depot.")
-    end
-
-    # Print the first 5 busses (or fewer if less than 5 exist)
-    println("First 5 buses:")
-    num_buses_to_print = min(length(buses), 5)
-    if num_buses_to_print > 0
-        for i in 1:num_buses_to_print
-            println("  Bus $(i): $(buses[i])")
-        end
-    else
-        println("  No buses found for this depot.")
-    end
     print_level = 0
 
     line_arcs = ModelArc[]
@@ -444,11 +423,6 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
         for bus in buses
             # Basic shift window check
             if demand_origin_time < bus.shift_start || demand_dest_time > bus.shift_end
-                # --- Add Debug Log ---
-                # println("  DEBUG Line Arc Skip (Bus $(bus.bus_id) - Demand $(demand.demand_id)): Shift conflict.")
-                # println("    Demand Times: [$(demand_origin_time), $(demand_dest_time)]")
-                # println("    Bus Shift:    [$(bus.shift_start), $(bus.shift_end)]")
-                # --- End Debug Log ---
                 continue # Bus shift doesn't cover this demand segment
             end
 
@@ -472,12 +446,7 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
             end
 
             if break1_overlap || break2_overlap
-                # --- Add Debug Log ---
-                println("  DEBUG Line Arc Skip (Bus $(bus.bus_id) - Demand $(demand.demand_id)): Break conflict.")
-                println("    Demand Times: [$(demand_origin_time), $(demand_dest_time)]")
-                overlap_reason = filter(!isempty, [reason_break1, reason_break2]) # Filter out empty reasons
-                println("    Conflict with: $(join(overlap_reason, " and "))")
-                # --- End Debug Log ---
+                
                 continue # Demand segment overlaps with a break for this bus
             end
 
@@ -727,15 +696,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             start_arcs_created += 1
         else
              skipped_feasibility += 1 # Count skips due to any feasibility issue for start
-             # --- Add Detailed Logging for Start Skip ---
-             println("  DEBUG Depot Start Skip (Bus $(bus_id_str)):")
-             println("    Line Arc Start: $(arc.arc_start)")
-             println("    Stop Start Time: $(start_time)")
-             println("    Travel Time Depot -> Stop: $(depot_to_start_tt)")
-             println("    Bus Shift: [$(bus.shift_start), $(bus.shift_end)]")
-             println("    Bus Breaks: [$(bus.break_start_1), $(bus.break_end_1)], [$(bus.break_start_2), $(bus.break_end_2)]")
-             println("    Reason: $skip_reason")
-             # --- End Detailed Logging ---
+             
         end
 
         # --- Check Depot End Arc Feasibility ---
@@ -775,15 +736,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             end_arcs_created += 1
         elseif start_feasible # Only count skip if start arc was feasible
             skipped_feasibility += 1 # Count skips due to end feasibility issue
-            # --- Add Detailed Logging for End Skip ---
-             println("  DEBUG Depot End Skip (Bus $(bus_id_str)):")
-             println("    Line Arc End: $(arc.arc_end)")
-             println("    Stop End Time: $(end_time)")
-             println("    Travel Time Stop -> Depot: $(end_to_depot_tt)")
-             println("    Bus Shift: [$(bus.shift_start), $(bus.shift_end)]")
-             println("    Bus Breaks: [$(bus.break_start_1), $(bus.break_end_1)], [$(bus.break_start_2), $(bus.break_end_2)]")
-             println("    Reason: $skip_reason")
-            # --- End Detailed Logging ---
+            
     end
     
     end # End line_arc loop
@@ -907,6 +860,7 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
     skipped_route_lookup = 0
     skipped_stop_index = 0
     skipped_time_lookup = 0
+    skipped_feasibility = 0
 
     # Check all possible connections between arcs from potentially different trips
     for arc1 in non_depot_arcs
@@ -1002,21 +956,11 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
                 arcs_created += 1
             else
                 skipped_feasibility += 1
-                # --- Add Detailed Logging ---
-                println("  DEBUG Inter-Line Skip (Bus $(arc1.bus_id)):")
-                println("    Arc1 End: $(arc1.arc_end)")
-                println("    Arc2 Start: $(arc2.arc_start)")
-                println("    End Time Arc1: $(time1_end)")
-                println("    route2_start_time: $(route2_start_time)")
-                println("    travel_time (base): $(travel_time)")
-                println("    adjusted_travel_time (incl. breaks): $(time1_end + travel_time - route2_start_time)")
-                println("    Bus Breaks: [$(bus.break_start_1), $(bus.break_end_1)], [$(bus.break_start_2), $(bus.break_end_2)]")
-                println("    Check Failed: $(time1_end) + $(travel_time) <= $(route2_start_time)")
-                # --- End Detailed Logging ---
+                
             end
         end
     end
-    println("Finished inter-line arcs. Processed pairs: $processed_pairs (approx), Skipped (Route Lookup): $skipped_route_lookup, Skipped (Stop Index): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup. Arcs created: $arcs_created")
+    println("Finished inter-line arcs. Processed pairs: $processed_pairs (approx), Skipped (Route Lookup): $skipped_route_lookup, Skipped (Stop Index): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup, Skipped (Feasibility): $skipped_feasibility. Arcs created: $arcs_created")
     return inter_line_arcs
 end
 
@@ -1231,17 +1175,7 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
                 arcs_created += 1
             else
                 skipped_feasibility += 1
-                # --- Add Detailed Logging ---
-                println("  DEBUG Inter-Line Skip (Bus $(bus_id_str)):")
-                println("    Arc1 End: $(arc1.arc_end)")
-                println("    Arc2 Start: $(arc2.arc_start)")
-                println("    time1_end: $(time1_end)")
-                println("    route2_start_time: $(route2_start_time)")
-                println("    travel_time (base): $(travel_time)")
-                println("    adjusted_travel_time (incl. breaks): $(adjusted_travel_time)")
-                println("    Bus Breaks: [$(bus.break_start_1), $(bus.break_end_1)], [$(bus.break_start_2), $(bus.break_end_2)]")
-                println("    Check Failed: $(time1_end) + $(adjusted_travel_time) <= $(route2_start_time)")
-                # --- End Detailed Logging ---
+                
             end
 
         end # End inner loop (arc2)
