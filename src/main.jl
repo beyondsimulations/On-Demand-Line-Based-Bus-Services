@@ -23,17 +23,19 @@ include("models/solve_models.jl")
 include("data/loader.jl")
 
 # Set the depots to run the model for
-depots_to_process_names = ["VLP Boizenburg"]
+depots_to_process_names = ["VLP Schwerin"]
 dates_to_process = [Date(2024, 8, 22)]
+case_version = "Minimize_Busses"
+# case_version = "Maximize_Demand_Coverage"
 
 # Set the plots
 interactive_plots = false
 
 # Define settings for solving
 settings = [
-    NO_CAPACITY_CONSTRAINT,
+    #NO_CAPACITY_CONSTRAINT,
     #CAPACITY_CONSTRAINT,
-    #CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+    CAPACITY_CONSTRAINT_DRIVER_BREAKS,
 ]
 
 subsettings = [
