@@ -5,6 +5,8 @@ function solve_network_flow(parameters::ProblemParameters)
         return solve_network_flow_capacity_constraint(parameters)
     elseif parameters.setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
         return solve_network_flow_capacity_constraint(parameters)
+    elseif parameters.setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE
+        return solve_network_flow_capacity_constraint(parameters)
     else
         throw(ArgumentError("Invalid setting: $(parameters.setting)"))
     end

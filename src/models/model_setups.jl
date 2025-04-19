@@ -123,7 +123,7 @@ function setup_network_flow(parameters::ProblemParameters)
             println("Inter-line arcs: $(length(inter_line_arcs)) created.")
         end
 
-    elseif parameters.setting in [CAPACITY_CONSTRAINT, CAPACITY_CONSTRAINT_DRIVER_BREAKS]
+    elseif parameters.setting in [CAPACITY_CONSTRAINT, CAPACITY_CONSTRAINT_DRIVER_BREAKS, CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE]
 
         line_arcs = add_line_arcs_capacity_constraint(routes, buses, passenger_demands)
 
