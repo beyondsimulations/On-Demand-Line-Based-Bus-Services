@@ -60,8 +60,10 @@ struct Depot
 end
 
 struct ProblemParameters
+    problem_type::String
     setting::Setting
     subsetting::SubSetting
+    service_level::Float64
     routes::Vector{Route}
     buses::Vector{Bus}
     travel_times::Vector{TravelTime}

@@ -16,16 +16,21 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
     network = setup_network_flow(parameters)
     println("Network setup complete. Building model...")
 
+    if parameters.problem_type == "Maximize_Demand_Coverage"
+        println("Calling Minimize Busses model as Maximize Demand Coverage is not supported infinite capacity.")
+    end
+
     # Variables:
     # x[arc] = flow on each arc (continuous, ≥ 0)
     # Represents number of buses flowing through each connection
     println("Creating variables...")
     @variable(model, x[network.arcs] >= 0)
+    
 
     # Objective: Minimize total number of buses leaving depot
     println("Creating objective...")
     @objective(model, Min, sum(x[arc] for arc in network.depot_start_arcs))
-
+ 
     # --- Optimization for Flow Conservation ---
     println("Pre-computing arc mappings for flow conservation...")
     incoming_map = Dict{ModelStation, Vector{ModelArc}}()
@@ -74,10 +79,11 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
     println("Creating service coverage constraints...")
     coverage_count = 0
     for arc in network.line_arcs
-        @constraint(model, x[arc] == 1)
-        coverage_count += 1
+    @constraint(model, x[arc] == 1)
+    coverage_count += 1
     end
     println("Added $coverage_count service coverage constraints.")
+
     println("Model building complete.")
 
     return solve_and_return_results(model, network, parameters)
@@ -88,6 +94,8 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     model = Model(HiGHS.Optimizer)
     network = setup_network_flow(parameters)
     println("Network setup complete. Building capacity constraint model...")
+
+    println("Problem type: $(parameters.problem_type)")
 
     # --- Pre-computation ---
     println("Pre-computing lookups and groupings...")
@@ -222,13 +230,29 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
 
 
     # Constraint 2: Service Coverage (Optimized)
-    println("Creating service coverage constraints (Constraint 2 - optimized)...")
     coverage_count = 0
-    for (key, group_arcs) in line_arc_groups
-        if !isempty(group_arcs) # Ensure group is not empty
-            @constraint(model, sum(x[arc] for arc in group_arcs) == 1)
-            coverage_count += 1
+    if parameters.problem_type == "Maximize_Demand_Coverage"
+        println("Creating service level constraint (Maximize_Demand_Coverage)...")
+        @constraint(model, sum(x[arc] for arc in network.line_arcs) >= parameters.service_level * (length(network.line_arcs) / length(parameters.buses)))
+        coverage_count = 1
+        println("Added 1 service coverage constraint.")
+        println("Creating service coverage constraints (Constraint 2 - optimized)...")
+        for (key, group_arcs) in line_arc_groups
+            if !isempty(group_arcs) # Ensure group is not empty
+                @constraint(model, sum(x[arc] for arc in group_arcs) <= 1)
+                coverage_count += 1
+            end
         end
+    elseif parameters.problem_type == "Minimize_Busses"
+        println("Creating service coverage constraints (Constraint 2 - optimized)...")
+        for (key, group_arcs) in line_arc_groups
+            if !isempty(group_arcs) # Ensure group is not empty
+                @constraint(model, sum(x[arc] for arc in group_arcs) == 1)
+                coverage_count += 1
+            end
+        end
+    else
+        error("Invalid problem type: $(parameters.problem_type)")
     end
     println("Added $coverage_count service coverage constraints.")
 

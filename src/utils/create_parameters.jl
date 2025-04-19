@@ -26,8 +26,10 @@ end
 const EFFECTIVE_START_TIME_BUFFER = -120.0 # Minutes before target day midnight
 
 function create_parameters(
+    problem_type::String,
     setting::Setting, 
     subsetting::SubSetting,
+    service_level::Float64,
     depot::Depot,
     date::Date,
     data,
@@ -464,8 +466,10 @@ function create_parameters(
     println("Finished creating parameters.")
 
     return ProblemParameters(
+        problem_type,
         setting,
         subsetting,
+        service_level,
         data.routes,
         busses,
         data.travel_times,

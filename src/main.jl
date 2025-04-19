@@ -25,8 +25,8 @@ include("data/loader.jl")
 # Set the depots to run the model for
 depots_to_process_names = ["VLP Schwerin"]
 dates_to_process = [Date(2024, 8, 22)]
-case_version = "Minimize_Busses"
-# case_version = "Maximize_Demand_Coverage"
+#problem_type = "Minimize_Busses"
+problem_type = "Maximize_Demand_Coverage"
 
 # Set the plots
 interactive_plots = false
@@ -34,8 +34,8 @@ interactive_plots = false
 # Define settings for solving
 settings = [
     #NO_CAPACITY_CONSTRAINT,
-    #CAPACITY_CONSTRAINT,
-    CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+    CAPACITY_CONSTRAINT,
+    #CAPACITY_CONSTRAINT_DRIVER_BREAKS,
 ]
 
 subsettings = [
@@ -108,8 +108,10 @@ for depot in depots_to_process
             
                 # Create parameters for current setting
                 parameters = create_parameters(
+                    problem_type,
                     setting, 
                     subsetting,
+                    1.0,
                     depot,
                     date,
                     data
