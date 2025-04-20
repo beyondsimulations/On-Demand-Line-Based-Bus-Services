@@ -50,7 +50,6 @@ struct TravelTime
     end_stop::Int
     time::Float64
     is_depot_travel::Bool
-    depot_id::Int
 end
 
 struct Depot
@@ -68,7 +67,7 @@ struct ProblemParameters
     buses::Vector{Bus}
     travel_times::Vector{TravelTime}
     passenger_demands::Vector{PassengerDemand}
-    depot::Depot
+    depots::Vector{Depot}
     day::String
     vehicle_capacity_counts::Dict{Float64, Int}
 end

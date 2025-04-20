@@ -15,7 +15,7 @@ struct PlottingBusLine
     day::String
 end
 
-function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
+function plot_network(all_routes::Vector{Route}, depots::Vector{Depot}, date::Date)
     day_name = lowercase(Dates.dayname(date))
     routes = filter(r -> r.depot_id == depot.depot_id && r.day == day_name, all_routes)
 
@@ -169,7 +169,7 @@ function plot_network(all_routes::Vector{Route}, depot::Depot, date::Date)
     return p
 end
 
-function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{TravelTime}, depot::Depot, date::Date;
+function plot_network_3d(all_routes::Vector{Route}, all_travel_times::Vector{TravelTime}, depots::Vector{Depot}, date::Date;
                          alpha::Float64 = 1.0,
                          plot_connections::Bool = true,
                          plot_trip_markers::Bool = true,

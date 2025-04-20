@@ -43,87 +43,88 @@ end
     compute_travel_times(routes::Vector{Route}, depots::Vector{Depot}) -> Vector{TravelTime}
 
 Calculates travel times between ALL pairs of unique stops (including depots)
-within each depot's operational zone.
-Uses Haversine distance and average bus speed. Assumes routes have a `depot_id`.
+across the entire network. Excludes travel time calculations between different depots.
+Uses Haversine distance and average bus speed.
+Assumes the TravelTime struct no longer has a depot_id field.
 """
 function compute_travel_times(routes::Vector{Route}, depots::Vector{Depot})::Vector{TravelTime}
     travel_times_list = TravelTime[]
-    depot_stops = Dict{Int, Set{Int}}() # Depot ID -> Set of associated Stop IDs
+    all_stop_ids = Set{Int}()
+    depot_ids = Set{Int}() # Keep track of which stops are depots
     stop_locations = Dict{Int, Tuple{Float64, Float64}}() # Stop ID -> Location (Lat, Lon)
 
-    println("Gathering stops and locations for each depot zone...")
+    println("Gathering all unique stops and locations...")
 
-    # 1a. Add depots as stops and initialize depot stop sets
+    # 1a. Add depots to stops and locations
     for depot in depots
-        depot_stops[depot.depot_id] = Set([depot.depot_id]) # Add depot itself
+        push!(all_stop_ids, depot.depot_id)
+        push!(depot_ids, depot.depot_id) # Mark this ID as a depot
         stop_locations[depot.depot_id] = depot.location
     end
 
-    # 1b. Add route stops to their respective depots and store locations
+    # 1b. Add route stops and locations
     for route in routes
-        if !haskey(depot_stops, route.depot_id)
-            println("Warning: Route $(route.route_id) assigned to unknown Depot ID $(route.depot_id). Skipping route.")
-            continue
-        end
+        # Basic validation for route stops and locations
         if isempty(route.stop_ids) || length(route.stop_ids) != length(route.locations)
              println("Warning: Route $(route.route_id) day $(route.day) has inconsistent stops/locations. Skipping route.")
              continue
         end
 
-        current_depot_set = depot_stops[route.depot_id]
         for (i, stop_id) in enumerate(route.stop_ids)
-            push!(current_depot_set, stop_id)
+            push!(all_stop_ids, stop_id)
             # Store location - overwrite if exists, assuming consistency
+            # (Could add a check here if locations for the same stop_id differ)
             stop_locations[stop_id] = route.locations[i]
         end
     end
 
-    println("Calculating all-pairs travel times within each depot zone using avg speed: $(Config.AVERAGE_BUS_SPEED) km/h.")
+    println("Calculating all-pairs travel times across $(length(all_stop_ids)) unique stops (excluding different depot-to-depot pairs) using avg speed: $(Config.AVERAGE_BUS_SPEED) km/h.")
 
-    # 2. Calculate pairwise travel times within each depot zone
-    for (depot_id, stops_in_zone) in depot_stops
-        if !haskey(stop_locations, depot_id) continue end # Should not happen if depot loop ran
-        depot_location = stop_locations[depot_id] # Depot's own location
+    # 2. Calculate pairwise travel times for all unique stops
+    stop_list = collect(all_stop_ids) # Convert set to list for indexing
 
-        println("Processing Depot ID: $depot_id with $(length(stops_in_zone)) unique stops...")
-        stop_list = collect(stops_in_zone) # Convert set to list for indexing
+    for i in 1:length(stop_list)
+        stop_a_id = stop_list[i]
+        if !haskey(stop_locations, stop_a_id)
+             println("Warning: Location missing for stop $stop_a_id. Skipping pairs involving this stop.")
+             continue
+        end
+        loc_a = stop_locations[stop_a_id]
+        is_a_depot = stop_a_id in depot_ids
 
-        for i in 1:length(stop_list)
-            stop_a_id = stop_list[i]
-            if !haskey(stop_locations, stop_a_id)
-                 println("Warning: Location missing for stop $stop_a_id in depot $depot_id. Skipping pairs involving this stop.")
+        for j in 1:length(stop_list)
+            stop_b_id = stop_list[j]
+            if !haskey(stop_locations, stop_b_id)
+                 # Warning already printed in outer loop if stop_a_id == stop_b_id was missing
                  continue
             end
-            loc_a = stop_locations[stop_a_id]
+            is_b_depot = stop_b_id in depot_ids
 
-            for j in 1:length(stop_list)
-                # if i == j continue end # Skip travel from a stop to itself # REMOVED
+            # Skip calculation if traveling between two *different* depots
+            if is_a_depot && is_b_depot && stop_a_id != stop_b_id
+                continue
+            end
 
-                stop_b_id = stop_list[j]
-                 if !haskey(stop_locations, stop_b_id)
-                     # Warning already printed in outer loop if stop_a_id == stop_b_id was missing
-                     continue
-                 end
-                loc_b = stop_locations[stop_b_id]
+            loc_b = stop_locations[stop_b_id]
 
-                # When i == j, loc_a will be the same as loc_b
-                dist_ab = haversine_distance(loc_a[1], loc_a[2], loc_b[1], loc_b[2]) # Should be 0 if i == j
-                time_ab = calculate_travel_time_minutes(dist_ab) # Should be 0 if i == j
+            # Calculate distance and time
+            dist_ab = haversine_distance(loc_a[1], loc_a[2], loc_b[1], loc_b[2]) # Should be 0 if i == j
+            time_ab = calculate_travel_time_minutes(dist_ab) # Should be 0 if i == j
 
-                # Check if this travel involves the depot stop
-                is_depot = (stop_a_id == depot_id || stop_b_id == depot_id)
+            # Determine if the travel involves any depot
+            is_depot_involved = is_a_depot || is_b_depot
 
-                push!(travel_times_list, TravelTime(
-                    stop_a_id, # Origin Stop ID
-                    stop_b_id, # Destination Stop ID
-                    time_ab,
-                    is_depot,
-                    depot_id
-                ))
-            end # end inner loop (stop_b)
-        end # end outer loop (stop_a)
-    end # end depot loop
+            # Assuming TravelTime struct is now: TravelTime(origin, destination, time, is_depot_involved)
+            push!(travel_times_list, TravelTime(
+                stop_a_id, # Origin Stop ID
+                stop_b_id, # Destination Stop ID
+                time_ab,
+                is_depot_involved
+                # Removed depot_id field
+            ))
+        end # end inner loop (stop_b)
+    end # end outer loop (stop_a)
 
-    println("Calculated $(length(travel_times_list)) all-pairs travel times within depot zones (including self-loops).") # UPDATED print message
+    println("Calculated $(length(travel_times_list)) travel times (including self-loops, excluding different depot-to-depot).")
     return travel_times_list
 end

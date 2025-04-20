@@ -26,21 +26,21 @@ include("data/loader.jl")
 
 dates_to_process = [Date(2024, 8, 22)]
 
-version = "v2"
+version = "v1"
 if version == "v1"
     problem_type = "Minimize_Busses"
     service_levels = 1.0
 
     settings = [
-        NO_CAPACITY_CONSTRAINT,
+#        NO_CAPACITY_CONSTRAINT,
         CAPACITY_CONSTRAINT,
-        CAPACITY_CONSTRAINT_DRIVER_BREAKS,
-        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
+#        CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+#        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
     ]
 
     subsettings = [
-        ALL_LINES,
-        ALL_LINES_WITH_DEMAND,
+#        ALL_LINES,
+#        ALL_LINES_WITH_DEMAND,
         ONLY_DEMAND,
     ]
 elseif version == "v2"
@@ -63,13 +63,16 @@ interactive_plots = false
 
 # Set the depots to run the model for
 depots_to_process_names = [
-    "VLP Boizenburg",
-    "VLP Hagenow",
-    "VLP Parchim",
-    "VLP Schwerin",
-    "VLP Ludwigslust",
-    "VLP Sternberg",
-    "VLP Zarrentin"
+    #["VLP Boizenburg"],
+    #["VLP Hagenow"],
+    #["VLP Zarrentin"],
+    #["VLP Ludwigslust"],
+    #["VLP Parchim"],
+    #["VLP Schwerin"],
+    #["VLP Sternberg"],
+    #["VLP Boizenburg", "VLP Hagenow", "VLP Zarrentin"],
+    ["VLP Ludwigslust","VLP Parchim"],
+    #["VLP Schwerin", "VLP Sternberg"]
 ]
 
 # Load all data
@@ -78,48 +81,54 @@ data = load_all_data()
 println("Data loading finished.")
 
 # Filter depots to process based on names specified
-depots_to_process = filter(d -> d.depot_name in depots_to_process_names, data.depots)
-if isempty(depots_to_process)
-    error("None of the specified depot names found: $depots_to_process_names")
-end
-
-# Plot network for each specified depot and date
-println("=== Generating Network Plots ===")
-for depot in depots_to_process
+for depot_group in depots_to_process_names
+    println("=== Processing depot group: $(join(depot_group, ", ")) ===")
+    
+    # Filter depots for this group
+    current_depots = filter(d -> d.depot_name in depot_group, data.depots)
+    if isempty(current_depots)
+        println("Warning: No depots found for group: $(join(depot_group, ", "))")
+        continue
+    end
+    
+    # Create a combined name for the group for file naming
+    group_name = join(map(d -> replace(d, " " => "_"), depot_group), "-")
+    
+    # Plot network for the depot group and date
+    println("=== Generating Network Plots ===")
     for date in dates_to_process
-        println("Plotting network for Depot: $(depot.depot_name) on Date: $date")
+        println("Plotting network for Depot Group: $(group_name) on Date: $date")
 
         if !isdir("plots")
             mkdir("plots")
         end
 
-        # Plot 2D Network
+        # Plot 2D Network for the group
         println("  Generating 2D plot...")
         
         if interactive_plots
             println("    Generating plot with Plotly...")
-            network_plot_2d = plot_network(data.routes, depot, date)
+            network_plot_2d = plot_network(data.routes, current_depots, date)
             display(network_plot_2d)
         end
 
         println("    Generating plot with Makie...")
-        network_plot_2d_makie = plot_network_makie(data.routes, depot, date)
-        save("plots/network_2d_$(depot.depot_name)_$(date).pdf", network_plot_2d_makie)
+        network_plot_2d_makie = plot_network_makie(data.routes, current_depots, date)
+        save("plots/network_2d_$(group_name)_$(date).pdf", network_plot_2d_makie)
 
         # Plot 3D Network
         println("  Generating 3D plot...")
         if interactive_plots
             println("    Generating plot with Plotly...")
-            network_plot_3d = plot_network_3d(data.routes, data.travel_times, depot, date)
+            network_plot_3d = plot_network_3d(data.routes, data.travel_times, current_depots, date)
             display(network_plot_3d)
         end
 
         println("    Generating plot with Makie...")
-        network_plot_3d_makie = plot_network_3d_makie(data.routes, data.travel_times, depot, date)
-        save("plots/network_3d_$(depot.depot_name)_$(date).pdf", network_plot_3d_makie)
+        network_plot_3d_makie = plot_network_3d_makie(data.routes, data.travel_times, current_depots, date)
+        save("plots/network_3d_$(group_name)_$(date).pdf", network_plot_3d_makie)
     end
-end
-println("=== Network Plotting Finished ===")
+    println("=== Network Plotting Finished ===")
 
 # Create a DataFrame to store results
 results_df = DataFrame(
@@ -140,9 +149,6 @@ results_df = DataFrame(
     optimality_gap = Union{Float64, Missing}[]
 )
 
-for depot in depots_to_process
-    println("=== Solving for depot: $(depot.depot_name) ===")
-
     for date in dates_to_process
         println("=== Solving for date: $date ===")
 
@@ -155,13 +161,13 @@ for depot in depots_to_process
                 for service_level in service_levels
                     println("=== Solving for service level: $(service_level) ===")
             
-                    # Create parameters for current setting
+                    # Create parameters for current setting with multiple depots
                     parameters = create_parameters(
                             problem_type,
                             setting, 
                             subsetting,
                             service_level,
-                            depot,
+                            current_depots, # Pass the entire depot group
                             date,
                             data
                     )
@@ -204,7 +210,7 @@ for depot in depots_to_process
                                 println("    Generating plot with Plotly...")
                                 solution_plot = plot_solution_3d(
                                     data.routes, 
-                                    depot, 
+                                    current_depots, 
                                     date, 
                                     result, 
                                     data.travel_times,
@@ -219,7 +225,7 @@ for depot in depots_to_process
                             println("    Generating plot with Makie...")
                             solution_plot_makie = plot_solution_3d_makie(
                                 data.routes, 
-                                depot, 
+                                current_depots, 
                                 date, 
                                 result, 
                                 data.travel_times,
@@ -228,7 +234,7 @@ for depot in depots_to_process
                                 base_plot_trip_markers=true,
                                 base_plot_trip_lines=true
                             )
-                            save("plots/solution_3d_$(depot.depot_name)_$(date).pdf", solution_plot_makie)
+                            save("plots/solution_3d_$(group_name)_$(date).pdf", solution_plot_makie)
     
                             
                         end
@@ -264,7 +270,7 @@ for depot in depots_to_process
                     
                     # Add row to results DataFrame
                     push!(results_df, (
-                        depot.depot_name,
+                        group_name,
                         date,
                         problem_type,
                         string(setting),
