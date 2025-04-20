@@ -61,6 +61,9 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
     routes = parameters.routes # Get routes for expansion
     
     if termination_status(model) == MOI.OPTIMAL
+        # Get the optimality gap
+        gap = relative_gap(model)
+        
         x = model[:x]
         solved_arcs = [arc for arc in network.arcs if value(x[arc]) > 0.5] # Use 0.5 for binary/integer check
 
@@ -393,8 +396,9 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
         return NetworkFlowSolution(
             :Optimal,
             objective_value(model),
-            final_bus_info, # Updated structure
-            solve_time(model)
+            final_bus_info,
+            solve_time(model),
+            gap
         )
     else
         status_symbol = termination_status(model) == MOI.INFEASIBLE ? :Infeasible : Symbol(termination_status(model))
@@ -403,7 +407,8 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             status_symbol,
             nothing,
             nothing,
-            solve_time(model)
+            solve_time(model),
+            nothing
         )
     end
 end

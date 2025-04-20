@@ -102,4 +102,5 @@ struct NetworkFlowSolution
     buses::Union{Dict{String, NamedTuple{(:name, :path, :operational_duration, :waiting_time, :capacity_usage, :timestamps), 
         Tuple{String, Vector{Any}, Float64, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}, Nothing}
     solve_time::Union{Float64, Nothing}
+    gap::Union{Float64, Nothing}
 end 

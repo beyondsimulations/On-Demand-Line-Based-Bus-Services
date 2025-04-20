@@ -14,6 +14,14 @@ end
 
 function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters)
     model = Model(HiGHS.Optimizer)
+
+    # Set solver options
+    set_optimizer_attribute(model, "presolve", "on")  # Enable presolve
+    set_optimizer_attribute(model, "mip_rel_gap", 0.00)  # 0% optimality gap
+    set_optimizer_attribute(model, "time_limit", 300.0)  # 5 minutes
+    set_optimizer_attribute(model, "solve_relaxation", false) # Don't solve relaxation
+    set_optimizer_attribute(model, "threads", 4) # Max 4 threads
+
     println("Setting up network...")
     network = setup_network_flow(parameters)
     println("Network setup complete. Building model...")
@@ -94,7 +102,16 @@ end
 function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     println("Setting up network for capacity constraint model...")
     model = Model(HiGHS.Optimizer)
+
+    # Set solver options
+    set_optimizer_attribute(model, "presolve", "on")  # Enable presolve
+    set_optimizer_attribute(model, "mip_rel_gap", 0.00)  # 1% optimality gap
+    set_optimizer_attribute(model, "time_limit", 3600.0)  # 1 hour time limit
+    set_optimizer_attribute(model, "solve_relaxation", false) # Don't solve relaxation
+    set_optimizer_attribute(model, "threads", 4) # Max 4 threads
+
     network = setup_network_flow(parameters)
+
     println("Network setup complete. Building capacity constraint model...")
 
     println("Problem type: $(parameters.problem_type)")
@@ -235,7 +252,8 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     coverage_count = 0
     if parameters.problem_type == "Maximize_Demand_Coverage"
         println("Creating service level constraint (Maximize_Demand_Coverage)...")
-        @constraint(model, sum(x[arc] for arc in network.line_arcs) >= parameters.service_level * (length(network.line_arcs) / length(parameters.buses)))
+        @constraint(model, sum(x[arc] for arc in network.line_arcs) >= parameters.service_level * length([d for d in parameters.passenger_demands if d.depot_id == parameters.depot.depot_id]))
+        println("In total, $(length(parameters.passenger_demands)) passenger demands, need to cover $(parameters.service_level * length(parameters.passenger_demands)) demands.")
         coverage_count = 1
         println("Added 1 service coverage constraint.")
         println("Creating service coverage constraints (Constraint 2 - optimized)...")
@@ -256,6 +274,7 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     else
         error("Invalid problem type: $(parameters.problem_type)")
     end
+    
     println("Added $coverage_count service coverage constraints.")
 
 

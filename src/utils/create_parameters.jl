@@ -64,8 +64,7 @@ function create_parameters(
     # --- Create buses based on setting ---
     println("Creating Bus objects for setting: $setting")
     if setting == NO_CAPACITY_CONSTRAINT
-        routes_for_context = filter(r -> r.depot_id == depot.depot_id && r.day == lowercase(Dates.dayname(date)), data.routes)
-        num_dummy_buses = max(1, length(routes_for_context))
+        num_dummy_buses = max(1, length(data.shifts_df.shiftnr))
 
         println("  Creating $(num_dummy_buses) dummy buses (no capacity constraint).")
         for i in 1:num_dummy_buses
@@ -96,21 +95,18 @@ function create_parameters(
              unique_capacities = [3.0] # Fallback if no vehicles defined
         end
         # --- End Get unique capacities ---
-
-
         total_buses_created = 0
 
         # --- 1. Process Shifts for the Target Day ---
         target_day_shifts_added = 0
         println("  Checking for shifts starting on target day ($date, :$day_abbr)...")
         # depot_shifts_df is already filtered for the target day and depot
-        println("    Found $(nrow(depot_shifts_df)) shifts starting on target day.")
-        for row in eachrow(depot_shifts_df)
+        println("    Found $(nrow(data.shifts_df)) shifts starting on target day.")
+        for row in eachrow(data.shifts_df)
              # --- Create a bus for each capacity type ---
              original_shift_id = string(row.shiftnr)
              for capacity in unique_capacities
-                 # Create unique ID: shiftnr_cap<Capacity>
-                 bus_id_str = original_shift_id * "_cap" * string(Int(capacity)) # Ensure capacity is Int for cleaner ID
+                 bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cap" * string(Int(capacity)) # Ensure capacity is Int for cleaner ID
                  println("      Creating bus for shift $original_shift_id with capacity $capacity: $bus_id_str")
 
                  bus = Bus(
@@ -148,7 +144,7 @@ function create_parameters(
         # --- End Get unique capacities ---
 
 
-        println("  Creating buses based on $(nrow(depot_shifts_df)) shifts found (capacity and breaks constraint).")
+        println("  Creating buses based on $(nrow(data.shifts_df)) shifts found (capacity and breaks constraint).")
         total_buses_created = 0 # Counter for total buses
 
         # --- 1. Process Shifts from Previous Day (Overnight) ---
@@ -232,7 +228,7 @@ function create_parameters(
                     # --- Create a bus for each capacity type ---
                     for capacity in unique_capacities
                             # Unique ID for continuation part + capacity: shiftnr_cont_cap<Capacity>
-                            bus_id_str = original_shift_id * "_cont_cap" * string(Int(capacity))
+                            bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cont_cap" * string(Int(capacity))
                             println("      Creating continuation bus for shift $original_shift_id with capacity $capacity: $bus_id_str")
 
                             bus = Bus(
@@ -290,7 +286,7 @@ function create_parameters(
             # --- Create a bus for each capacity type ---
             for capacity in unique_capacities
                 # Create unique ID: shiftnr_cap<Capacity>
-                bus_id_str = original_shift_id * "_cap" * string(Int(capacity))
+                bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cap" * string(Int(capacity))
                 println("      Creating bus for shift $original_shift_id with capacity $capacity: $bus_id_str")
 
                 bus = Bus(
@@ -405,7 +401,7 @@ function create_parameters(
                     # --- Create a bus for each capacity type ---
                     for capacity in unique_capacities
                          # Unique ID for continuation part + capacity: shiftnr_cont_cap<Capacity>
-                         bus_id_str = original_shift_id * "_cont_cap" * string(Int(capacity))
+                         bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cont_cap" * string(Int(capacity))
                          println("      Creating continuation bus for shift $original_shift_id with capacity $capacity: $bus_id_str")
 
                          bus = Bus(
@@ -463,7 +459,7 @@ function create_parameters(
              # --- Create a bus for each capacity type ---
              for capacity in unique_capacities
                  # Create unique ID: shiftnr_cap<Capacity>
-                 bus_id_str = original_shift_id * "_cap" * string(Int(capacity))
+                 bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cap" * string(Int(capacity))
                  println("      Creating bus for shift $original_shift_id with capacity $capacity: $bus_id_str")
 
                  bus = Bus(
@@ -624,15 +620,22 @@ function create_parameters(
 
     # --- Calculate vehicle counts per capacity for the depot ---
     vehicle_capacity_counts = Dict{Float64, Int}()
-    if !isempty(depot_vehicles_df)
-        for capacity in depot_vehicles_df.seats
+    if setting in [NO_CAPACITY_CONSTRAINT, CAPACITY_CONSTRAINT, CAPACITY_CONSTRAINT_DRIVER_BREAKS]
+        for capacity in data.buses_df.seats
             cap_float = Float64(capacity)
             vehicle_capacity_counts[cap_float] = get(vehicle_capacity_counts, cap_float, 0) + 1
         end
-        println("Calculated vehicle counts per capacity for depot $(depot.depot_name): $vehicle_capacity_counts")
-    else
-        println("Warning: No vehicles found for depot $(depot.depot_name), vehicle_capacity_counts will be empty.")
-        # Optionally, handle fallback if needed, but an empty dict signifies no vehicles
+        println("Calculated vehicle counts per capacity for all depots: $vehicle_capacity_counts")
+    elseif setting in [CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE]
+        if !isempty(depot_vehicles_df)
+            for capacity in depot_vehicles_df.seats
+                cap_float = Float64(capacity)
+                vehicle_capacity_counts[cap_float] = get(vehicle_capacity_counts, cap_float, 0) + 1
+            end
+            println("Calculated vehicle counts per capacity for depot $(depot.depot_name): $vehicle_capacity_counts")
+        else
+            println("Warning: No vehicles found for depot $(depot.depot_name), vehicle_capacity_counts will be empty.")
+        end
     end
     # --- End Calculate vehicle counts ---
 

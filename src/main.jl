@@ -26,13 +26,36 @@ include("data/loader.jl")
 
 dates_to_process = [Date(2024, 8, 22)]
 
-version = "v1"
+version = "v2"
 if version == "v1"
     problem_type = "Minimize_Busses"
     service_levels = 1.0
+
+    settings = [
+        NO_CAPACITY_CONSTRAINT,
+        CAPACITY_CONSTRAINT,
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
+    ]
+
+    subsettings = [
+        ALL_LINES,
+        ALL_LINES_WITH_DEMAND,
+        ONLY_DEMAND,
+    ]
 elseif version == "v2"
     problem_type = "Maximize_Demand_Coverage"
-    service_levels = 0.05:0.05:1.0
+    service_levels = 0.01:0.01:1.0
+
+    # Define settings for solving
+    settings = [
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
+    ]
+
+    subsettings = [
+        ONLY_DEMAND,
+    ]
 end
 
 # Set the plots
@@ -47,20 +70,6 @@ depots_to_process_names = [
     "VLP Ludwigslust",
     "VLP Sternberg",
     "VLP Zarrentin"
-]
-
-# Define settings for solving
-settings = [
-    NO_CAPACITY_CONSTRAINT,
-    CAPACITY_CONSTRAINT,
-    CAPACITY_CONSTRAINT_DRIVER_BREAKS,
-    CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
-]
-
-subsettings = [
-    ALL_LINES,
-    ALL_LINES_WITH_DEMAND,
-    ONLY_DEMAND,
 ]
 
 # Load all data
@@ -127,7 +136,8 @@ results_df = DataFrame(
     total_demand_coverage = Float64[],
     total_operational_duration = Float64[],
     total_waiting_time = Float64[],
-    avg_capacity_utilization = Float64[]
+    avg_capacity_utilization = Float64[],
+    optimality_gap = Union{Float64, Missing}[]
 )
 
 for depot in depots_to_process
@@ -161,6 +171,68 @@ for depot in depots_to_process
                     
                     # Solve network flow model
                     result = solve_network_flow(parameters)
+
+                    if result.status == :Optimal
+                        println("Optimal solution found!")
+                        println("Number of buses required: ", result.objective_value)
+                        
+                        # Only iterate if buses exist (implied by Optimal, but good practice)
+                        if result.buses !== nothing
+                            for (bus_id, bus_info) in result.buses
+                                println("\nBus $(bus_info.name):")
+                                println("  Operational duration: $(round(bus_info.operational_duration, digits=2))")
+                                println("  Waiting time: $(round(bus_info.waiting_time, digits=2))")
+                                println("  Path segments with capacity and time:")
+                                # Convert capacity_usage vector to dictionary
+                                capacity_dict = Dict(bus_info.capacity_usage)
+                                timestamps_dict = Dict(bus_info.timestamps)
+                                for segment in bus_info.path
+                                    usage = get(capacity_dict, segment, 0)
+                                    time = round(get(timestamps_dict, segment, 0.0), digits=2)
+                                    println("    $segment (capacity: $usage, time: $time)")
+                                end
+                            end
+                        else
+                             println("Optimal solution reported, but no bus data found.")
+                        end
+    
+                        # Display solution visualization
+                        if !isnothing(result)
+                            println("  Generating solution plot...")
+    
+                            if interactive_plots
+                                println("    Generating plot with Plotly...")
+                                solution_plot = plot_solution_3d(
+                                    data.routes, 
+                                    depot, 
+                                    date, 
+                                    result, 
+                                    data.travel_times,
+                                    base_alpha=0.1,
+                                    base_plot_connections=false,
+                                    base_plot_trip_markers=false,
+                                    base_plot_trip_lines=false
+                                )
+                                display(solution_plot)
+                            end
+    
+                            println("    Generating plot with Makie...")
+                            solution_plot_makie = plot_solution_3d_makie(
+                                data.routes, 
+                                depot, 
+                                date, 
+                                result, 
+                                data.travel_times,
+                                base_alpha=0.1, 
+                                base_plot_connections=false,
+                                base_plot_trip_markers=true,
+                                base_plot_trip_lines=true
+                            )
+                            save("plots/solution_3d_$(depot.depot_name)_$(date).pdf", solution_plot_makie)
+    
+                            
+                        end
+                    end
                     
                     # Calculate metrics for logging
                     total_demand_coverage = 0.0
@@ -205,7 +277,8 @@ for depot in depots_to_process
                         total_demand_coverage,
                         total_operational_duration,
                         total_waiting_time,
-                        num_buses > 0 ? total_capacity / num_buses : 0.0
+                        num_buses > 0 ? total_capacity / num_buses : 0.0,
+                        result.gap === nothing ? missing : result.gap
                     ))
                     
                     # Print current results
