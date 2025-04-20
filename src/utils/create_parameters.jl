@@ -110,8 +110,10 @@ function create_parameters(
         target_day_shifts_added = 0
         println("  Checking for shifts starting on target day ($date, :$day_abbr)...")
         # depot_shifts_df is already filtered for the target day and depot
-        println("    Found $(nrow(data.shifts_df)) shifts starting on target day.")
-        for row in eachrow(data.shifts_df)
+
+        depot_shifts_df = filter(row -> row.depot in [d.depot_name for d in depots] && !ismissing(row[day_abbr]) && !isempty(string(row[day_abbr])), data.shifts_df)
+        println("    Found $(nrow(depot_shifts_df)) shifts starting on target day.")
+        for row in eachrow(depot_shifts_df)
             for depot in depots
                 # --- Create a bus for each capacity type ---
                 original_shift_id = string(row.shiftnr)
