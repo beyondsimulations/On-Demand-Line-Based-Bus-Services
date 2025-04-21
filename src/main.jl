@@ -26,7 +26,7 @@ include("data/loader.jl")
 
 dates_to_process = [Date(2024, 8, 22)]
 
-version = "v2"
+version = "v1"
 if version == "v1"
     problem_type = "Minimize_Busses"
     service_levels = 1.0
