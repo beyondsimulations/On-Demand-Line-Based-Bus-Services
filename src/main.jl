@@ -9,7 +9,7 @@ using Dates
 using Statistics
 
 
-include("Config.jl")
+include("config.jl")
 using .Config
 include("types/settings.jl")
 include("types/structures.jl")
