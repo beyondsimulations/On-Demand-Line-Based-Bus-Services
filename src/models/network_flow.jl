@@ -106,7 +106,7 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     # Set solver options
     set_optimizer_attribute(model, "presolve", "on")  # Enable presolve
     set_optimizer_attribute(model, "mip_rel_gap", 0.00)  # 1% optimality gap
-    set_optimizer_attribute(model, "time_limit", 3600.0)  # 1 hour time limit
+    set_optimizer_attribute(model, "time_limit", 300.0)  # 5 minutes time limit
     set_optimizer_attribute(model, "solve_relaxation", false) # Don't solve relaxation
     set_optimizer_attribute(model, "threads", 4) # Max 4 threads
 
