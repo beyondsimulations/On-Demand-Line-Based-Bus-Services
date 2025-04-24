@@ -35,8 +35,8 @@ set_theme!(Theme(
 results_file = "results/computational_study_2025-04-22_10-45.csv"
 plot_save_path_breaks_available = "results/plot_buses_vs_service_drivers_current_depot.png"
 plot_save_path_breaks_all_depots = "results/plot_buses_vs_service_drivers_all_depots.png"
-padding_y = 1
-padding_x = 0.01
+padding_y = 1.05
+padding_x = 0.05
 
 # --- Load and Prepare Data ---
 df = CSV.read(results_file, DataFrame)
@@ -79,7 +79,7 @@ colors_base = range(0, 1, length=n_colors)
 distinct_colors = [RGBAf(get(colorschemes[:redblue], x), 1.0) for x in colors_base]
 
 # Define a list of markers
-markers = [:circle, :rect, :utriangle, :dtriangle, :diamond, :pentagon, :cross, :xcross, :star4, :star5]
+markers = [:star4, :pentagon,:circle, :rect, :utriangle, :dtriangle, :diamond, :xcross, :cross, :star5]
 # Ensure we have enough markers, cycle if needed
 depot_color_map = Dict(d => distinct_colors[mod1(i, length(distinct_colors))] for (i, d) in enumerate(all_depots))
 depot_marker_map = Dict(d => markers[mod1(i, length(markers))] for (i, d) in enumerate(all_depots))
@@ -92,20 +92,23 @@ function create_plot_elements!(ax, data, depots, depot_color_map, depot_marker_m
             sort!(df_depot, :service_level)
             color = depot_color_map[d]
             marker = depot_marker_map[d]
-            
+
             # Plot both line and scatter with the same label
             lines!(ax, df_depot.service_level, df_depot.num_buses, 
-                   color = color, linewidth = 1.0)
+                color = color, linewidth = 1.5)
             scatter!(ax, df_depot.service_level, df_depot.num_buses, 
-                     color = color, marker = marker, markersize = 8, 
-                     strokecolor = :black, strokewidth = 0.0,
-                     label = string(d))
+                    color = (color),  # Transparent fill
+                    marker = marker, 
+                    markersize = 8, 
+                    #strokecolor = color,  # Use the color for the outline
+                    #strokewidth = 0.5,    # Make the stroke a bit thicker for visibility
+                    label = string(d))
         end
     end
 end
 
 # --- Plot 1: Drivers Only From Current Depot ---
-fig_current = Figure(size = (500, 400))
+fig_current = Figure(size = (400, 300))
 ax_current = Axis(fig_current[1, 1],
                  xlabel = L"Service Level $(\sigma)$",
                  ylabel = L"Number of Buses $(K)$",
@@ -121,7 +124,7 @@ axislegend(ax_current,
            framecolor = (:black, 0.5))
 
 # --- Plot 2: Drivers From All Depots Available ---
-fig_all = Figure(size = (500, 400))
+fig_all = Figure(size = (400, 300))
 ax_all = Axis(fig_all[1, 1],
               xlabel = L"Service Level $(\sigma)$",
               ylabel = L"Number of Buses $(K)$",
