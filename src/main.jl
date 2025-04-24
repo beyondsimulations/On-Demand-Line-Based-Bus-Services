@@ -26,9 +26,10 @@ include("data/loader.jl")
 
 dates_to_process = [Date(2024, 8, 22)]
 
-version = "v1"
+version = "v4"
 if version == "v1"
     problem_type = "Minimize_Busses"
+    filter_demand = false
     service_levels = 1.0
 
     settings = [
@@ -45,6 +46,38 @@ if version == "v1"
     ]
 elseif version == "v2"
     problem_type = "Maximize_Demand_Coverage"
+    filter_demand = false
+    service_levels = 0.01:0.01:1.0
+
+    # Define settings for solving
+    settings = [
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
+    ]
+
+    subsettings = [
+        ONLY_DEMAND,
+    ]
+elseif version == "v3"
+    problem_type = "Minimize_Busses"
+    filter_demand = true
+    service_levels = 1.0
+
+    settings = [
+        NO_CAPACITY_CONSTRAINT,
+        CAPACITY_CONSTRAINT,
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
+    ]
+
+    subsettings = [
+        ALL_LINES,
+        ALL_LINES_WITH_DEMAND,
+        ONLY_DEMAND,
+    ]
+elseif version == "v4"
+    problem_type = "Maximize_Demand_Coverage"
+    filter_demand = true
     service_levels = 0.01:0.01:1.0
 
     # Define settings for solving
@@ -133,11 +166,11 @@ results_df = DataFrame(
     solve_time = Float64[],
     num_buses = Int[],
     num_potential_buses = Int[],
-    total_demand_coverage = Float64[],
     total_operational_duration = Float64[],
     total_waiting_time = Float64[],
     avg_capacity_utilization = Float64[],
-    optimality_gap = Union{Float64, Missing}[]
+    optimality_gap = Union{Float64, Missing}[],
+    filter_demand = Bool[]
 )
 
 for depot in depots_to_process
@@ -163,7 +196,8 @@ for depot in depots_to_process
                             service_level,
                             depot,
                             date,
-                            data
+                            data,
+                            filter_demand,
                     )
                     
                     # Get number of potential buses before solving
@@ -235,7 +269,6 @@ for depot in depots_to_process
                     end
                     
                     # Calculate metrics for logging
-                    total_demand_coverage = 0.0
                     total_operational_duration = 0.0
                     total_waiting_time = 0.0
                     total_capacity = 0.0
@@ -256,10 +289,6 @@ for depot in depots_to_process
                             end
                         end
                         
-                        # Calculate demand coverage (specific to your problem)
-                        if problem_type == "Maximize_Demand_Coverage"
-                            total_demand_coverage = result.objective_value
-                        end
                     end
                     
                     # Add row to results DataFrame
@@ -274,11 +303,11 @@ for depot in depots_to_process
                         result.solve_time,
                         num_buses,
                         num_potential_buses,
-                        total_demand_coverage,
                         total_operational_duration,
                         total_waiting_time,
                         num_buses > 0 ? total_capacity / num_buses : 0.0,
-                        result.gap === nothing ? missing : result.gap
+                        result.gap === nothing ? missing : result.gap,
+                        filter_demand
                     ))
                     
                     # Print current results

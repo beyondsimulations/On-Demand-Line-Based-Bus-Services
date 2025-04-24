@@ -398,17 +398,28 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             objective_value(model),
             final_bus_info,
             solve_time(model),
-            gap
+            gap # Pass the gap for optimal solutions
         )
     else
         status_symbol = termination_status(model) == MOI.INFEASIBLE ? :Infeasible : Symbol(termination_status(model))
-         println("Solver finished with status: $status_symbol")
+        println("Solver finished with status: $status_symbol")
+        
+        # Attempt to get the gap even if not optimal (e.g., time limit)
+        current_gap = nothing
+        try
+            # relative_gap might error if no feasible solution was found (e.g., infeasible)
+            current_gap = relative_gap(model) 
+            println("Retrieved relative gap for non-optimal status: $current_gap")
+        catch e
+            println("Could not retrieve relative gap. Status: $status_symbol. Error: $e")
+        end
+        
         return NetworkFlowSolution(
             status_symbol,
-            nothing,
-            nothing,
+            nothing, # Objective value might not be meaningful/available if not optimal/feasible
+            nothing, # No guaranteed bus paths if not optimal
             solve_time(model),
-            nothing
+            current_gap # Pass the retrieved gap (or nothing if retrieval failed)
         )
     end
 end

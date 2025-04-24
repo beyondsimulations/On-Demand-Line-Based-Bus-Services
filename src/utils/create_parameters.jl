@@ -33,7 +33,8 @@ function create_parameters(
     depot::Depot,
     date::Date,
     data,
-    )
+    filter_demand::Bool
+)
 
     println("Calculating latest end time for Depot $(depot.depot_name) on $date...")
     latest_end_target_day = calculate_latest_end_time(data.routes, data.travel_times, depot, date)
@@ -496,6 +497,10 @@ function create_parameters(
     rows_checked_detail = 0 # Counter for detailed logging
 
     for row in eachrow(data.passenger_demands_df)
+        if filter_demand == true && row.Status == "DU"
+            skipped_date_depot += 1
+            continue
+        end
         processed_count += 1
         # Strip whitespace from CSV values for comparison
         row_date = strip(string(row."Abfahrt-Datum")) # Ensure string conversion and strip
