@@ -333,5 +333,5 @@ end
 if !isdir("results")
     mkdir("results")
 end
-CSV.write("results/computational_study_$(Dates.format(now(), "yyyy-mm-dd_HH-MM")).csv", results_df)
+CSV.write("results/computational_study_$version.csv", results_df)
 println("Results saved to CSV file.")
