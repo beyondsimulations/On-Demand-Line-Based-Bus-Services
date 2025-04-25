@@ -401,25 +401,194 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             gap # Pass the gap for optimal solutions
         )
     else
+        # --- Non-Optimal Termination ---
         status_symbol = termination_status(model) == MOI.INFEASIBLE ? :Infeasible : Symbol(termination_status(model))
         println("Solver finished with status: $status_symbol")
-        
+
         # Attempt to get the gap even if not optimal (e.g., time limit)
         current_gap = nothing
         try
             # relative_gap might error if no feasible solution was found (e.g., infeasible)
-            current_gap = relative_gap(model) 
+            current_gap = relative_gap(model)
             println("Retrieved relative gap for non-optimal status: $current_gap")
         catch e
             println("Could not retrieve relative gap. Status: $status_symbol. Error: $e")
         end
-        
-        return NetworkFlowSolution(
-            status_symbol,
-            nothing, # Objective value might not be meaningful/available if not optimal/feasible
-            nothing, # No guaranteed bus paths if not optimal
-            solve_time(model),
-            current_gap # Pass the retrieved gap (or nothing if retrieval failed)
-        )
-    end
+
+        # Check if a feasible solution is available despite non-optimal termination
+        if primal_status(model) == MOI.FEASIBLE_POINT
+            println("Feasible solution found despite non-optimal status ($status_symbol). Processing best found solution...")
+
+            obj_val = objective_value(model) # Get objective of the best feasible solution found
+            x = model[:x]
+            solved_arcs = [arc for arc in network.arcs if value(x[arc]) > 0.5] # Use 0.5 for binary check
+
+            bus_paths = Dict{String, Vector{ModelArc}}()
+
+            # --- Path Reconstruction (mirrors the logic from the optimal block) ---
+            if buses === nothing # NO_CAPACITY_CONSTRAINT case
+                println("Reconstructing paths for NO_CAPACITY_CONSTRAINT (feasible solution)...")
+                flow_dict = Dict(arc => value(x[arc]) for arc in network.arcs if value(x[arc]) > 1e-6)
+                remaining_flow = copy(flow_dict)
+                bus_counter = 0
+                while true
+                    # Find a depot start arc with remaining flow > 0.5
+                    start_arc = nothing
+                    for arc in network.depot_start_arcs
+                        if get(remaining_flow, arc, 0.0) > 0.5
+                            start_arc = arc
+                            break
+                        end
+                    end
+
+                    if isnothing(start_arc)
+                        break # No more paths starting from depot
+                    end
+
+                    bus_counter += 1
+                    current_bus_id_str = string(bus_counter) # Assign sequential ID
+                    path = ModelArc[]
+                    current_arc = start_arc
+
+                    while current_arc !== nothing
+                        push!(path, current_arc)
+                        remaining_flow[current_arc] = get(remaining_flow, current_arc, 0.0) - 1.0 # Decrement flow
+
+                        # Find the next arc using ModelStation equality
+                        next_arc = nothing
+                        for arc_candidate in network.arcs # Check all arcs
+                            # Check if candidate starts where current ends and has flow > 0.5
+                            if isequal(arc_candidate.arc_start, current_arc.arc_end) && get(remaining_flow, arc_candidate, 0.0) > 0.5
+                                next_arc = arc_candidate
+                                break
+                            end
+                        end
+
+                        # Stop if we reach a depot end or no next arc found
+                        if !isnothing(next_arc) && next_arc.arc_end.stop_sequence == 0
+                            push!(path, next_arc) # Add the final arc to depot
+                            remaining_flow[next_arc] = get(remaining_flow, next_arc, 0.0) - 1.0 # Decrement flow
+                            current_arc = nothing # End path
+                        elseif isnothing(next_arc)
+                            if current_arc.arc_end.stop_sequence != 0 # Check if we didn't end at depot
+                                println("  Warning: Path reconstruction (feasible) for bus $current_bus_id_str possibly incomplete. Stopped after arc: $current_arc")
+                            end
+                            current_arc = nothing # End path
+                        else
+                            current_arc = next_arc
+                        end
+                    end
+                    # Expand the constructed path
+                    expanded_path = ModelArc[]
+                    for arc_in_path in path
+                        append!(expanded_path, expand_arc(arc_in_path, routes)) # Ensure 'routes' is accessible
+                    end
+                    bus_paths[current_bus_id_str] = expanded_path
+                end
+                println("Reconstructed $(length(bus_paths)) paths (feasible solution).")
+
+            else # CAPACITY_CONSTRAINT cases
+                println("Reconstructing paths for CAPACITY constraints (feasible solution)...")
+                # Create a lookup for solved arcs for faster searching per bus
+                solved_arcs_lookup = Dict{String, Vector{ModelArc}}()
+                for arc in solved_arcs
+                    bus_id = arc.bus_id
+                    if !haskey(solved_arcs_lookup, bus_id) solved_arcs_lookup[bus_id] = [] end
+                    push!(solved_arcs_lookup[bus_id], arc)
+                end
+
+                for bus in buses # Ensure 'buses' is accessible
+                    bus_id_str = bus.bus_id # Use the actual bus ID
+                    bus_specific_arcs = get(solved_arcs_lookup, bus_id_str, [])
+
+                    if isempty(bus_specific_arcs)
+                        # This bus wasn't used in the feasible solution
+                        continue
+                    end
+
+                    # Find the unique depot start arc for this bus in the feasible solution
+                    depot_start_arcs_for_bus = filter(a -> a.kind == "depot-start-arc", bus_specific_arcs)
+
+                    if isempty(depot_start_arcs_for_bus)
+                        # If a bus has arcs but no start arc, it indicates an issue or an unused bus
+                        println("  Info: Bus $bus_id_str has solved arcs but no depot start arc in feasible solution. Skipping path reconstruction.")
+                        continue
+                    elseif length(depot_start_arcs_for_bus) > 1
+                        println("  Warning: Multiple depot start arcs found for bus $bus_id_str (feasible). Using first one.")
+                    end
+                    start_arc = depot_start_arcs_for_bus[1]
+
+                    # Reconstruct path using ModelStation equality
+                    path = ModelArc[]
+                    current_arc = start_arc
+                    used_arcs_in_path = Set{ModelArc}() # Prevent cycles in reconstruction
+
+                    while current_arc !== nothing && !(current_arc in used_arcs_in_path)
+                        push!(path, current_arc)
+                        push!(used_arcs_in_path, current_arc)
+
+                        next_arc = nothing
+                        # Find the next arc for *this specific bus* from the solved arcs
+                        for arc_candidate in bus_specific_arcs
+                            if isequal(arc_candidate.arc_start, current_arc.arc_end) && !(arc_candidate in used_arcs_in_path)
+                                next_arc = arc_candidate
+                                break
+                            end
+                        end
+
+                        # Stop if we reach a depot end or no next arc found
+                        if !isnothing(next_arc) && next_arc.arc_end.stop_sequence == 0
+                            push!(path, next_arc) # Add the final arc to depot
+                            push!(used_arcs_in_path, next_arc)
+                            current_arc = nothing # End path
+                        elseif isnothing(next_arc)
+                            if current_arc.arc_end.stop_sequence != 0 # Check if we didn't end at depot
+                                println("  Warning: Path reconstruction (feasible) for bus $bus_id_str possibly incomplete. Stopped after arc: $current_arc")
+                            end
+                            current_arc = nothing # End path
+                        else
+                            current_arc = next_arc
+                        end
+                    end
+                    if !isnothing(current_arc) && current_arc in used_arcs_in_path # Check if loop terminated due to cycle
+                        println("  Warning: Cycle detected during path reconstruction (feasible) for bus $bus_id_str. Path may be truncated.")
+                    end
+
+                    # Expand the constructed path
+                    expanded_path = ModelArc[]
+                    for arc_in_path in path
+                        append!(expanded_path, expand_arc(arc_in_path, routes)) # Ensure 'routes' is accessible
+                    end
+                    bus_paths[bus_id_str] = expanded_path
+                end
+                println("Reconstructed paths for $(length(bus_paths)) buses (feasible solution).")
+            end
+            # --- End Path Reconstruction ---
+
+            # --- Calculate Metrics (using the helper function) ---
+            println("Calculating metrics for feasible solution...")
+            # Ensure 'parameters' is accessible for the metric calculation
+            final_bus_info = calculate_bus_metrics(bus_paths, parameters)
+            # --- End Metric Calculation ---
+
+            println("Finished calculations for feasible solution.")
+            return NetworkFlowSolution(
+                status_symbol, # Keep the original non-optimal status (e.g., :TIME_LIMIT)
+                obj_val,       # Objective value of the best feasible solution
+                final_bus_info,# Reconstructed paths and metrics
+                solve_time(model),
+                current_gap    # Gap at termination
+            )
+        else
+            # --- No Feasible Solution Found ---
+            println("No feasible solution found for status $status_symbol.")
+            return NetworkFlowSolution(
+                status_symbol,
+                nothing, # No objective value
+                nothing, # No bus paths
+                solve_time(model),
+                current_gap # Gap might be nothing or some value depending on solver/status
+            )
+        end # End if primal_status feasible
+    end # End if termination_status optimal / else
 end

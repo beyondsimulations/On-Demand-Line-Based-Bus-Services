@@ -13,14 +13,18 @@ function solve_network_flow(parameters::ProblemParameters)
 end
 
 function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters)
-    model = Model(HiGHS.Optimizer)
+    model = Model(parameters.optimizer_constructor)
 
     # Set solver options
-    set_optimizer_attribute(model, "presolve", "on")  # Enable presolve
-    set_optimizer_attribute(model, "mip_rel_gap", 0.00)  # 0% optimality gap
-    set_optimizer_attribute(model, "time_limit", 3600.0)  # 1 hour time limit
-    set_optimizer_attribute(model, "solve_relaxation", false) # Don't solve relaxation
-    set_optimizer_attribute(model, "threads", 4) # Max 4 threads
+    if parameters.optimizer_constructor == Gurobi.Optimizer
+        set_optimizer_attribute(model, "TimeLimit", 3600.0)
+        set_optimizer_attribute(model, "MIPGap", 0.00)
+        set_optimizer_attribute(model, "Threads", 8)
+    else
+        set_optimizer_attribute(model, "time_limit", 3600.0)
+        set_optimizer_attribute(model, "mip_rel_gap", 0.00)
+        set_optimizer_attribute(model, "threads", 8)
+    end
 
     println("Setting up network...")
     network = setup_network_flow(parameters)
@@ -101,14 +105,18 @@ end
 
 function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     println("Setting up network for capacity constraint model...")
-    model = Model(HiGHS.Optimizer)
+    model = Model(parameters.optimizer_constructor)
 
     # Set solver options
-    set_optimizer_attribute(model, "presolve", "on")  # Enable presolve
-    set_optimizer_attribute(model, "mip_rel_gap", 0.00)  # 1% optimality gap
-    set_optimizer_attribute(model, "time_limit", 3600.0)  # 1 hour time limit
-    set_optimizer_attribute(model, "solve_relaxation", false) # Don't solve relaxation
-    set_optimizer_attribute(model, "threads", 4) # Max 4 threads
+    if parameters.optimizer_constructor == Gurobi.Optimizer
+        set_optimizer_attribute(model, "TimeLimit", 3600.0)
+        set_optimizer_attribute(model, "MIPGap", 0.00)
+        set_optimizer_attribute(model, "Threads", 4)
+    else
+        set_optimizer_attribute(model, "time_limit", 3600.0)
+        set_optimizer_attribute(model, "mip_rel_gap", 0.00)
+        set_optimizer_attribute(model, "threads", 4)
+    end
 
     network = setup_network_flow(parameters)
 

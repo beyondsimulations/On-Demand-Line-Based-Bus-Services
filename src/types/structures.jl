@@ -60,6 +60,7 @@ struct Depot
 end
 
 struct ProblemParameters
+    optimizer_constructor::DataType
     problem_type::String
     setting::Setting
     subsetting::SubSetting

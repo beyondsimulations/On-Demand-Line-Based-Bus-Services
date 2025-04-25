@@ -22,8 +22,12 @@ set_theme!(fonts = (
     bold = joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
 ))
 
+aggregation_version = "v3"
+plot_version = "v4"
+
+
 # --- Plot Settings ---
-results_file = "results/computational_study_v2_maximize_coverage.csv"
+results_file = "results/computational_study_$(plot_version).csv"
 plot_save_path_breaks_available = "results/plot_buses_vs_service_drivers_current_depot.png"
 plot_save_path_breaks_all_depots = "results/plot_buses_vs_service_drivers_all_depots.png"
 padding_y = 1.05
@@ -97,7 +101,7 @@ function create_plot_elements!(ax, data, depots, depot_color_map, depot_marker_m
             scatterpt = scatter!(ax, df_depot.service_level, df_depot.num_buses, 
                     color = (:white, 1.0),
                     marker = marker, 
-                    markersize = 9, 
+                    markersize = 10, 
                     strokecolor = :black,
                     strokewidth = 1.0)
             
@@ -163,13 +167,13 @@ Legend(fig[1, 1], # Target the grid position of the first plot
 )
 
 # --- Save Combined Figure ---
-combined_plot_save_path = "results/plot_buses_vs_service_drivers_combined.pdf"
+combined_plot_save_path = "results/plot_buses_vs_service_drivers_combined_$(plot_version).pdf"
 save(combined_plot_save_path, fig)
 
 # Define the path to your input CSV file
-input_file_path = "results/computational_study_v1_minimize_busses.csv"
+input_file_path = "results/computational_study_$(aggregation_version).csv"
 # Define the path for the output CSV file
-output_file_path = "results/aggregation_summary_by_setting_v1.csv"
+output_file_path = "results/aggregation_summary_by_setting_$(aggregation_version).csv"
 
 # Read the CSV file into a DataFrame
 try

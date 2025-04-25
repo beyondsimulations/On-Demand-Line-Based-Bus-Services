@@ -33,7 +33,8 @@ function create_parameters(
     depot::Depot,
     date::Date,
     data,
-    filter_demand::Bool
+    filter_demand::Bool,
+    optimizer_constructor::DataType
 )
 
     println("Calculating latest end time for Depot $(depot.depot_name) on $date...")
@@ -647,6 +648,7 @@ function create_parameters(
     println("Finished creating parameters.")
 
     return ProblemParameters(
+        optimizer_constructor,
         problem_type,
         setting,
         subsetting,
@@ -657,6 +659,6 @@ function create_parameters(
         passenger_demands,
         depot,
         lowercase(Dates.dayname(date)),
-        vehicle_capacity_counts # Pass the newly calculated counts
+        vehicle_capacity_counts
     )
 end

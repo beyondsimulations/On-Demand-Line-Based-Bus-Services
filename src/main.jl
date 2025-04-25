@@ -3,6 +3,7 @@ Pkg.activate("on-demand-busses")
 
 using JuMP
 using HiGHS
+using Gurobi
 using DataFrames
 using CSV
 using Dates
@@ -26,7 +27,27 @@ include("data/loader.jl")
 
 dates_to_process = [Date(2024, 8, 22)]
 
-version = "v4"
+# Read solver choice from environment variable, default to :gurobi
+solver_choice_str = get(ENV, "JULIA_SOLVER", "gurobi")
+solver_choice = Symbol(solver_choice_str)
+println("Using solver: $solver_choice (Source: ", haskey(ENV, "JULIA_SOLVER") ? "ENV variable JULIA_SOLVER" : "default", ")")
+
+# Validate the solver choice
+valid_solvers = [:gurobi, :highs]
+if !(solver_choice in valid_solvers)
+    error("Invalid solver specified: '$solver_choice'. Choose from: $valid_solvers")
+end
+
+# Read version from environment variable, default to "v4"
+version = get(ENV, "JULIA_SCRIPT_VERSION", "v1")
+println("Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")")
+
+# Validate the version
+valid_versions = ["v1", "v2", "v3", "v4"]
+if !(version in valid_versions)
+    error("Invalid version specified: '$version'. Choose from: $valid_versions")
+end
+
 if version == "v1"
     problem_type = "Minimize_Busses"
     filter_demand = false
@@ -47,7 +68,7 @@ if version == "v1"
 elseif version == "v2"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = false
-    service_levels = 0.01:0.01:1.0
+    service_levels = 0.05:0.05:1.0
 
     # Define settings for solving
     settings = [
@@ -170,8 +191,20 @@ results_df = DataFrame(
     total_waiting_time = Float64[],
     avg_capacity_utilization = Float64[],
     optimality_gap = Union{Float64, Missing}[],
-    filter_demand = Bool[]
+    filter_demand = Bool[],
+    optimizer_constructor = String[]
 )
+
+optimizer_constructor = if solver_choice == :gurobi
+    println("Using Gurobi optimizer.")
+    Gurobi.Optimizer
+elseif solver_choice == :highs
+    println("Using HiGHS optimizer.")
+    HiGHS.Optimizer
+else
+    # This case should not be reached due to validation above, but good practice
+    error("Invalid solver choice configured: $solver_choice")
+end
 
 for depot in depots_to_process
     println("=== Solving for depot: $(depot.depot_name) ===")
@@ -198,6 +231,7 @@ for depot in depots_to_process
                             date,
                             data,
                             filter_demand,
+                            optimizer_constructor
                     )
                     
                     # Get number of potential buses before solving
@@ -307,7 +341,8 @@ for depot in depots_to_process
                         total_waiting_time,
                         num_buses > 0 ? total_capacity / num_buses : 0.0,
                         result.gap === nothing ? missing : result.gap,
-                        filter_demand
+                        filter_demand,
+                        string(optimizer_constructor)
                     ))
                     
                     # Print current results
@@ -333,5 +368,7 @@ end
 if !isdir("results")
     mkdir("results")
 end
-CSV.write("results/computational_study_$version.csv", results_df)
-println("Results saved to CSV file.")
+# Include version and solver in the filename
+output_filename = "results/computational_study_$(version)_$(solver_choice_str).csv"
+CSV.write(output_filename, results_df)
+println("Results saved to CSV file: $output_filename")
