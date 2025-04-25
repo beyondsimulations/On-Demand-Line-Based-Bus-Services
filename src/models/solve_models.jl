@@ -61,8 +61,17 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
     routes = parameters.routes # Get routes for expansion
     
     if termination_status(model) == MOI.OPTIMAL
-        # Get the optimality gap
-        gap = relative_gap(model)
+        # Get the optimality gap, handle cases where it might not be available (e.g., pure LP)
+        gap = 0.0 # Default to 0.0 for optimal LPs
+        try
+            # Only meaningful for MIPs, might error for LPs
+            retrieved_gap = relative_gap(model)
+            # Check if the retrieved gap is NaN or Inf, default to 0.0 if so, as it's optimal
+            gap = isnan(retrieved_gap) || isinf(retrieved_gap) ? 0.0 : retrieved_gap
+        catch e
+            println("Info: Could not retrieve relative gap, likely an LP. Status: Optimal. Error: $e")
+            # Keep default gap = 0.0
+        end
         
         x = model[:x]
         solved_arcs = [arc for arc in network.arcs if value(x[arc]) > 0.5] # Use 0.5 for binary/integer check
@@ -398,7 +407,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             objective_value(model),
             final_bus_info,
             solve_time(model),
-            gap # Pass the gap for optimal solutions
+            gap # Pass the potentially adjusted gap
         )
     else
         # --- Non-Optimal Termination ---
@@ -408,11 +417,18 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
         # Attempt to get the gap even if not optimal (e.g., time limit)
         current_gap = nothing
         try
-            # relative_gap might error if no feasible solution was found (e.g., infeasible)
-            current_gap = relative_gap(model)
-            println("Retrieved relative gap for non-optimal status: $current_gap")
+            # This might error if no feasible solution was found or if it's an LP stopped early
+            retrieved_gap = relative_gap(model)
+             # Assign if it's a valid number, otherwise keep nothing
+            if !isnan(retrieved_gap) && !isinf(retrieved_gap)
+                current_gap = retrieved_gap
+                println("Retrieved relative gap for non-optimal status: $current_gap")
+            else
+                 println("Info: Retrieved gap is $retrieved_gap. Setting gap to 'nothing'.")
+            end
         catch e
             println("Could not retrieve relative gap. Status: $status_symbol. Error: $e")
+            # Keep current_gap = nothing
         end
 
         # Check if a feasible solution is available despite non-optimal termination
@@ -577,7 +593,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 obj_val,       # Objective value of the best feasible solution
                 final_bus_info,# Reconstructed paths and metrics
                 solve_time(model),
-                current_gap    # Gap at termination
+                current_gap    # Gap at termination (could be nothing)
             )
         else
             # --- No Feasible Solution Found ---
@@ -592,3 +608,12 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
         end # End if primal_status feasible
     end # End if termination_status optimal / else
 end
+
+# Ensure calculate_bus_metrics is defined if used in the non-optimal feasible path
+# Example skeleton if it doesn't exist yet:
+# function calculate_bus_metrics(bus_paths::Dict{String, Vector{ModelArc}}, parameters::ProblemParameters)
+#     final_bus_info = Dict{String, NamedTuple{(:name, :path, :operational_duration, :waiting_time, :capacity_usage, :timestamps), Tuple{String, Vector{Any}, Float64, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}()
+#     # ... (Implement the same logic as in the optimal block for calculating metrics) ...
+#      println("  Warning: calculate_bus_metrics needs implementation for feasible solutions.")
+#     return final_bus_info
+# end
