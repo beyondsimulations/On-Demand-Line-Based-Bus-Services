@@ -22,12 +22,13 @@ set_theme!(fonts = (
     bold = joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
 ))
 
-aggregation_version = "v3"
-plot_version = "v4"
+aggregation_version = "v1"
+plot_version = "v2"
+solver = "gurobi"
 
 
 # --- Plot Settings ---
-results_file = "results/computational_study_$(plot_version).csv"
+results_file = "results/computational_study_$(plot_version)_$(solver).csv"
 plot_save_path_breaks_available = "results/plot_buses_vs_service_drivers_current_depot.png"
 plot_save_path_breaks_all_depots = "results/plot_buses_vs_service_drivers_all_depots.png"
 padding_y = 1.05
@@ -167,13 +168,13 @@ Legend(fig[1, 1], # Target the grid position of the first plot
 )
 
 # --- Save Combined Figure ---
-combined_plot_save_path = "results/plot_buses_vs_service_drivers_combined_$(plot_version).pdf"
+combined_plot_save_path = "results/plot_buses_vs_service_drivers_combined_$(plot_version)_$(solver).pdf"
 save(combined_plot_save_path, fig)
 
 # Define the path to your input CSV file
-input_file_path = "results/computational_study_$(aggregation_version).csv"
+input_file_path = "results/computational_study_$(aggregation_version)_$(solver).csv"
 # Define the path for the output CSV file
-output_file_path = "results/aggregation_summary_by_setting_$(aggregation_version).csv"
+output_file_path = "results/aggregation_summary_by_setting_$(aggregation_version)_$(solver).csv"
 
 # Read the CSV file into a DataFrame
 try
