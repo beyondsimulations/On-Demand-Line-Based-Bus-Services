@@ -17,36 +17,37 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
 
     # Set solver options
     if parameters.optimizer_constructor == Gurobi.Optimizer
-        set_optimizer_attribute(model, "TimeLimit", 3600.0)
+        set_optimizer_attribute(model, "TimeLimit", 7200.0)
         set_optimizer_attribute(model, "MIPGap", 0.00)
         set_optimizer_attribute(model, "Threads", 8)
     else
-        set_optimizer_attribute(model, "time_limit", 3600.0)
+        set_optimizer_attribute(model, "presolve", "on")
+        set_optimizer_attribute(model, "time_limit", 7200.0)
         set_optimizer_attribute(model, "mip_rel_gap", 0.00)
         set_optimizer_attribute(model, "threads", 8)
     end
 
-    println("Setting up network...")
+    @info "Setting up network..."
     network = setup_network_flow(parameters)
-    println("Network setup complete. Building model...")
+    @info "Network setup complete. Building model..."
 
     if parameters.problem_type == "Maximize_Demand_Coverage"
-        println("Calling Minimize Busses model as Maximize Demand Coverage is not supported infinite capacity.")
+        @info "Calling Minimize Busses model as Maximize Demand Coverage is not supported infinite capacity."
     end
 
     # Variables:
     # x[arc] = flow on each arc (continuous, ≥ 0)
     # Represents number of buses flowing through each connection
-    println("Creating variables...")
+    @info "Creating variables..."
     @variable(model, x[network.arcs] >= 0)
     
 
     # Objective: Minimize total number of buses leaving depot
-    println("Creating objective...")
+    @info "Creating objective..."
     @objective(model, Min, sum(x[arc] for arc in network.depot_start_arcs))
  
     # --- Optimization for Flow Conservation ---
-    println("Pre-computing arc mappings for flow conservation...")
+    @info "Pre-computing arc mappings for flow conservation..."
     incoming_map = Dict{ModelStation, Vector{ModelArc}}()
     outgoing_map = Dict{ModelStation, Vector{ModelArc}}()
     
@@ -66,18 +67,13 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
         end
         push!(incoming_map[end_node], arc)
     end
-    println("Arc mappings created.")
+    @info "Arc mappings created."
 
     # Constraint 1: Flow Conservation
-    # For each *intermediate* node, incoming flow = outgoing flow
-    # Use the original definition which correctly excludes pure source/sink nodes
-    println("Creating flow conservation constraints...")
+    @info "Creating flow conservation constraints..."
     nodes_with_arcs = union(Set(arc.arc_start for arc in network.line_arcs), Set(arc.arc_end for arc in vcat(network.line_arcs, network.intra_line_arcs, network.inter_line_arcs)))
     node_count = 0
     for node in nodes_with_arcs
-        # Use the pre-computed maps. Use get() with an empty vector as default 
-        # in case a node somehow only has incoming or outgoing arcs listed in network.arcs
-        # (though this shouldn't happen for nodes in nodes_with_arcs).
         incoming_arcs = get(incoming_map, node, ModelArc[])
         outgoing_arcs = get(outgoing_map, node, ModelArc[])
         
@@ -86,46 +82,47 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
         )
         node_count += 1
     end
-     println("Added $node_count flow conservation constraints.")
+    @info "Added $node_count flow conservation constraints."
 
     # Constraint 2: Service Coverage
     # Each line_arc must be served exactly once
-    println("Creating service coverage constraints...")
+    @info "Creating service coverage constraints..."
     coverage_count = 0
     for arc in network.line_arcs
-    @constraint(model, x[arc] == 1)
-    coverage_count += 1
+        @constraint(model, x[arc] == 1)
+        coverage_count += 1
     end
-    println("Added $coverage_count service coverage constraints.")
+    @info "Added $coverage_count service coverage constraints."
 
-    println("Model building complete.")
+    @info "Model building complete."
 
     return solve_and_return_results(model, network, parameters)
 end
 
 function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
-    println("Setting up network for capacity constraint model...")
+    @info "Setting up network for capacity constraint model..."
     model = Model(parameters.optimizer_constructor)
 
     # Set solver options
     if parameters.optimizer_constructor == Gurobi.Optimizer
-        set_optimizer_attribute(model, "TimeLimit", 3600.0)
+        set_optimizer_attribute(model, "TimeLimit", 7200.0)
         set_optimizer_attribute(model, "MIPGap", 0.00)
-        set_optimizer_attribute(model, "Threads", 4)
+        set_optimizer_attribute(model, "Threads", 8)
     else
-        set_optimizer_attribute(model, "time_limit", 3600.0)
+        set_optimizer_attribute(model, "presolve", "on")
+        set_optimizer_attribute(model, "time_limit", 7200.0)
         set_optimizer_attribute(model, "mip_rel_gap", 0.00)
-        set_optimizer_attribute(model, "threads", 4)
+        set_optimizer_attribute(model, "threads", 8)
     end
 
     network = setup_network_flow(parameters)
 
-    println("Network setup complete. Building capacity constraint model...")
+    @info "Network setup complete. Building capacity constraint model..."
 
-    println("Problem type: $(parameters.problem_type)")
+    @info "Problem type: $(parameters.problem_type)"
 
     # --- Pre-computation ---
-    println("Pre-computing lookups and groupings...")
+    @info "Pre-computing lookups and groupings..."
 
     # Group arcs by node for flow conservation
     incoming_map = Dict{ModelStation, Vector{ModelArc}}()
@@ -144,13 +141,13 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
         end
         push!(incoming_map[end_node], arc)
     end
-    println("Node->Arc maps created.")
+    @info "Node->Arc maps created."
 
     # Group line arcs by logical service (start, end, demand_id) for coverage
     line_arc_groups = Dict{Tuple{ModelStation, ModelStation, Tuple{Int, Int}}, Vector{ModelArc}}()
     for arc in network.line_arcs
          if !(typeof(arc.demand_id) <: Tuple{Int, Int})
-             println("Warning (Constraint 2): Unexpected demand_id format in line_arc: $(arc.demand_id)")
+             @warn "Warning (Constraint 2): Unexpected demand_id format in line_arc: $(arc.demand_id)"
              continue
          end
         key = (arc.arc_start, arc.arc_end, arc.demand_id)
@@ -159,7 +156,7 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
         end
         push!(line_arc_groups[key], arc)
     end
-    println("Line arc groups for service coverage created: $(length(line_arc_groups)) groups.")
+    @info "Line arc groups for service coverage created: $(length(line_arc_groups)) groups."
 
     # Group depot start arcs by bus_id
     depot_start_by_bus = Dict{String, Vector{ModelArc}}()
@@ -170,13 +167,13 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
         end
         push!(depot_start_by_bus[bus_id], arc)
     end
-     println("Depot start arcs grouped by bus: $(length(depot_start_by_bus)) groups.")
+    @info "Depot start arcs grouped by bus: $(length(depot_start_by_bus)) groups."
 
     # Lookups for Constraint 4 & 5
     route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in parameters.routes)
     travel_time_lookup = Dict((tt.start_stop, tt.end_stop) => tt.time for tt in parameters.travel_times if !hasfield(typeof(tt), :is_depot_travel) || !tt.is_depot_travel)
     bus_capacity_lookup = Dict(string(b.bus_id) => b.capacity for b in parameters.buses) # Ensure string key
-    println("Route, Travel Time, and Bus Capacity lookups created.")
+    @info "Route, Travel Time, and Bus Capacity lookups created."
 
      # Group line arcs by (bus_id, route_id, trip_id, trip_sequence) for Constraint 5
      line_arcs_by_bus_trip = Dict{Tuple{String, Int, Int, Int}, Vector{ModelArc}}()
@@ -187,28 +184,28 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
          end
          push!(line_arcs_by_bus_trip[key], arc)
      end
-     println("Line arcs grouped by bus/trip for capacity constraint: $(length(line_arcs_by_bus_trip)) groups.")
+     @info "Line arcs grouped by bus/trip for capacity constraint: $(length(line_arcs_by_bus_trip)) groups."
 
-    println("Pre-computation finished.")
+    @info "Pre-computation finished."
 
     # Variables:
     # x[arc] = 1 if specific bus uses this arc, 0 otherwise
-    println("Creating variables...")
+    @info "Creating variables..."
     # Use the pre-computed arc list which contains all arc types
     @variable(model, x[network.arcs], Bin)
-    println("Variables created.")
+    @info "Variables created."
 
     # Objective: Minimize total number of buses used
-    println("Creating objective...")
+    @info "Creating objective..."
     @objective(model, Min,
         sum(x[arc] for arc in network.depot_start_arcs))
-    println("Objective created.")
+    @info "Objective created."
 
     # Constraint 1: Flow Conservation per Individual Bus (Optimized)
-    println("Creating flow conservation constraints (Constraint 1 - optimized)...")
+    @info "Creating flow conservation constraints (Constraint 1 - optimized)..."
     flow_con_count = 0
     nodes_with_arcs = union(keys(incoming_map), keys(outgoing_map)) # More accurate set of nodes involved
-    println("Processing $(length(nodes_with_arcs)) nodes for flow conservation.")
+    @info "Processing $(length(nodes_with_arcs)) nodes for flow conservation."
     for node in nodes_with_arcs
         # Use pre-computed maps
         incoming_arcs = get(incoming_map, node, ModelArc[])
@@ -253,18 +250,18 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
              end
         end
     end
-     println("Added $flow_con_count flow conservation constraints.")
+    @info "Added $flow_con_count flow conservation constraints."
 
 
     # Constraint 2: Service Coverage (Optimized)
     coverage_count = 0
     if parameters.problem_type == "Maximize_Demand_Coverage"
-        println("Creating service level constraint (Maximize_Demand_Coverage)...")
+        @info "Creating service level constraint (Maximize_Demand_Coverage)..."
         @constraint(model, sum(x[arc] for arc in network.line_arcs) >= parameters.service_level * length([d for d in parameters.passenger_demands if d.depot_id == parameters.depot.depot_id]))
-        println("In total, $(length(parameters.passenger_demands)) passenger demands, need to cover $(parameters.service_level * length(parameters.passenger_demands)) demands.")
+        @info "In total, $(length(parameters.passenger_demands)) passenger demands, need to cover $(parameters.service_level * length(parameters.passenger_demands)) demands."
         coverage_count = 1
-        println("Added 1 service coverage constraint.")
-        println("Creating service coverage constraints (Constraint 2 - optimized)...")
+        @info "Added 1 service coverage constraint."
+        @info "Creating service coverage constraints (Constraint 2 - optimized)..."
         for (key, group_arcs) in line_arc_groups
             if !isempty(group_arcs) # Ensure group is not empty
                 @constraint(model, sum(x[arc] for arc in group_arcs) <= 1)
@@ -272,7 +269,7 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
             end
         end
     elseif parameters.problem_type == "Minimize_Busses"
-        println("Creating service coverage constraints (Constraint 2 - optimized)...")
+        @info "Creating service coverage constraints (Constraint 2 - optimized)..."
         for (key, group_arcs) in line_arc_groups
             if !isempty(group_arcs) # Ensure group is not empty
                 @constraint(model, sum(x[arc] for arc in group_arcs) == 1)
@@ -283,11 +280,11 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
         error("Invalid problem type: $(parameters.problem_type)")
     end
     
-    println("Added $coverage_count service coverage constraints.")
+    @info "Added $coverage_count service coverage constraints."
 
 
     # Constraint 3: Only one bus from depot (Optimized)
-    println("Creating depot start constraints (Constraint 3 - optimized)...")
+    @info "Creating depot start constraints (Constraint 3 - optimized)..."
     depot_constraint_count = 0
     # Iterate through buses that actually have depot start arcs from the pre-grouping
     for (bus_id, bus_depot_arcs) in depot_start_by_bus
@@ -300,19 +297,18 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     all_bus_ids_with_depot_arcs = Set(keys(depot_start_by_bus))
     for bus in parameters.buses
         if !(string(bus.bus_id) in all_bus_ids_with_depot_arcs)
-            # You could add a trivial constraint `0 <= 1` but it's unnecessary
-            # println("Bus $(bus.bus_id) has no depot start arcs, trivially satisfies Constraint 3.")
+            @info "Bus $(bus.bus_id) has no depot start arcs, trivially satisfies Constraint 3."
         end
     end
-    println("Added $depot_constraint_count depot start constraints.")
+    @info "Added $depot_constraint_count depot start constraints."
 
 
     # Constraint 4: Prevent illegal allocations due to intra-line arcs (Optimized)
     # Note: Original code comments mentioned intra-line, but loop was over inter-line. Assuming inter-line logic.
-    println("Creating illegal allocation constraints (Constraint 4 - optimized)...")
+    @info "Creating illegal allocation constraints (Constraint 4 - optimized)..."
     constraint_4_count = 0
     if isempty(network.line_arcs) || isempty(network.inter_line_arcs)
-        println("Skipping Constraint 4 due to empty line_arcs or inter_line_arcs.")
+        @info "Skipping Constraint 4 due to empty line_arcs or inter_line_arcs."
     else
         # Group line_arcs by potential end-point signature for connection
          line_arcs_by_end = Dict{Tuple{Int, Int, Int, Int, Int, String}, Vector{ModelArc}}() # (end_stop_id, route_id, trip_id, trip_sequence, end_seq, bus_id) -> arcs
@@ -330,7 +326,7 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
              push!(inter_arcs_by_start[key], arc2)
          end
 
-        println("Processing potential connections for Constraint 4...")
+        @info "Processing potential connections for Constraint 4..."
          # Find common keys based on the connection condition (arc1.end == arc2.start)
          # We need to iterate smartly. Iterate through line_arcs, find potential inter_arcs starting where line_arc ends.
 
@@ -361,7 +357,7 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
 
                      if isnothing(route1_end_pos) || route1_end_pos > length(route1.stop_times) ||
                         isnothing(route2_end_pos) || route2_end_pos > length(route2.stop_times)
-                          println("Warning: Invalid stop sequence number in Constraint 4 check.")
+                          @warn "Warning: Invalid stop sequence number in Constraint 4 check."
                          continue
                      end
 
@@ -387,11 +383,11 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
              end # end if haskey
          end # end arc1 loop
     end # end if not empty
-    println("Added $constraint_4_count illegal allocation constraints.")
+    @info "Added $constraint_4_count illegal allocation constraints."
 
 
     # Constraint 5: Prevent too much passengers on a line (Optimized)
-    println("Creating passenger capacity constraints (Constraint 5 - optimized)...")
+    @info "Creating passenger capacity constraints (Constraint 5 - optimized)..."
     constraint_5_count = 0
     # Iterate through the grouped arcs by bus/trip
     for (key, trip_arcs) in line_arcs_by_bus_trip
@@ -399,12 +395,12 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
 
         # Get bus capacity
         bus_capacity = get(bus_capacity_lookup, bus_id_str, nothing)
-        if isnothing(bus_capacity) continue end # Warning printed during pre-computation
+        if isnothing(bus_capacity) continue end 
 
         # Get route data
         route_key = (route_id, trip_id, trip_sequence)
         route = get(route_lookup, route_key, nothing)
-        if isnothing(route) continue end # Warning printed during pre-computation
+        if isnothing(route) continue end
 
         num_stops = length(route.stop_sequence)
         if num_stops <= 1 continue end # No segments
@@ -423,11 +419,11 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
             end
         end # End stop loop
     end # End group loop
-    println("Added $constraint_5_count passenger capacity constraints.")
+    @info "Added $constraint_5_count passenger capacity constraints."
 
 
     # --- NEW Constraint 6: Limit number of buses per capacity type ---
-    println("Creating vehicle count constraints per capacity type (Constraint 6)...")
+    @info "Creating vehicle count constraints per capacity type (Constraint 6)..."
     constraint_6_count = 0
     # Use parameters.vehicle_capacity_counts (Dict{Float64, Int}) and bus_capacity_lookup (Dict{String, Float64})
     if !isempty(parameters.vehicle_capacity_counts) && !isempty(network.depot_start_arcs)
@@ -449,18 +445,18 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
              if !isempty(arcs_for_this_capacity)
                  @constraint(model, sum(x[arc] for arc in arcs_for_this_capacity) <= available_count)
                  constraint_6_count += 1
-                 println("  Added constraint for capacity $capacity: max $available_count vehicles.")
+                 @info "  Added constraint for capacity $capacity: max $available_count vehicles."
              else
-                  println("  No depot start arcs found for capacity $capacity, skipping constraint.")
+                  @info "  No depot start arcs found for capacity $capacity, skipping constraint."
              end
         end
     else
-         println("  Skipping vehicle count constraints (no vehicle counts provided or no depot start arcs).")
+         @info "  Skipping vehicle count constraints (no vehicle counts provided or no depot start arcs)."
     end
-    println("Added $constraint_6_count vehicle count constraints.")
+    @info "Added $constraint_6_count vehicle count constraints."
     # --- End NEW Constraint 6 ---
 
-    println("Model building complete.")
+    @info "Model building complete."
     return solve_and_return_results(model, network, parameters, parameters.buses)
 end
 

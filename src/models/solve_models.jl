@@ -1,3 +1,5 @@
+using Logging # Import the logging module
+
 # Helper function to expand an arc into a sequence of consecutive arcs
 # based on the stop_sequence field (which represents the index/position)
 function expand_arc(arc::ModelArc, routes::Vector{Route})
@@ -17,7 +19,7 @@ function expand_arc(arc::ModelArc, routes::Vector{Route})
                               r.trip_sequence == arc.arc_start.trip_sequence, 
                               routes)
     if isnothing(route_idx)
-        println("Warning (expand_arc): Could not find route for arc $arc. Returning original.")
+        @warn "(expand_arc): Could not find route for arc $arc. Returning original."
         return [arc] # Cannot expand without route info
     end
     route = routes[route_idx]
@@ -47,7 +49,7 @@ function expand_arc(arc::ModelArc, routes::Vector{Route})
     elseif start_pos == end_pos # Waiting arc
         push!(expanded_arcs, arc)
     else
-         println("Warning (expand_arc): Arc has non-increasing sequence $(start_pos) -> $(end_pos) or invalid indices. Arc: $arc. Returning original.")
+         @warn "(expand_arc): Arc has non-increasing sequence $(start_pos) -> $(end_pos) or invalid indices. Arc: $arc. Returning original."
          push!(expanded_arcs, arc) # Return original if sequence doesn't increase or indices invalid
     end
 
@@ -55,12 +57,24 @@ function expand_arc(arc::ModelArc, routes::Vector{Route})
 end
 
 
+"""
+    solve_and_return_results(model, network, parameters, buses=nothing)
+
+Solves the optimization model, reconstructs the bus paths from the solution,
+calculates operational metrics (timestamps, travel times, capacity usage, waiting time),
+and returns the results packaged in a NetworkFlowSolution object.
+
+Handles both optimal and non-optimal (but feasible) solutions.
+Differentiates path reconstruction based on whether capacity constraints were used
+(indicated by the presence of the `buses` argument).
+"""
 function solve_and_return_results(model, network, parameters::ProblemParameters, buses=nothing)
     optimize!(model)
 
     routes = parameters.routes # Get routes for expansion
     
     if termination_status(model) == MOI.OPTIMAL
+        @info "Solver finished with status: Optimal."
         # Get the optimality gap, handle cases where it might not be available (e.g., pure LP)
         gap = 0.0 # Default to 0.0 for optimal LPs
         try
@@ -69,7 +83,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             # Check if the retrieved gap is NaN or Inf, default to 0.0 if so, as it's optimal
             gap = isnan(retrieved_gap) || isinf(retrieved_gap) ? 0.0 : retrieved_gap
         catch e
-            println("Info: Could not retrieve relative gap, likely an LP. Status: Optimal. Error: $e")
+            @info "Info: Could not retrieve relative gap, likely an LP. Status: Optimal. Error: $e"
             # Keep default gap = 0.0
         end
         
@@ -79,7 +93,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
         bus_paths = Dict{String, Vector{ModelArc}}() # Use bus_id (String) as key
 
         if buses === nothing  # NO_CAPACITY_CONSTRAINT case (assuming continuous flow, needs path extraction)
-            println("Reconstructing paths for NO_CAPACITY_CONSTRAINT...")
+            @info "Reconstructing paths for NO_CAPACITY_CONSTRAINT..."
             flow_dict = Dict(arc => value(x[arc]) for arc in network.arcs if value(x[arc]) > 1e-6)
             remaining_flow = copy(flow_dict)
             bus_counter = 0
@@ -124,7 +138,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                         current_arc = nothing # End path
                     elseif isnothing(next_arc)
                         if current_arc.arc_end.stop_sequence != 0 # Check if we didn't end at depot
-                            println("Warning: Path reconstruction for bus $current_bus_id_str possibly incomplete. Stopped after arc: $current_arc")
+                            @warn "Path reconstruction for bus $current_bus_id_str possibly incomplete. Stopped after arc: $current_arc"
                         end
                         current_arc = nothing # End path
                     else
@@ -138,10 +152,10 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                  end
                  bus_paths[current_bus_id_str] = expanded_path
             end
-             println("Reconstructed $(length(bus_paths)) paths.")
+             @info "Reconstructed $(length(bus_paths)) paths."
 
         else  # CAPACITY_CONSTRAINT cases (iterate over buses defined in parameters)
-            println("Reconstructing paths for CAPACITY constraints...")
+            @info "Reconstructing paths for CAPACITY constraints..."
             
             # Create a lookup for solved arcs for faster searching per bus
             solved_arcs_lookup = Dict{String, Vector{ModelArc}}()
@@ -159,7 +173,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 bus_specific_arcs = get(solved_arcs_lookup, bus_id_str, [])
                 
                 if isempty(bus_specific_arcs)
-                    println("  No arcs found for bus $bus_id_str.")
+                    @debug "  No arcs found for bus $bus_id_str."
                     continue
                 end
                 
@@ -167,10 +181,10 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 depot_start_arcs_for_bus = filter(a -> a.kind == "depot-start-arc", bus_specific_arcs)
 
                 if isempty(depot_start_arcs_for_bus)
-                     println("  Warning: No depot start arc found for bus $bus_id_str. Cannot reconstruct path.")
+                     @warn "  Warning: No depot start arc found for bus $bus_id_str. Cannot reconstruct path."
                      continue
                 elseif length(depot_start_arcs_for_bus) > 1
-                     println("  Warning: Multiple depot start arcs found for bus $bus_id_str. Using first one.")
+                     @warn "  Warning: Multiple depot start arcs found for bus $bus_id_str. Using first one."
                      # Potentially log the arcs here for debugging
                 end
                 start_arc = depot_start_arcs_for_bus[1]
@@ -199,7 +213,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                          current_arc = nothing # End path
                     elseif isnothing(next_arc)
                          if current_arc.arc_end.stop_sequence != 0 # Check if we didn't end at depot
-                              println("  Warning: Path reconstruction for bus $bus_id_str possibly incomplete. Stopped after arc: $current_arc")
+                              @warn "  Warning: Path reconstruction for bus $bus_id_str possibly incomplete. Stopped after arc: $current_arc"
                          end
                          current_arc = nothing # End path
                     else
@@ -207,7 +221,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     end
                 end
                 if current_arc in used_arcs_in_path && !isnothing(current_arc)
-                     println("  Warning: Cycle detected during path reconstruction for bus $bus_id_str. Path may be truncated.")
+                     @warn "  Warning: Cycle detected during path reconstruction for bus $bus_id_str. Path may be truncated."
                 end
 
                  # Expand the constructed path
@@ -217,11 +231,11 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                  end
                  bus_paths[bus_id_str] = expanded_path
             end
-             println("Reconstructed paths for $(length(bus_paths)) buses.")
+             @info "Reconstructed paths for $(length(bus_paths)) buses."
         end
 
         # --- Calculate travel times, capacities, and timestamps for each bus path ---
-        println("Calculating Timestamps, Travel Times, and Capacity Usage...")
+        @info "Calculating Timestamps, Travel Times, and Capacity Usage..."
         # Modify the NamedTuple structure to store operational_duration and waiting_time
         final_bus_info = Dict{String, NamedTuple{(:name, :path, :operational_duration, :waiting_time, :capacity_usage, :timestamps), Tuple{String, Vector{Any}, Float64, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}()
         travel_time_lookup = Dict((tt.start_stop, tt.end_stop) => tt.time for tt in parameters.travel_times)
@@ -251,14 +265,14 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     scheduled_arrival = first_route.stop_times[start_node.stop_sequence]
                     depot_departure_time = scheduled_arrival - depot_tt # Time bus leaves depot
                 elseif !isnothing(first_route) && start_node.stop_sequence > 0 && start_node.stop_sequence <= length(first_route.stop_times)
-                     println("  Warning: Missing depot travel time for $depot_travel_key. Initial time based on first stop schedule might be inaccurate.")
+                     @warn "Missing depot travel time for $depot_travel_key for bus $bus_id_key. Initial time based on first stop schedule might be inaccurate."
                      depot_departure_time = first_route.stop_times[start_node.stop_sequence] # Fallback: start time is arrival time
                 else
-                     println("  Warning: Cannot determine initial time for bus $bus_id_key due to missing depot travel time or route info. Setting to 0.0.")
+                     @warn "Cannot determine initial time for bus $bus_id_key due to missing depot travel time or route info. Setting to 0.0."
                      depot_departure_time = 0.0
                 end
             else
-                 println("  Warning: Path for bus $bus_id_key does not start at depot. Initial time set to 0.0.")
+                 @warn "Path for bus $bus_id_key does not start at depot. Initial time set to 0.0."
                  depot_departure_time = 0.0
             end
             current_time = depot_departure_time # Initialize current_time to depot departure
@@ -285,9 +299,9 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                         # Reset current_time for the start of the next arc
                         current_time = scheduled_reset_time # This becomes the start_time_for_arc of the next iteration
                         arrival_time = start_time_for_arc # Arrival time is same as start for zero duration arc
-                        println("  Info $(bus_id_key): Time travel arc $arc processed. Resetting time for next arc start to scheduled $current_time at stop seq $(to_node.stop_sequence).")
+                        @debug "Bus $(bus_id_key): Time travel arc $arc processed. Resetting time for next arc start to scheduled $current_time at stop seq $(to_node.stop_sequence)."
                     else
-                        println("  Warning $(bus_id_key): Cannot find route/time for destination of time-travel arc $arc. Time not reset.")
+                        @warn "Bus $(bus_id_key): Cannot find route/time for destination of time-travel arc $arc. Time not reset."
                         current_time = start_time_for_arc # If reset fails, continue from current time
                         arrival_time = start_time_for_arc
                     end
@@ -310,7 +324,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                              # Ensure arrival isn't *before* scheduled time (waiting happened at depot)
                              arrival_time = max(arrival_time, scheduled_arrival)
                          else
-                              if arc_travel_duration == 0.0 println("  Warning: Missing travel time for $travel_key (Depot Start).") end
+                              if arc_travel_duration == 0.0 @warn "Missing travel time for $travel_key (Depot Start) for bus $bus_id_key." end
                          end
                          current_time = arrival_time # Time for next arc starts at arrival time
 
@@ -318,7 +332,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     elseif to_node.stop_sequence == 0
                          travel_key = (from_node.id, parameters.depot.depot_id)
                          arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
-                         if arc_travel_duration == 0.0 println("  Warning: Missing travel time for $travel_key (Depot End).") end
+                         if arc_travel_duration == 0.0 @warn "Missing travel time for $travel_key (Depot End) for bus $bus_id_key." end
                          arrival_time = start_time_for_arc + arc_travel_duration
                          current_time = arrival_time # Time for next arc starts at arrival time
 
@@ -339,7 +353,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
 
                              current_time = arrival_time # Time for next arc starts at arrival time
                          else
-                             println("  Warning $(bus_id_key): Missing route/stop times for intra-route arc $arc. Using travel time lookup.")
+                             @warn "Bus $(bus_id_key): Missing route/stop times for intra-route arc $arc. Using travel time lookup."
                              travel_key = (from_node.id, to_node.id)
                              arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
                              arrival_time = start_time_for_arc + arc_travel_duration
@@ -350,7 +364,12 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     else
                          travel_key = (from_node.id, to_node.id)
                          arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
-                         if arc_travel_duration == 0.0 println("  Warning $(bus_id_key): Missing travel time for $travel_key (Inter-line).") end
+                         # Only warn if stops are different and travel time is unexpectedly zero,
+                         # OR if the lookup actually failed (though `get` prevents this).
+                         # A zero travel time for the *same* stop (travel_key[1] == travel_key[2]) is expected for waiting.
+                         if arc_travel_duration == 0.0 && travel_key[1] != travel_key[2]
+                             @warn "Bus $(bus_id_key): Travel time is 0.0 for different stops $travel_key (Inter-line). Check data."
+                         end
                          arrival_time_at_next_stop = start_time_for_arc + arc_travel_duration
 
                          # Check if we need to wait for the scheduled departure of the next route
@@ -401,7 +420,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             )
         end # End loop through buses
 
-        println("Finished calculations.")
+        @info "Finished calculations."
         return NetworkFlowSolution(
             :Optimal,
             objective_value(model),
@@ -412,7 +431,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
     else
         # --- Non-Optimal Termination ---
         status_symbol = termination_status(model) == MOI.INFEASIBLE ? :Infeasible : Symbol(termination_status(model))
-        println("Solver finished with status: $status_symbol")
+        @info "Solver finished with status: $status_symbol"
 
         # Attempt to get the gap even if not optimal (e.g., time limit)
         current_gap = nothing
@@ -422,18 +441,18 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
              # Assign if it's a valid number, otherwise keep nothing
             if !isnan(retrieved_gap) && !isinf(retrieved_gap)
                 current_gap = retrieved_gap
-                println("Retrieved relative gap for non-optimal status: $current_gap")
+                @info "Retrieved relative gap for non-optimal status: $current_gap"
             else
-                 println("Info: Retrieved gap is $retrieved_gap. Setting gap to 'nothing'.")
+                 @info "Info: Retrieved gap is $retrieved_gap. Setting gap to 'nothing'."
             end
         catch e
-            println("Could not retrieve relative gap. Status: $status_symbol. Error: $e")
+            @warn "Could not retrieve relative gap. Status: $status_symbol. Error: $e"
             # Keep current_gap = nothing
         end
 
         # Check if a feasible solution is available despite non-optimal termination
         if primal_status(model) == MOI.FEASIBLE_POINT
-            println("Feasible solution found despite non-optimal status ($status_symbol). Processing best found solution...")
+            @info "Feasible solution found despite non-optimal status ($status_symbol). Processing best found solution..."
 
             obj_val = objective_value(model) # Get objective of the best feasible solution found
             x = model[:x]
@@ -442,8 +461,9 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             bus_paths = Dict{String, Vector{ModelArc}}()
 
             # --- Path Reconstruction (mirrors the logic from the optimal block) ---
+            routes = parameters.routes
             if buses === nothing # NO_CAPACITY_CONSTRAINT case
-                println("Reconstructing paths for NO_CAPACITY_CONSTRAINT (feasible solution)...")
+                @info "Reconstructing paths for NO_CAPACITY_CONSTRAINT (feasible solution)..."
                 flow_dict = Dict(arc => value(x[arc]) for arc in network.arcs if value(x[arc]) > 1e-6)
                 remaining_flow = copy(flow_dict)
                 bus_counter = 0
@@ -487,7 +507,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                             current_arc = nothing # End path
                         elseif isnothing(next_arc)
                             if current_arc.arc_end.stop_sequence != 0 # Check if we didn't end at depot
-                                println("  Warning: Path reconstruction (feasible) for bus $current_bus_id_str possibly incomplete. Stopped after arc: $current_arc")
+                                @warn "Path reconstruction (feasible) for bus $current_bus_id_str possibly incomplete. Stopped after arc: $current_arc"
                             end
                             current_arc = nothing # End path
                         else
@@ -501,11 +521,11 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     end
                     bus_paths[current_bus_id_str] = expanded_path
                 end
-                println("Reconstructed $(length(bus_paths)) paths (feasible solution).")
+                @info "Reconstructed $(length(bus_paths)) paths (feasible solution)."
 
             else # CAPACITY_CONSTRAINT cases
-                println("Reconstructing paths for CAPACITY constraints (feasible solution)...")
-                # Create a lookup for solved arcs for faster searching per bus
+                @info "Reconstructing paths for CAPACITY constraints (feasible solution)..."
+                # Access 'buses' from the outer scope
                 solved_arcs_lookup = Dict{String, Vector{ModelArc}}()
                 for arc in solved_arcs
                     bus_id = arc.bus_id
@@ -527,10 +547,10 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
 
                     if isempty(depot_start_arcs_for_bus)
                         # If a bus has arcs but no start arc, it indicates an issue or an unused bus
-                        println("  Info: Bus $bus_id_str has solved arcs but no depot start arc in feasible solution. Skipping path reconstruction.")
+                        @info "Bus $bus_id_str has solved arcs but no depot start arc in feasible solution. Skipping path reconstruction."
                         continue
                     elseif length(depot_start_arcs_for_bus) > 1
-                        println("  Warning: Multiple depot start arcs found for bus $bus_id_str (feasible). Using first one.")
+                        @warn "Warning: Multiple depot start arcs found for bus $bus_id_str (feasible). Using first one."
                     end
                     start_arc = depot_start_arcs_for_bus[1]
 
@@ -559,7 +579,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                             current_arc = nothing # End path
                         elseif isnothing(next_arc)
                             if current_arc.arc_end.stop_sequence != 0 # Check if we didn't end at depot
-                                println("  Warning: Path reconstruction (feasible) for bus $bus_id_str possibly incomplete. Stopped after arc: $current_arc")
+                                @warn "Path reconstruction (feasible) for bus $bus_id_str possibly incomplete. Stopped after arc: $current_arc"
                             end
                             current_arc = nothing # End path
                         else
@@ -567,7 +587,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                         end
                     end
                     if !isnothing(current_arc) && current_arc in used_arcs_in_path # Check if loop terminated due to cycle
-                        println("  Warning: Cycle detected during path reconstruction (feasible) for bus $bus_id_str. Path may be truncated.")
+                        @warn "Cycle detected during path reconstruction (feasible) for bus $bus_id_str. Path may be truncated."
                     end
 
                     # Expand the constructed path
@@ -577,17 +597,197 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     end
                     bus_paths[bus_id_str] = expanded_path
                 end
-                println("Reconstructed paths for $(length(bus_paths)) buses (feasible solution).")
+                @info "Reconstructed paths for $(length(bus_paths)) buses (feasible solution)."
             end
             # --- End Path Reconstruction ---
 
-            # --- Calculate Metrics (using the helper function) ---
-            println("Calculating metrics for feasible solution...")
-            # Ensure 'parameters' is accessible for the metric calculation
-            final_bus_info = calculate_bus_metrics(bus_paths, parameters)
+            # --- Calculate Metrics (copied from optimal block) ---
+            @info "Calculating metrics for feasible solution..."
+            # Ensure 'parameters' is accessible
+            # Modify the NamedTuple structure to store operational_duration and waiting_time
+            final_bus_info = Dict{String, NamedTuple{(:name, :path, :operational_duration, :waiting_time, :capacity_usage, :timestamps), Tuple{String, Vector{Any}, Float64, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}()
+            travel_time_lookup = Dict((tt.start_stop, tt.end_stop) => tt.time for tt in parameters.travel_times)
+            route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in parameters.routes) # Lookup for route data
+
+            for (bus_id_key, path) in bus_paths # bus_id_key is String
+                if isempty(path) continue end
+
+                # Initialize accumulators
+                current_time = 0.0 # Tracks the time progression along the path
+                total_waiting_time = 0.0 # Accumulates only waiting times
+                arc_capacities = Vector{Tuple{Any, Int}}()
+                arc_timestamps = Vector{Tuple{Any, Float64}}()
+
+                # --- Determine Initial Depot Departure Time ---
+                depot_departure_time = 0.0
+                first_arc = path[1]
+                if first_arc.arc_start.stop_sequence == 0 # Starts from depot
+                    depot_id = parameters.depot.depot_id
+                    start_node = first_arc.arc_end
+                    depot_travel_key = (depot_id, start_node.id)
+                    depot_tt = get(travel_time_lookup, depot_travel_key, nothing)
+                    first_route = get(route_lookup, (start_node.route_id, start_node.trip_id, start_node.trip_sequence), nothing)
+
+                    if !isnothing(depot_tt) && !isnothing(first_route) && start_node.stop_sequence > 0 && start_node.stop_sequence <= length(first_route.stop_times)
+                        scheduled_arrival = first_route.stop_times[start_node.stop_sequence]
+                        depot_departure_time = scheduled_arrival - depot_tt # Time bus leaves depot
+                    elseif !isnothing(first_route) && start_node.stop_sequence > 0 && start_node.stop_sequence <= length(first_route.stop_times)
+                        @warn "Missing depot travel time for $depot_travel_key for bus $bus_id_key. Initial time based on first stop schedule might be inaccurate."
+                        depot_departure_time = first_route.stop_times[start_node.stop_sequence] # Fallback: start time is arrival time
+                    else
+                        @warn "Cannot determine initial departure time for bus $bus_id_key due to missing depot travel time or route info. Setting to 0.0."
+                        depot_departure_time = 0.0
+                    end
+                else
+                    @warn "Path for bus $bus_id_key does not start at depot. Initial time set to 0.0."
+                    depot_departure_time = 0.0
+                end
+                current_time = depot_departure_time # Initialize current_time to depot departure
+                # --- End Initial Time Determination ---
+
+                for (i, arc) in enumerate(path)
+                    from_node = arc.arc_start
+                    to_node = arc.arc_end
+
+                    # Record timestamp at the start of this arc
+                    start_time_for_arc = current_time
+                    push!(arc_timestamps, (arc, start_time_for_arc))
+
+                    # Calculate duration and update time for the *next* arc's start
+                    arrival_time = start_time_for_arc # Default arrival if duration is zero
+
+                    # --- Handle the Special Case: Backward Intra-line Arc (Time Travel) ---
+                    if arc.kind == "intra-line-arc" && to_node.stop_sequence < from_node.stop_sequence
+                        # Find the route to get the scheduled time at the destination (earlier stop)
+                        route = get(route_lookup, (to_node.route_id, to_node.trip_id, to_node.trip_sequence), nothing)
+                        if !isnothing(route) && to_node.stop_sequence > 0 && to_node.stop_sequence <= length(route.stop_times)
+                            scheduled_reset_time = route.stop_times[to_node.stop_sequence]
+                            # Reset current_time for the start of the next arc
+                            current_time = scheduled_reset_time # This becomes the start_time_for_arc of the next iteration
+                            arrival_time = start_time_for_arc # Arrival time is same as start for zero duration arc
+                            @debug "Bus $(bus_id_key): Time travel arc $arc processed. Resetting time for next arc start to scheduled $current_time at stop seq $(to_node.stop_sequence)."
+                        else
+                            @warn "Bus $(bus_id_key): Cannot find route/time for destination of time-travel arc $arc. Time not reset."
+                            current_time = start_time_for_arc # If reset fails, continue from current time
+                            arrival_time = start_time_for_arc
+                        end
+                        # No waiting time added for time travel
+
+                    # --- Handle All Other Arc Types ---
+                    else
+                        arc_travel_duration = 0.0 # Duration purely for physical travel
+                        wait_duration = 0.0      # Duration purely for waiting
+
+                        # Case 1: Traveling from Depot
+                        if from_node.stop_sequence == 0
+                             travel_key = (parameters.depot.depot_id, to_node.id)
+                             arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
+                             arrival_time = start_time_for_arc + arc_travel_duration
+                             # Check against scheduled arrival at the first stop
+                             route = get(route_lookup, (to_node.route_id, to_node.trip_id, to_node.trip_sequence), nothing)
+                             if !isnothing(route) && to_node.stop_sequence > 0 && to_node.stop_sequence <= length(route.stop_times)
+                                 scheduled_arrival = route.stop_times[to_node.stop_sequence]
+                                 # Ensure arrival isn't *before* scheduled time (waiting happened at depot)
+                                 arrival_time = max(arrival_time, scheduled_arrival)
+                             else
+                                  if arc_travel_duration == 0.0 @warn "Missing travel time for $travel_key (Depot Start) for bus $bus_id_key." end
+                             end
+                             current_time = arrival_time # Time for next arc starts at arrival time
+
+                        # Case 2: Traveling to Depot
+                        elseif to_node.stop_sequence == 0
+                             travel_key = (from_node.id, parameters.depot.depot_id)
+                             arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
+                             if arc_travel_duration == 0.0 @warn "Missing travel time for $travel_key (Depot End) for bus $bus_id_key." end
+                             arrival_time = start_time_for_arc + arc_travel_duration
+                             current_time = arrival_time # Time for next arc starts at arrival time
+
+                        # Case 3: Traveling between stops on the same route/trip/sequence (Intra-Route)
+                        elseif from_node.route_id == to_node.route_id && from_node.trip_id == to_node.trip_id && from_node.trip_sequence == to_node.trip_sequence
+                             route = get(route_lookup, (from_node.route_id, from_node.trip_id, from_node.trip_sequence), nothing)
+                             if !isnothing(route) && from_node.stop_sequence > 0 && from_node.stop_sequence <= length(route.stop_times) && to_node.stop_sequence > 0 && to_node.stop_sequence <= length(route.stop_times)
+                                 scheduled_departure = route.stop_times[from_node.stop_sequence]
+                                 scheduled_arrival = route.stop_times[to_node.stop_sequence]
+
+                                 # Calculate wait time at the start of this segment
+                                 wait_duration = max(0.0, scheduled_departure - start_time_for_arc)
+                                 actual_departure_time = start_time_for_arc + wait_duration
+
+                                 # Calculate travel time based on schedule
+                                 arc_travel_duration = max(0.0, scheduled_arrival - scheduled_departure)
+                                 arrival_time = actual_departure_time + arc_travel_duration
+
+                                 current_time = arrival_time # Time for next arc starts at arrival time
+                             else
+                                 @warn "Bus $(bus_id_key): Missing route/stop times for intra-route arc $arc. Using travel time lookup."
+                                 travel_key = (from_node.id, to_node.id)
+                                 arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
+                                 arrival_time = start_time_for_arc + arc_travel_duration
+                                 current_time = arrival_time
+                             end
+
+                        # Case 4: Traveling between different routes/trips/sequences (Inter-line arc)
+                        else
+                             travel_key = (from_node.id, to_node.id)
+                             arc_travel_duration = get(travel_time_lookup, travel_key, 0.0)
+                             # Only warn if stops are different and travel time is unexpectedly zero,
+                             # OR if the lookup actually failed (though `get` prevents this).
+                             # A zero travel time for the *same* stop (travel_key[1] == travel_key[2]) is expected for waiting.
+                             if arc_travel_duration == 0.0 && travel_key[1] != travel_key[2]
+                                 @warn "Bus $(bus_id_key): Travel time is 0.0 for different stops $travel_key (Inter-line). Check data."
+                             end
+                             arrival_time_at_next_stop = start_time_for_arc + arc_travel_duration
+
+                             # Check if we need to wait for the scheduled departure of the next route
+                             route = get(route_lookup, (to_node.route_id, to_node.trip_id, to_node.trip_sequence), nothing)
+                             wait_duration = 0.0
+                             if !isnothing(route) && to_node.stop_sequence > 0 && to_node.stop_sequence <= length(route.stop_times)
+                                 scheduled_departure_next = route.stop_times[to_node.stop_sequence]
+                                 wait_duration = max(0.0, scheduled_departure_next - arrival_time_at_next_stop)
+                                 arrival_time = arrival_time_at_next_stop + wait_duration # Actual time when next segment can start
+                             else
+                                  arrival_time = arrival_time_at_next_stop # No schedule to wait for
+                             end
+                             current_time = arrival_time # Time for next arc starts after waiting
+                        end
+                        # Accumulate waiting time
+                        total_waiting_time += wait_duration
+                    end # End if/else for arc types
+
+                    # --- Calculate capacity usage (remains the same) ---
+                    current_capacity = 0
+                    if arc.kind != "intra-line-arc" || to_node.stop_sequence > from_node.stop_sequence
+                        for demand in parameters.passenger_demands
+                            if demand.origin.route_id == from_node.route_id && demand.origin.trip_id == from_node.trip_id && demand.origin.trip_sequence == from_node.trip_sequence &&
+                            to_node.stop_sequence > 0 && from_node.stop_sequence > 0 &&
+                            demand.origin.stop_sequence <= from_node.stop_sequence &&
+                            demand.destination.stop_sequence > from_node.stop_sequence
+                                current_capacity += demand.demand
+                            end
+                        end
+                    end
+                    push!(arc_capacities, (arc, Int(round(current_capacity))))
+                end # End loop through path arcs
+
+                # --- Final Duration Calculation ---
+                # 'current_time' now holds the arrival time at the depot (or the last stop)
+                final_arrival_time = current_time
+                total_operational_duration = final_arrival_time - depot_departure_time
+                # --- End Final Duration Calculation ---
+
+                # Store results for this bus
+                final_bus_info[bus_id_key] = (
+                    name=bus_id_key,
+                    path=path,
+                    operational_duration=total_operational_duration, # Store total time from depot departure to arrival
+                    waiting_time=total_waiting_time,            # Store accumulated waiting time
+                    capacity_usage=arc_capacities,
+                    timestamps=arc_timestamps
+                )
+            end # End loop through buses
             # --- End Metric Calculation ---
 
-            println("Finished calculations for feasible solution.")
+            @info "Finished calculations for feasible solution."
             return NetworkFlowSolution(
                 status_symbol, # Keep the original non-optimal status (e.g., :TIME_LIMIT)
                 obj_val,       # Objective value of the best feasible solution
@@ -597,7 +797,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             )
         else
             # --- No Feasible Solution Found ---
-            println("No feasible solution found for status $status_symbol.")
+            @info "No feasible solution found for status $status_symbol."
             return NetworkFlowSolution(
                 status_symbol,
                 nothing, # No objective value
@@ -608,12 +808,3 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
         end # End if primal_status feasible
     end # End if termination_status optimal / else
 end
-
-# Ensure calculate_bus_metrics is defined if used in the non-optimal feasible path
-# Example skeleton if it doesn't exist yet:
-# function calculate_bus_metrics(bus_paths::Dict{String, Vector{ModelArc}}, parameters::ProblemParameters)
-#     final_bus_info = Dict{String, NamedTuple{(:name, :path, :operational_duration, :waiting_time, :capacity_usage, :timestamps), Tuple{String, Vector{Any}, Float64, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}()
-#     # ... (Implement the same logic as in the optimal block for calculating metrics) ...
-#      println("  Warning: calculate_bus_metrics needs implementation for feasible solutions.")
-#     return final_bus_info
-# end

@@ -9,11 +9,16 @@ using CairoMakie
 using ColorSchemes
 using ColorTypes
 using CategoricalArrays
+using Logging # Import the Logging module
+
+# Configure the logger to show messages with Info level and above by default
+# Users can change `Logging.Info` to `Logging.Debug` for more detailed output
+global_logger(ConsoleLogger(stderr, Logging.Info))
 
 CairoMakie.activate!()
 
-# Set up LaTeX-style fonts
-
+# --- Font Setup ---
+# Set up LaTeX-style fonts for plots using Makie's MathTeXEngine.
 MT = Makie.MathTeXEngine
 mt_fonts_dir = joinpath(dirname(pathof(MT)), "..", "assets", "fonts", "NewComputerModern")
 
@@ -22,274 +27,307 @@ set_theme!(fonts = (
     bold = joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
 ))
 
-aggregation_version = "v1"
-plot_version = "v2"
-solver = "gurobi"
+# --- Configuration ---
+aggregation_version = "v3" # Version identifier for the input data aggregation
+plot_version = "v2"      # Version identifier for the plot output
+solver = "gurobi"          # Solver used for the experiments
 
-
-# --- Plot Settings ---
+# --- File Paths ---
 results_file = "results/computational_study_$(plot_version)_$(solver).csv"
-plot_save_path_breaks_available = "results/plot_buses_vs_service_drivers_current_depot.png"
-plot_save_path_breaks_all_depots = "results/plot_buses_vs_service_drivers_all_depots.png"
-padding_y = 1.05
-padding_x = 0.05
+combined_plot_save_path = "results/plot_buses_vs_service_drivers_combined_$(plot_version)_$(solver).pdf"
+aggregation_input_file_path = "results/computational_study_$(aggregation_version)_$(solver).csv"
+aggregation_output_file_path = "results/aggregation_summary_by_setting_$(aggregation_version)_$(solver).csv"
 
-# --- Load and Prepare Data ---
+# --- Plotting Constants ---
+padding_y = 1.05 # Vertical padding for y-axis limits
+padding_x = 0.05 # Horizontal padding for x-axis limits
+
+# --- Load and Prepare Data for Plotting ---
+@info "Loading plot data from: $results_file"
 df = CSV.read(results_file, DataFrame)
 
-# Filter out non-optimal solutions
+# Filter out rows where the solver did not find an optimal solution.
 df_optimal = filter(row -> row.solver_status == "Optimal", df)
+@info "Filtered data: $(nrow(df_optimal)) optimal solutions out of $(nrow(df))."
 
-# Filter data based on setting
-# CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE: Drivers only from the current depot
-# CAPACITY_CONSTRAINT_DRIVER_BREAKS: Drivers can be used from all depots
+# Separate data based on the experimental setting regarding driver availability.
 df_drivers_current_depot = filter(row -> row.setting == "CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE", df_optimal)
 df_drivers_all_depots = filter(row -> row.setting == "CAPACITY_CONSTRAINT_DRIVER_BREAKS", df_optimal)
 
 # --- Determine Axis Limits ---
-# Combine relevant data from both scenarios to find overall min/max
+# Calculate common axis limits based on the range of data across both filtered scenarios.
 min_sigma, max_sigma = if nrow(df_optimal) > 0
-    extrema(df_optimal.service_level)
+    extrema(df_optimal.service_level) # Get min and max service level
 else
-    (0.0, 1.0) # Default if no optimal data
+    (0.0, 1.0) # Default values if no optimal data
 end
 
 min_k, max_k = if nrow(df_optimal) > 0
-    extrema(df_optimal.num_buses)
+    extrema(df_optimal.num_buses) # Get min and max number of buses
 else
-    (0, 1) # Default if no optimal data
+    (0, 1) # Default values if no optimal data
 end
 
-# Add padding
+# Apply padding to the calculated limits for better visualization.
 xlim = (min_sigma - padding_x, max_sigma + padding_x)
 ylim = (min_k - padding_y, max_k + padding_y)
+@debug "Calculated Axis Limits: xlim=$xlim, ylim=$ylim"
 
-# Get unique depots and assign colors/markers
+# --- Define Colors and Markers for Depots ---
+# Identify all unique depots across both scenarios.
 depots_current = unique(df_drivers_current_depot.depot_name)
 depots_all = unique(df_drivers_all_depots.depot_name)
-all_depots = unique(vcat(depots_current, depots_all))
+all_depots = unique(vcat(depots_current, depots_all)) # Combine and find unique depots
+@debug "Unique depots identified: $all_depots"
 
-# Use a color scheme for prettier colors
+# Assign distinct colors using a predefined color scheme.
 n_colors = length(all_depots)
-colors_base = range(0, 1, length=n_colors)
+colors_base = range(0, 1, length=n_colors) # Generate points along the color scheme range
 distinct_colors = [RGBAf(get(colorschemes[:redblue], x), 1.0) for x in colors_base]
 
-# Define a list of markers
+# Define a list of markers for scatter plots.
 markers = [:star4, :pentagon,:circle, :rect, :utriangle, :dtriangle, :diamond, :xcross, :cross, :star5]
-# Ensure we have enough markers, cycle if needed
+
+# Create dictionaries mapping each depot to a unique color and marker.
+# Use modulo arithmetic (`mod1`) to cycle through colors/markers if there are more depots than available styles.
 depot_color_map = Dict(d => distinct_colors[mod1(i, length(distinct_colors))] for (i, d) in enumerate(all_depots))
 depot_marker_map = Dict(d => markers[mod1(i, length(markers))] for (i, d) in enumerate(all_depots))
 
-# Function to create plot elements
-function create_plot_elements!(ax, data, depots, depot_color_map, depot_marker_map)
-    plot_elements = [] # Store elements for potential legend use
-    labels = [] # Store labels
+# --- Plotting Function ---
+"""
+    create_plot_elements!(ax, data, depots, depot_color_map, depot_marker_map)
 
-    # Keep track of depots actually plotted to avoid duplicate legend entries if needed later
-    plotted_depots = Set{String}() 
+Generates plot elements (lines and scatter points) for each depot on a given Makie axis `ax`.
+It iterates through the specified `depots`, filters the `data` for each, and plots
+service level vs. number of buses using styles defined in `depot_color_map` and `depot_marker_map`.
+Returns plot elements and labels suitable for legend creation.
+"""
+function create_plot_elements!(ax, data, depots, depot_color_map, depot_marker_map)
+    plot_elements = [] # To store Makie plot objects for the legend
+    labels = []        # To store corresponding labels for the legend
+    plotted_depots = Set{String}() # Track plotted depots to avoid duplicate legend entries
 
     for d in depots
         df_depot = filter(row -> row.depot_name == d, data)
         if nrow(df_depot) > 0
-            sort!(df_depot, :service_level)
-            color = depot_color_map[d]
+            sort!(df_depot, :service_level) # Ensure lines connect points in order
+            # color = depot_color_map[d] # Color is now fixed for the line/marker stroke
             marker = depot_marker_map[d]
-            
-            # Plot line first
-            line = lines!(ax, df_depot.service_level, df_depot.num_buses, 
-                   color = :black, linewidth = 1.0)
-            # Plot scatter on top
-            scatterpt = scatter!(ax, df_depot.service_level, df_depot.num_buses, 
-                    color = (:white, 1.0),
-                    marker = marker, 
-                    markersize = 10, 
-                    strokecolor = :black,
+
+            # Plot lines connecting the points for each depot.
+            line = lines!(ax, df_depot.service_level, df_depot.num_buses,
+                   color = :black, linewidth = 1.0) # Use black lines
+
+            # Plot scatter points for each data point, using unique markers.
+            # White fill with black stroke makes markers stand out on the line.
+            scatterpt = scatter!(ax, df_depot.service_level, df_depot.num_buses,
+                    color = (:white, 1.0), # White fill
+                    marker = marker,
+                    markersize = 10,
+                    strokecolor = :black, # Black outline
                     strokewidth = 1.0)
-            
-            # Store elements and labels only once per depot for the legend
+
+            # Collect elements for the legend only once per depot.
             if !(d in plotted_depots)
-                 # We only need the scatter style for the legend entry
-                push!(plot_elements, scatterpt) 
-                push!(labels, string(d))
+                 # Store the scatter plot style for the legend entry.
+                push!(plot_elements, scatterpt)
+                push!(labels, string(d)) # Depot name as label
                 push!(plotted_depots, d)
             end
+        else
+            @debug "No data to plot for depot: $d"
         end
     end
-    # Return elements and labels if needed for manual legend creation outside
-    # return plot_elements, labels 
+    # Return elements and labels, although they are not used directly in the current legend setup below.
+    return plot_elements, labels
 end
 
 # --- Create Combined Figure ---
-fig = Figure(size = (600, 350)) # Adjusted size for two plots + legend
+@info "Creating combined plot..."
+fig = Figure(size = (600, 350)) # Adjust figure size for two side-by-side plots plus legend space
 
-# --- Plot 1: Drivers From All Depots Available ---
+# --- Plot 1: Drivers From All Depots Available (Scenario 3) ---
 ax_all = Axis(fig[1, 1],
               xlabel = "Service Level",
               ylabel = "Number of Buses",
-              title = "Scope C, Scenario 3"
+              title = "Scope C, Scenario 3" # Title indicating the scenario
 )
 create_plot_elements!(ax_all, df_drivers_all_depots, depots_all, depot_color_map, depot_marker_map)
-xlims!(ax_all, xlim)
-ylims!(ax_all, ylim)
+xlims!(ax_all, xlim) # Apply shared x-axis limits
+ylims!(ax_all, ylim) # Apply shared y-axis limits
 
-# --- Plot 2: Drivers Only From Current Depot ---
+# --- Plot 2: Drivers Only From Current Depot (Scenario 4) ---
 ax_current = Axis(fig[1, 2],
                  xlabel = "Service Level",
-                 #ylabel = "Number of Buses",
-                 title = "Scope C, Scenario 4" # Add titles to distinguish
+                 # ylabel = "Number of Buses", # Y-axis label is shared, commenting out avoids repetition
+                 title = "Scope C, Scenario 4" # Title indicating the scenario
 )
 create_plot_elements!(ax_current, df_drivers_current_depot, depots_current, depot_color_map, depot_marker_map)
-xlims!(ax_current, xlim)
-ylims!(ax_current, ylim)
+xlims!(ax_current, xlim) # Apply shared x-axis limits
+ylims!(ax_current, ylim) # Apply shared y-axis limits
 
 # --- Create Shared Legend ---
-# Create legend entries manually based on all unique depots and their styles
+# Manually create legend entries to ensure all depots are represented consistently across both plots.
 legend_elements = []
 legend_labels = []
-# Sort depots for consistent legend order
-sorted_all_depots = sort(collect(all_depots)) 
+sorted_all_depots = sort(collect(all_depots)) # Sort depots alphabetically for consistent legend order
 
 for d in sorted_all_depots
     marker = depot_marker_map[d]
-    # Create a MarkerElement for the legend
-    # Use black stroke as in the plot
+    # Create a MarkerElement reflecting the style used in the scatter plots (white fill, black stroke).
     push!(legend_elements, MarkerElement(marker=marker, color=(:white, 1.0), strokecolor=:black, strokewidth=1.0, markersize=9))
     push!(legend_labels, string(d))
 end
 
-# Add the legend inside the top-left corner of the first plot (ax_current)
-Legend(fig[1, 1], # Target the grid position of the first plot
-       legend_elements, 
-       legend_labels, 
-       tellheight = false, # Don't let legend dictate row height
-       tellwidth = false,  # Don't let legend dictate column width
-       halign = :left,    # Horizontal alignment within the cell
-       valign = :top,     # Vertical alignment within the cell
+# Add the legend to the figure, positioned inside the top-left corner of the first plot's grid area.
+Legend(fig[1, 1], # Place legend relative to the grid cell of the first axis
+       legend_elements,
+       legend_labels,
+       tellheight = false, # Prevent legend from affecting row height
+       tellwidth = false,  # Prevent legend from affecting column width
+       halign = :left,     # Align legend to the left within the cell
+       valign = :top      # Align legend to the top within the cell
 )
 
 # --- Save Combined Figure ---
-combined_plot_save_path = "results/plot_buses_vs_service_drivers_combined_$(plot_version)_$(solver).pdf"
+@info "Saving combined plot to: $combined_plot_save_path"
 save(combined_plot_save_path, fig)
 
-# Define the path to your input CSV file
-input_file_path = "results/computational_study_$(aggregation_version)_$(solver).csv"
-# Define the path for the output CSV file
-output_file_path = "results/aggregation_summary_by_setting_$(aggregation_version)_$(solver).csv"
+# ==================================================
+# --- Data Aggregation Section ---
+# ==================================================
+@info "Starting data aggregation..."
 
-# Read the CSV file into a DataFrame
+# Read the CSV file containing detailed computational results.
 try
-    df = CSV.read(input_file_path, DataFrame)
+    @info "Loading aggregation data from: $aggregation_input_file_path"
+    df_agg = CSV.read(aggregation_input_file_path, DataFrame)
 
-    # --- Data Cleaning/Preparation ---
-    # Handle Optimality Gap
-    if "optimality_gap" in names(df) && eltype(df.optimality_gap) <: Union{Missing, String}
-        df.optimality_gap = map(x -> ismissing(x) || x == "" ? NaN : parse(Float64, x), df.optimality_gap)
-    elseif "optimality_gap" in names(df) && !(eltype(df.optimality_gap) <: AbstractFloat)
-         println("Warning: optimality_gap column exists but is not a float or missing/string type. Attempting conversion.")
-         try
-             # Ensure conversion handles potential missing values if read as such
-             df.optimality_gap = map(x -> ismissing(x) ? NaN : Float64(x), df.optimality_gap)
-         catch e
-             println("Error converting optimality_gap to Float64: $e. Average gap calculation might fail.")
-             df.optimality_gap = fill(NaN, nrow(df))
-         end
-    elseif !("optimality_gap" in names(df))
-        println("Warning: 'optimality_gap' column not found. Average gap will be NaN.")
-         df.optimality_gap = fill(NaN, nrow(df))
+    # --- Data Cleaning/Preparation for Aggregation ---
+    # Handle 'optimality_gap' column: Convert potentially missing or string values to Float64 or NaN.
+    if "optimality_gap" in names(df_agg)
+        if eltype(df_agg.optimality_gap) <: Union{Missing, String}
+            @debug "Converting 'optimality_gap' from String/Missing to Float64."
+            df_agg.optimality_gap = map(x -> ismissing(x) || x == "" ? NaN : parse(Float64, x), df_agg.optimality_gap)
+        elseif !(eltype(df_agg.optimality_gap) <: AbstractFloat)
+             @warn "'optimality_gap' column is not Float, String, or Missing. Attempting conversion to Float64."
+             try
+                 df_agg.optimality_gap = map(x -> ismissing(x) ? NaN : Float64(x), df_agg.optimality_gap)
+             catch e
+                 @error "Failed to convert 'optimality_gap' to Float64: $e. Filling with NaN."
+                 df_agg.optimality_gap = fill(NaN, nrow(df_agg))
+             end
+        else
+            @debug "'optimality_gap' column is already numeric."
+        end
+    else
+        @warn "'optimality_gap' column not found. Average gap will be NaN."
+         df_agg.optimality_gap = fill(NaN, nrow(df_agg)) # Add column filled with NaN if missing
     end
 
-    # Ensure num_potential_buses exists and is numeric
-    if !("num_potential_buses" in names(df))
-        println("Error: 'num_potential_buses' column not found. Cannot add this metric.")
-        error("'num_potential_buses' column is required but not found.")
-    elseif !(eltype(df.num_potential_buses) <: Number)
-         println("Warning: 'num_potential_buses' column is not numeric. Attempting conversion.")
+    # Ensure 'num_potential_buses' column exists and is numeric.
+    if !("num_potential_buses" in names(df_agg))
+        @error "'num_potential_buses' column not found. Cannot calculate average potential buses."
+        error("'num_potential_buses' column is required but not found.") # Stop execution
+    elseif !(eltype(df_agg.num_potential_buses) <: Number)
+         @warn "'num_potential_buses' column is not numeric. Attempting conversion to Int."
          try
-             # Ensure conversion handles potential missing values if read as such
-             df.num_potential_buses = map(x -> ismissing(x) ? missing : parse(Int, x), df.num_potential_buses)
-             # Check if conversion resulted in any missings, handle if necessary
-             if any(ismissing, df.num_potential_buses)
-                 println("Warning: Some 'num_potential_buses' values were missing or failed conversion.")
-                 # Option: Filter out missings before mean, or error, or fill with a default
-                 # Current approach: mean will skip missings by default if column type allows
+             # Convert to Int, handling potential missing values.
+             df_agg.num_potential_buses = map(x -> ismissing(x) ? missing : parse(Int, string(x)), df_agg.num_potential_buses) # Ensure string conversion before parse
+             # Check if conversion resulted in missings that weren't originally there.
+             if any(ismissing, df_agg.num_potential_buses)
+                 @warn "Some 'num_potential_buses' values were missing or failed conversion to Int."
              end
-             # Ensure the column type supports mean (e.g., Vector{Union{Missing, Int}})
-              df.num_potential_buses = collect(Union{Missing, Int}, df.num_potential_buses)
-
+             # Ensure the column type allows missing values for `mean(skipmissing(...))`
+             df_agg.num_potential_buses = collect(Union{Missing, Int}, df_agg.num_potential_buses)
+             @debug "'num_potential_buses' column converted successfully."
          catch e
-            println("Error converting 'num_potential_buses' to numeric: $e.")
-            error("Failed to convert 'num_potential_buses'.")
+            @error "Error converting 'num_potential_buses' to numeric: $e."
+            error("Failed to convert 'num_potential_buses'.") # Stop execution
          end
+    else
+        @debug "'num_potential_buses' column is already numeric."
+        # Ensure it allows for missings if it might contain them
+        if Missing <: eltype(df_agg.num_potential_buses)
+             df_agg.num_potential_buses = collect(Union{Missing, eltype(skipmissing(df_agg.num_potential_buses))}, df_agg.num_potential_buses)
+        end
     end
 
     # --- Calculate Aggregations per Group ---
+    @debug "Grouping data by 'setting' and 'subsetting' for aggregation."
+    # Group the DataFrame by experimental 'setting' and 'subsetting'.
+    grouped_df = groupby(df_agg, [:setting, :subsetting])
 
-    # Group by 'setting' and 'subsetting'
-    grouped_df = groupby(df, [:setting, :subsetting])
-
-    # Define a function to perform aggregation on each sub-dataframe (group)
+    # Define a function to calculate summary statistics for each group (sub-dataframe).
     function aggregate_group(sub_df)
-        # 0. Average number of potential buses
-        # Use mean, skipmissing ensures robustness if conversion created missings
+        @debug "Aggregating group: setting='$(sub_df.setting[1])', subsetting='$(sub_df.subsetting[1])'"
+
+        # Calculate the average number of potential buses available in this group.
+        # `skipmissing` handles potential missing values after conversion attempts.
         avg_potential_buses_val = mean(skipmissing(sub_df.num_potential_buses))
 
-        # 1. Average number of required busses (for Optimal solutions)
-        df_optimal = filter(row -> row.solver_status == "Optimal", sub_df)
-        avg_buses_optimal = if nrow(df_optimal) > 0
-            mean(df_optimal.num_buses)
+        # Calculate the average number of buses used in Optimal solutions within this group.
+        df_optimal_group = filter(row -> row.solver_status == "Optimal", sub_df)
+        avg_buses_optimal = if nrow(df_optimal_group) > 0
+            mean(df_optimal_group.num_buses)
         else
-            0.0
+            0.0 # Return 0 if no optimal solutions in this group
         end
 
-        # 2. Number of infeasible solves
+        # Count the number of instances that resulted in an Infeasible status.
         num_infeasible = nrow(filter(row -> row.solver_status == "Infeasible", sub_df))
 
-        # 3. Number of time limit solves
-        df_timelimit = filter(row -> row.solver_status == "TIME_LIMIT", sub_df)
-        num_timelimit = nrow(df_timelimit)
+        # Count the number of instances that hit the time limit.
+        df_timelimit_group = filter(row -> row.solver_status == "TIME_LIMIT", sub_df)
+        num_timelimit = nrow(df_timelimit_group)
 
-        # 4. Average computation time (across all solves in the group)
+        # Calculate the average computation time across all instances in the group.
         avg_solve_time = mean(sub_df.solve_time)
 
-        # 5. Average optimality gap (for time limit solves)
+        # Calculate the average optimality gap for instances that hit the time limit.
         avg_gap_timelimit = if num_timelimit > 0
-            # Skip NaNs which might come from missing or non-numeric original data
+            # Filter gaps belonging to TIME_LIMIT solves and exclude NaNs.
             gaps = filter(!isnan, sub_df.optimality_gap[sub_df.solver_status .== "TIME_LIMIT"])
             if !isempty(gaps)
                 mean(gaps)
             else
-                NaN # No valid gaps found for time limited solves
+                NaN # Return NaN if no valid gaps found for time-limited solves
             end
         else
-            NaN # No time limited solves
+            NaN # Return NaN if there were no time-limited solves in this group
         end
 
-        # Return a named tuple with the results for this group
+        # Return a named tuple containing the calculated metrics, rounded for clarity.
         return (
-            avg_potential_buses = round(avg_potential_buses_val, digits=2), # Changed metric
+            avg_potential_buses = round(avg_potential_buses_val, digits=2),
             avg_buses_optimal = round(avg_buses_optimal, digits=2),
             num_infeasible_solves = num_infeasible,
             num_timelimit_solves = num_timelimit,
             avg_solve_time_seconds = round(avg_solve_time, digits=2),
-            avg_gap_timelimit_percent = round(avg_gap_timelimit * 100, digits=2)
+            avg_gap_timelimit_percent = round(avg_gap_timelimit * 100, digits=2) # Convert gap to percentage
         )
     end
 
-    # Apply the aggregation function to each group and combine results
+    # Apply the aggregation function to each group and combine the results into a summary DataFrame.
+    @info "Applying aggregation function to groups..."
     summary_df = combine(grouped_df, aggregate_group)
 
     # --- Save Summary to CSV ---
-    CSV.write(output_file_path, summary_df)
+    @info "Saving aggregation summary to: $aggregation_output_file_path"
+    CSV.write(aggregation_output_file_path, summary_df)
 
-    # --- Print Confirmation ---
-    println("Aggregation Results by Setting/Subsetting for: ", input_file_path)
+    # --- Print Confirmation and Summary Table ---
+    @info "Aggregation completed successfully."
+    println("--- Aggregation Summary by Setting/Subsetting ---") # Keep this direct printout for immediate feedback
+    println("Input Data: ", aggregation_input_file_path)
     println("-"^60)
-    # Display the summary table as well
-    println(summary_df)
-    println("\nResults saved to: ", output_file_path)
+    println(summary_df) # Display the resulting summary table
+    println("-"^60)
+    @info "Summary results saved to: $aggregation_output_file_path"
 
 catch e
-    println("An error occurred: ", e)
-    showerror(stdout, e)
-    Base.show_backtrace(stdout, catch_backtrace())
+    # Log detailed error information if any part of the aggregation fails.
+    @error "An error occurred during aggregation: $e"
+    # Also print stack trace for detailed debugging if needed
+    showerror(stdout, e, catch_backtrace())
 end

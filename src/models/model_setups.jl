@@ -1,6 +1,6 @@
 # Common setup function
 function setup_network_flow(parameters::ProblemParameters)
-    println("Setting up network flow...")
+    @info "Setting up network flow..."
     
     buses = parameters.buses
     depot = parameters.depot
@@ -9,8 +9,8 @@ function setup_network_flow(parameters::ProblemParameters)
     passenger_demands = filter(d -> d.depot_id == depot.depot_id, parameters.passenger_demands)
     travel_times = filter(tt -> tt.depot_id == depot.depot_id, parameters.travel_times)
 
-    println("Routes: $(length(routes))")
-    println("Demands: $(length(passenger_demands))")
+    @info "Routes: $(length(routes))"
+    @info "Demands: $(length(passenger_demands))"
     
     print_level = 0
 
@@ -35,12 +35,12 @@ function setup_network_flow(parameters::ProblemParameters)
 
         sort!(line_arcs, by = x -> (x.arc_start.route_id, x.arc_start.trip_sequence, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.trip_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Line arcs:")
+            @debug "Line arcs:"
             for arc in line_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Line arcs: $(length(line_arcs)) created.")
+            @info "Line arcs: $(length(line_arcs)) created."
         end
 
         if !isempty(line_arcs)
@@ -55,12 +55,12 @@ function setup_network_flow(parameters::ProblemParameters)
 
         sort!(nodes, by = x -> (x.route_id, x.stop_sequence, x.stop_sequence))
         if print_level >= 1
-            println("Nodes:")
+            @debug "Nodes:"
             for node in nodes
-                println("  $(node)")
+                @debug "  $(node)"
             end
         else
-            println("Nodes: $(length(nodes)) created.")
+            @info "Nodes: $(length(nodes)) created."
         end
 
         if !isempty(line_arcs)
@@ -68,59 +68,59 @@ function setup_network_flow(parameters::ProblemParameters)
             bus_shift_start_time = buses[1].shift_start
             depot_start_arcs, depot_end_arcs = add_depot_arcs_no_capacity_constraint!(line_arcs, routes, shift_end_time, bus_shift_start_time, travel_times, depot)
         else
-            println("Skipping depot arcs creation as no line arcs were generated.")
+            @info "Skipping depot arcs creation as no line arcs were generated."
         end
 
         sort!(depot_start_arcs, by = x -> (x.arc_start.route_id, x.arc_start.stop_sequence, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.stop_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Depot start arcs:")
+            @debug "Depot start arcs:"
             for arc in depot_start_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Depot start arcs: $(length(depot_start_arcs)) created.")
+            @info "Depot start arcs: $(length(depot_start_arcs)) created."
         end
 
         sort!(depot_end_arcs, by = x -> (x.arc_start.route_id, x.arc_start.stop_sequence, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.stop_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Depot end arcs:")
+            @debug "Depot end arcs:"
             for arc in depot_end_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Depot end arcs: $(length(depot_end_arcs)) created.")
+            @info "Depot end arcs: $(length(depot_end_arcs)) created."
         end
 
         if !isempty(line_arcs)
             intra_line_arcs = add_intra_line_arcs!(line_arcs, routes)
         else
-            println("Skipping intra-line arcs creation as no line arcs were generated.")
+            @info "Skipping intra-line arcs creation as no line arcs were generated."
         end
 
         sort!(intra_line_arcs, by = x -> (x.arc_start.route_id, x.arc_start.stop_sequence, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.stop_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Intra-line arcs:")
+            @debug "Intra-line arcs:"
             for arc in intra_line_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Intra-line arcs: $(length(intra_line_arcs)) created.")
+            @info "Intra-line arcs: $(length(intra_line_arcs)) created."
         end
 
         if !isempty(line_arcs)
             inter_line_arcs = add_inter_line_arcs!(line_arcs, routes, travel_times)
         else
-            println("Skipping inter-line arcs creation as no line arcs were generated.")
+            @info "Skipping inter-line arcs creation as no line arcs were generated."
         end
 
         sort!(inter_line_arcs, by = x -> (x.arc_start.route_id, x.arc_start.stop_sequence, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.stop_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Inter-line arcs:")
+            @debug "Inter-line arcs:"
             for arc in inter_line_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Inter-line arcs: $(length(inter_line_arcs)) created.")
+            @info "Inter-line arcs: $(length(inter_line_arcs)) created."
         end
 
     elseif parameters.setting in [CAPACITY_CONSTRAINT, CAPACITY_CONSTRAINT_DRIVER_BREAKS, CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE]
@@ -129,12 +129,12 @@ function setup_network_flow(parameters::ProblemParameters)
 
         sort!(line_arcs, by = x -> (x.arc_start.route_id, x.arc_start.stop_sequence, x.bus_id, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.stop_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Line arcs:")
+            @debug "Line arcs:"
             for arc in line_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Line arcs: $(length(line_arcs)) created.")
+            @info "Line arcs: $(length(line_arcs)) created."
         end
 
         if !isempty(line_arcs)
@@ -149,70 +149,70 @@ function setup_network_flow(parameters::ProblemParameters)
 
         sort!(nodes, by = x -> (x.route_id, x.stop_sequence, x.stop_sequence))
         if print_level >= 1
-            println("Nodes:")
+            @debug "Nodes:"
             for node in nodes
-                println("  $(node)")
+                @debug "  $(node)"
             end
         else
-            println("Nodes: $(length(nodes)) created.")
+            @info "Nodes: $(length(nodes)) created."
         end
 
         if !isempty(line_arcs)
             depot_start_arcs, depot_end_arcs = add_depot_arcs_capacity_constraint!(line_arcs, routes, buses, travel_times, depot)
         else
-            println("Skipping depot arcs creation as no line arcs were generated.")
+            @info "Skipping depot arcs creation as no line arcs were generated."
         end
 
         sort!(depot_start_arcs, by = x -> (x.arc_start.route_id, x.arc_start.stop_sequence, x.bus_id, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.stop_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Depot start arcs:")
+            @debug "Depot start arcs:"
             for arc in depot_start_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Depot start arcs: $(length(depot_start_arcs)) created.")
+            @info "Depot start arcs: $(length(depot_start_arcs)) created."
         end
 
         sort!(depot_end_arcs, by = x -> (x.arc_start.route_id, x.arc_start.stop_sequence, x.bus_id, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.stop_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Depot end arcs:")
+            @debug "Depot end arcs:"
             for arc in depot_end_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Depot end arcs: $(length(depot_end_arcs)) created.")
+            @info "Depot end arcs: $(length(depot_end_arcs)) created."
         end
 
         if !isempty(line_arcs)
             intra_line_arcs = add_intra_line_arcs_capacity_constraint!(line_arcs, routes, buses)
         else
-            println("Skipping intra-line arcs creation as no line arcs were generated.")
+            @info "Skipping intra-line arcs creation as no line arcs were generated."
         end
 
         sort!(intra_line_arcs, by = x -> (x.arc_start.route_id, x.arc_start.stop_sequence, x.bus_id, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.stop_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Intra-line arcs:")
+            @debug "Intra-line arcs:"
             for arc in intra_line_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Intra-line arcs: $(length(intra_line_arcs)) created.")
+            @info "Intra-line arcs: $(length(intra_line_arcs)) created."
         end
 
         if !isempty(line_arcs)
             inter_line_arcs = add_inter_line_arcs_capacity_constraint!(line_arcs, routes, buses, travel_times)
         else
-            println("Skipping inter-line arcs creation as no line arcs were generated.")
+            @info "Skipping inter-line arcs creation as no line arcs were generated."
         end
 
         sort!(inter_line_arcs, by = x -> (x.arc_start.route_id, x.arc_start.stop_sequence, x.bus_id, x.arc_start.stop_sequence, x.arc_end.route_id, x.arc_end.stop_sequence, x.arc_end.stop_sequence))
         if print_level >= 1
-            println("Inter-line arcs:")
+            @debug "Inter-line arcs:"
             for arc in inter_line_arcs
-                println("  $(arc)")
+                @debug "  $(arc)"
             end
         else
-            println("Inter-line arcs: $(length(inter_line_arcs)) created.")
+            @info "Inter-line arcs: $(length(inter_line_arcs)) created."
         end
 
     else
@@ -220,7 +220,7 @@ function setup_network_flow(parameters::ProblemParameters)
     end
 
     arcs = vcat(line_arcs, depot_start_arcs, depot_end_arcs, intra_line_arcs, inter_line_arcs)
-    println("Total arcs combined: $(length(arcs))")
+    @info "Total arcs combined: $(length(arcs))"
 
     return (
         nodes = nodes,
@@ -259,12 +259,12 @@ function add_line_arcs_with_demand(routes, passenger_demands)
         for demand in passenger_demands
     )
 
-    println("Routes with demand: $(length(routes_with_demand))")
+    @info "Routes with demand: $(length(routes_with_demand))"
 
     for route in routes
         # Only add arc if this route has any associated demand
         if (route.route_id, route.trip_id, route.trip_sequence) in routes_with_demand
-            println("Adding arc for route $(route.route_id) $(route.trip_id) $(route.trip_sequence)")
+            @info "Adding arc for route $(route.route_id) $(route.trip_id) $(route.trip_sequence)"
             push!(line_arcs, ModelArc(
                 ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]), 
                 ModelStation(route.stop_ids[end], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[end]),
@@ -305,7 +305,7 @@ function add_line_arcs_only_demand(routes, passenger_demands)
 
         # Check if stops were found before processing
         if isnothing(origin_pos) || isnothing(dest_pos)
-            println("  Warning: Could not find origin stop $(demand.origin.stop_sequence) (pos=$(origin_pos)) or destination stop $(demand.destination.stop_sequence) (pos=$(dest_pos)) for demand ID $(demand.demand_id) in route $(route.route_id), trip $(route.trip_sequence). Skipping this demand segment.")
+            @warn "  Warning: Could not find origin stop $(demand.origin.stop_sequence) (pos=$(origin_pos)) or destination stop $(demand.destination.stop_sequence) (pos=$(dest_pos)) for demand ID $(demand.demand_id) in route $(route.route_id), trip $(route.trip_sequence). Skipping this demand segment."
             continue # Skip to the next demand
         end
 
@@ -321,7 +321,7 @@ function add_line_arcs_only_demand(routes, passenger_demands)
 
         # Find the corresponding route object once per key
         if !haskey(route_lookup, route_key)
-            println("  Warning (add_line_arcs_only_demand): Cannot find route for key $route_key. Skipping segment processing for this route.")
+            @warn "  Warning (add_line_arcs_only_demand): Cannot find route for key $route_key. Skipping segment processing for this route."
             continue
         end
         route = route_lookup[route_key]
@@ -352,7 +352,7 @@ function add_line_arcs_only_demand(routes, passenger_demands)
         for (start_pos, end_pos) in merged_segments
              # Validate positions before indexing
              if start_pos < 1 || start_pos > length(route.stop_ids) || end_pos < 1 || end_pos > length(route.stop_ids)
-                 println("  Warning (add_line_arcs_only_demand): Invalid segment position(s) [start=$start_pos, end=$end_pos] for route $route_key with $(length(route.stop_ids)) stops. Skipping arc creation.")
+                 @warn "  Warning (add_line_arcs_only_demand): Invalid segment position(s) [start=$start_pos, end=$end_pos] for route $route_key with $(length(route.stop_ids)) stops. Skipping arc creation."
                  continue
              end
 
@@ -375,7 +375,7 @@ function add_line_arcs_only_demand(routes, passenger_demands)
 end
 
 function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{Bus}, passenger_demands::Vector{PassengerDemand})
-    println("Generating line arcs for capacity/break constraints...")
+    @info "Generating line arcs for capacity/break constraints..."
     line_arcs = Vector{ModelArc}()
     processed_demands = 0
     arcs_created = 0
@@ -392,7 +392,7 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
 
         # Find the corresponding route
         if !haskey(route_lookup, route_key)
-            println("  Warning: Cannot find route for Demand ID $(demand.demand_id) (Route $(demand.origin.route_id), Trip $(demand.origin.trip_id), TripSequence $(demand.origin.trip_sequence)). Skipping demand.")
+            @warn "  Warning: Cannot find route for Demand ID $(demand.demand_id) (Route $(demand.origin.route_id), Trip $(demand.origin.trip_id), TripSequence $(demand.origin.trip_sequence)). Skipping demand."
             skipped_route_lookup += 1
             continue
         end
@@ -403,14 +403,14 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
         dest_pos = findfirst(id -> id == demand.destination.stop_sequence, route.stop_sequence)
 
         if isnothing(origin_pos) || isnothing(dest_pos) || origin_pos < 1 || origin_pos > length(route.stop_times) || dest_pos < 1 || dest_pos > length(route.stop_times)
-            println("  Warning: Cannot find valid origin/destination stop position for Demand ID $(demand.demand_id) in Route $(route.route_id), Trip $(route.trip_sequence). OriginStopID=$(demand.origin.stop_sequence)@$(origin_pos), DestStopID=$(demand.destination.stop_sequence)@$(dest_pos). Skipping.")
+            @warn "  Warning: Cannot find valid origin/destination stop position for Demand ID $(demand.demand_id) in Route $(route.route_id), Trip $(route.trip_sequence). OriginStopID=$(demand.origin.stop_sequence)@$(origin_pos), DestStopID=$(demand.destination.stop_sequence)@$(dest_pos). Skipping."
             skipped_stop_lookup += 1
             continue
         end
 
         # Ensure origin comes before destination in sequence for the arc
         if origin_pos >= dest_pos
-             println("  Warning: Demand ID $(demand.demand_id) has origin position >= destination position ($(origin_pos) >= $(dest_pos)). Skipping.")
+             @warn "  Warning: Demand ID $(demand.demand_id) has origin position >= destination position ($(origin_pos) >= $(dest_pos)). Skipping."
              skipped_stop_lookup += 1 # Count as stop lookup issue
              continue
         end
@@ -431,18 +431,12 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
             reason_break1 = ""
             if bus.break_start_1 < bus.break_end_1 # Check if break 1 exists
                 break1_overlap = max(demand_origin_time, bus.break_start_1) < min(demand_dest_time, bus.break_end_1)
-                # if break1_overlap
-                #     reason_break1 = "Break 1 [$(bus.break_start_1), $(bus.break_end_1))"
-                # end
             end
 
             break2_overlap = false
             reason_break2 = ""
             if bus.break_start_2 < bus.break_end_2 # Check if break 2 exists
                 break2_overlap = max(demand_origin_time, bus.break_start_2) < min(demand_dest_time, bus.break_end_2)
-                #  if break2_overlap
-                #     reason_break2 = "Break 2 [$(bus.break_start_2), $(bus.break_end_2))"
-                #  end
             end
 
             if break1_overlap || break2_overlap
@@ -467,10 +461,10 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
         # If no bus was found feasible for this demand, add it to the list
         if !bus_found_for_demand && !isempty(buses)
              push!(unservable_demands, demand)
-        # else if isempty(buses)
+        elseif isempty(buses)
              # Technically unservable, but should be handled by the check below
-        #     push!(unservable_demands, demand)
-         end
+             push!(unservable_demands, demand)
+        end
 
     end # End demand loop
 
@@ -496,19 +490,19 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
     # --- End check ---
 
      # Updated log message
-     println("Finished line arcs (Capacity Constraint). Processed demands: $processed_demands, Skipped (Route): $skipped_route_lookup, Skipped (Stop): $skipped_stop_lookup. Arcs created: $arcs_created.")
+     @info "Finished line arcs (Capacity Constraint). Processed demands: $processed_demands, Skipped (Route): $skipped_route_lookup, Skipped (Stop): $skipped_stop_lookup. Arcs created: $arcs_created."
 
     return line_arcs
 end
 
 function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::Vector{Route}, shift_end::Float64, bus_shift_start::Float64, travel_times::Vector{TravelTime}, depot::Depot)
     # Create travel time lookup: (start_stop_id, end_stop_id) -> time
-    println("Creating travel time lookup for depot arcs...")
+    @info "Creating travel time lookup for depot arcs..."
     travel_time_lookup = Dict{Tuple{Int, Int}, Float64}()
     for tt in travel_times
         travel_time_lookup[(tt.start_stop, tt.end_stop)] = tt.time
     end
-    println("Lookup created with $(length(travel_time_lookup)) entries.")
+    @info "Lookup created with $(length(travel_time_lookup)) entries."
 
     depot_id = depot.depot_id # Get the ID of the current depot
 
@@ -516,7 +510,7 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
     depot_start_arcs = Vector{ModelArc}()
     depot_end_arcs = Vector{ModelArc}()
     
-    println("Processing $(length(arcs)) line arcs to generate depot arcs...")
+    @info "Processing $(length(arcs)) line arcs to generate depot arcs..."
     processed_count = 0
     skipped_route_lookup = 0
     skipped_stop_index = 0
@@ -533,7 +527,7 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
         # Find the corresponding route
         route_idx = findfirst(r -> r.route_id == route_id && r.trip_sequence== trip_sequence && r.trip_id == trip_id, routes)
         if isnothing(route_idx)
-            println("  Warning: Could not find route for arc: RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence. Skipping depot arc generation for this arc.")
+            @warn "  Warning: Could not find route for arc: RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence. Skipping depot arc generation for this arc."
             skipped_route_lookup += 1
             continue
         end
@@ -542,12 +536,12 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
         # Validate stop indices before accessing
         if section_start_pos < 1 || section_start_pos > length(route.stop_ids) || section_start_pos > length(route.stop_times) || section_end_pos < 1
             if section_start_pos > length(route.stop_ids) || section_start_pos > length(route.stop_times)
-                println("  Warning: Start position $section_start_pos is greater than the number of stops $(length(route.stop_ids)) for RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence.")
+                @warn "  Warning: Start position $section_start_pos is greater than the number of stops $(length(route.stop_ids)) for RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence."
             end
             if section_end_pos > length(route.stop_ids) || section_end_pos > length(route.stop_times)
-                println("  Warning: End position $section_end_pos is greater than the number of stops $(length(route.stop_ids)) for RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence.")
+                @warn "  Warning: End position $section_end_pos is greater than the number of stops $(length(route.stop_ids)) for RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence."
             end
-            println("  Warning: Invalid stop index for RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence, StartPos=$section_start_pos, EndPos=$section_end_pos, Stops=$(length(route.stop_ids)). Skipping depot arc generation.")
+            @warn "  Warning: Invalid stop index for RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence, StartPos=$section_start_pos, EndPos=$section_end_pos, Stops=$(length(route.stop_ids)). Skipping depot arc generation."
             skipped_stop_index += 1
             continue
         end
@@ -560,7 +554,7 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
         # Check temporal feasibility for depot start arc
         depot_to_start_time = get(travel_time_lookup, (depot_id, first_stop_id), Inf)
         if depot_to_start_time == Inf
-             println("  Warning: Missing travel time from Depot $depot_id to Stop $first_stop_id (Route $route_id, Trip $trip_id, TripSequence $trip_sequence). Skipping start arc.")
+             @warn "  Warning: Missing travel time from Depot $depot_id to Stop $first_stop_id (Route $route_id, Trip $trip_id, TripSequence $trip_sequence). Skipping start arc."
              skipped_time_lookup += 1
         elseif bus_shift_start + depot_to_start_time <= start_stop_time
                 push!(depot_start_arcs, ModelArc(
@@ -574,13 +568,13 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
                     "depot-start-arc"
                 ))
         else # Added else block for debugging
-            println("  Info: Skipping depot start arc for Route=$route_id, Trip=$trip_id, TripSequence=$trip_sequence, StartStop=$first_stop_id. Reason: Start time ($start_stop_time) < Travel time from depot ($depot_to_start_time).")
+            @info "  Info: Skipping depot start arc for Route=$route_id, Trip=$trip_id, TripSequence=$trip_sequence, StartStop=$first_stop_id. Reason: Start time ($start_stop_time) < Travel time from depot ($depot_to_start_time)."
         end
 
         # Check temporal feasibility for depot end arc
         end_to_depot_time = get(travel_time_lookup, (last_stop_id, depot_id), Inf)
          if end_to_depot_time == Inf
-             println("  Warning: Missing travel time from Stop $last_stop_id to Depot $depot_id (Route $route_id, Trip $stop_sequence). Skipping end arc.")
+             @warn "  Warning: Missing travel time from Stop $last_stop_id to Depot $depot_id (Route $route_id, Trip $stop_sequence). Skipping end arc."
               # Avoid double counting skip if start was also skipped
              if depot_to_start_time != Inf # Only count skip if start time was found
                  skipped_time_lookup += 1
@@ -598,14 +592,14 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
                 ))
             end
         end
-    println("Finished processing arcs. Total: $processed_count, Skipped (Route Lookup): $skipped_route_lookup, Skipped (Stop Index): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup")
-    println("Generated $(length(depot_start_arcs)) depot start arcs and $(length(depot_end_arcs)) depot end arcs.")
+    @info "Finished processing arcs. Total: $processed_count, Skipped (Route Lookup): $skipped_route_lookup, Skipped (Stop Index): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup"
+    @info "Generated $(length(depot_start_arcs)) depot start arcs and $(length(depot_end_arcs)) depot end arcs."
 
     return (depot_start_arcs, depot_end_arcs)
 end
 
 function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes::Vector{Route}, buses::Vector{Bus}, travel_times::Vector{TravelTime}, depot::Depot)
-    println("Generating depot arcs for capacity/break constraints...")
+    @info "Generating depot arcs for capacity/break constraints..."
     depot_start_arcs = Vector{ModelArc}()
     depot_end_arcs = Vector{ModelArc}()
 
@@ -631,7 +625,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
 
         # Find the bus
         if !haskey(bus_lookup, bus_id_str)
-            println("  Warning: Cannot find bus with ID '$bus_id_str' for line arc $(arc.demand_id). Skipping depot arcs.")
+            @warn "  Warning: Cannot find bus with ID '$bus_id_str' for line arc $(arc.demand_id). Skipping depot arcs."
             skipped_bus_lookup += 1
             continue
         end
@@ -640,7 +634,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         # Find the route using the correct key structure
         route_key = (arc.arc_start.route_id, arc.arc_start.trip_id, arc.arc_start.trip_sequence)
         if !haskey(route_lookup, route_key)
-             println("  Warning: Cannot find route $(route_key) for line arc starting at $(arc.arc_start). Skipping depot arcs.")
+             @warn "  Warning: Cannot find route $(route_key) for line arc starting at $(arc.arc_start). Skipping depot arcs."
              skipped_route_lookup += 1
              continue
         end
@@ -652,7 +646,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         # Validate stop indices
         if start_pos < 1 || start_pos > length(route.stop_ids) || start_pos > length(route.stop_times) ||
            end_pos < 1 || end_pos > length(route.stop_ids) || end_pos > length(route.stop_times)
-            println("  Warning: Invalid stop index for RouteID=$(route.route_id), TripID=$(route.trip_id), TripSequence=$(route.trip_sequence). StartPos=$start_pos, EndPos=$end_pos with $(length(route.stop_ids)) stops. Skipping depot arcs.")
+            @warn "  Warning: Invalid stop index for RouteID=$(route.route_id), TripID=$(route.trip_id), TripSequence=$(route.trip_sequence). StartPos=$start_pos, EndPos=$end_pos with $(length(route.stop_ids)) stops. Skipping depot arcs."
             skipped_stop_index += 1
             continue
         end
@@ -668,7 +662,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         skip_reason = "" # Variable to store reason
 
         if depot_to_start_tt == Inf
-            println("  Warning: Missing travel time Depot $depot_id -> Stop $start_stop_id for bus $bus_id_str, arc $(arc.demand_id).")
+            @warn "  Warning: Missing travel time Depot $depot_id -> Stop $start_stop_id for bus $bus_id_str, arc $(arc.demand_id)."
             skipped_time_lookup += 1
             start_feasible = false
             skip_reason = "Missing travel time"
@@ -705,7 +699,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         skip_reason = "" # Reset reason
 
         if end_to_depot_tt == Inf
-            println("  Warning: Missing travel time Stop $end_stop_id -> Depot $depot_id for bus $bus_id_str, arc $(arc.demand_id).")
+            @warn "  Warning: Missing travel time Stop $end_stop_id -> Depot $depot_id for bus $bus_id_str, arc $(arc.demand_id)."
              # Avoid double counting skip if start was also skipped for time
             if start_feasible && depot_to_start_tt != Inf # Count if start wasn't skipped for time
                  skipped_time_lookup += 1
@@ -741,14 +735,14 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
     
     end # End line_arc loop
 
-    println("Finished depot arcs (Capacity Constraint). Processed line arcs: $processed_line_arcs, Skipped (Bus): $skipped_bus_lookup, Skipped (Route): $skipped_route_lookup, Skipped (Stop Idx): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup, Skipped (Feasibility): $skipped_feasibility.")
-    println("Generated $start_arcs_created depot start arcs and $end_arcs_created depot end arcs.")
+    @info "Finished depot arcs (Capacity Constraint). Processed line arcs: $processed_line_arcs, Skipped (Bus): $skipped_bus_lookup, Skipped (Route): $skipped_route_lookup, Skipped (Stop Idx): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup, Skipped (Feasibility): $skipped_feasibility."
+    @info "Generated $start_arcs_created depot start arcs and $end_arcs_created depot end arcs."
 
     return (depot_start_arcs, depot_end_arcs)
 end
 
 function add_intra_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{Route})
-    println("Generating intra-line arcs (connecting segments within the same trip)...")
+    @info "Generating intra-line arcs (connecting segments within the same trip)..."
     intra_line_arcs = Vector{ModelArc}()
 
     # Group arcs by (route_id, trip_id, trip_sequence) for easier processing
@@ -773,7 +767,7 @@ function add_intra_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
         # Find the corresponding route to get stop sequence and times using the full key
         route_idx = findfirst(r -> r.route_id == route_id && r.trip_id == trip_id && r.trip_sequence== trip_sequence, routes)
         if isnothing(route_idx)
-            println("  Warning: Could not find route for intra-line check: RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence. Skipping trip.")
+            @warn "  Warning: Could not find route for intra-line check: RouteID=$route_id, TripID=$trip_id, TripSequence=$trip_sequence. Skipping trip."
             skipped_route_lookup += 1
             continue
         end
@@ -790,7 +784,7 @@ function add_intra_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
 
              # Validate index for arc1 end against stop_times (which uses 1-based indexing)
              if section1_end_pos < 1 || section1_end_pos > length(route.stop_times)
-                 println("  Warning: Invalid end stop index for arc1 intra-line check. Pos=$section1_end_pos.")
+                 @warn "  Warning: Invalid end stop index for arc1 intra-line check. Pos=$section1_end_pos."
                  skipped_stop_index += 1
                  continue # Skip connections from this arc
              end
@@ -803,7 +797,7 @@ function add_intra_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
 
                  # Validate index for arc2 start against stop_times
                  if section2_start_pos < 1 || section2_start_pos > length(route.stop_times)
-                     println("  Warning: Invalid start stop index for arc2 intra-line check. Pos=$section2_start_pos.")
+                     @warn "  Warning: Invalid start stop index for arc2 intra-line check. Pos=$section2_start_pos."
                      # This pair will be skipped naturally below or by the route time lookup
                      continue
                  end
@@ -833,18 +827,18 @@ function add_intra_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
                         ))
                         arcs_created += 1
                      else 
-                        println("  Info: Intra-line arc skipped due to time: EndT1 ($end_time1) > StartT2 ($start_time2) for arc pair $(arc1.demand_id) -> $(arc2.demand_id)")
+                        @info "  Info: Intra-line arc skipped due to time: EndT1 ($end_time1) > StartT2 ($start_time2) for arc pair $(arc1.demand_id) -> $(arc2.demand_id)"
                     end
                 end
             end
         end
     end
-     println("Finished intra-line arcs (NoCap). Processed trips: $processed_trip_count, Skipped (Route): $skipped_route_lookup, Skipped (StopIdx): $skipped_stop_index. Arcs created: $arcs_created")
+     @info "Finished intra-line arcs (NoCap). Processed trips: $processed_trip_count, Skipped (Route): $skipped_route_lookup, Skipped (StopIdx): $skipped_stop_index. Arcs created: $arcs_created"
     return intra_line_arcs
 end
 
 function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{Route}, travel_times::Vector{TravelTime})
-    println("Generating inter-line arcs (connecting segments between different trips)...")
+    @info "Generating inter-line arcs (connecting segments between different trips)..."
     inter_line_arcs = Vector{ModelArc}()
     # Create travel time lookup, excluding depot travel
     travel_time_lookup = Dict{Tuple{Int, Int}, Float64}()
@@ -853,7 +847,7 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
             travel_time_lookup[(tt.start_stop, tt.end_stop)] = tt.time
         end
     end
-     println("Inter-line travel time lookup created with $(length(travel_time_lookup)) entries.")
+     @info "Inter-line travel time lookup created with $(length(travel_time_lookup)) entries."
 
     processed_pairs = 0
     arcs_created = 0
@@ -870,17 +864,13 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
         # Find route data for arc1
         route1_idx = findfirst(r -> r.route_id == route_id1 && r.trip_id == trip_id1 && r.trip_sequence== trip_sequence1, routes)
          if isnothing(route1_idx)
-            println("  Warning: Skipping inter-line check (arc1). Cannot find RouteID=$route_id1, TripID=$trip_id1, TripSequence=$trip_sequence1.")
-              # This skip is implicitly handled later if route lookups fail
+            @warn "  Warning: Skipping inter-line check (arc1). Cannot find RouteID=$route_id1, TripID=$trip_id1, TripSequence=$trip_sequence1."
              continue
          end
         route1 = routes[route1_idx]
-         # Get end details for arc1 - We mainly need the ID stored in the arc node
-         # section1_end_pos = arc1.arc_end.stop_sequence # No longer needed for ID lookup
-         # We still need the time from the correct position
          pos1_end_index = findfirst(==(arc1.arc_end.stop_sequence), route1.stop_sequence) # Find the actual index corresponding to the stored sequence number
          if isnothing(pos1_end_index) || pos1_end_index < 1 || pos1_end_index > length(route1.stop_times)
-              println("  Warning: Cannot find valid index for end stop sequence $(arc1.arc_end.stop_sequence) in route1 $(route1.route_id). Skipping inter-line pair.")
+              @warn "  Warning: Cannot find valid index for end stop sequence $(arc1.arc_end.stop_sequence) in route1 $(route1.route_id). Skipping inter-line pair."
               skipped_stop_index += 1
               continue
           end
@@ -889,7 +879,7 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
 
          # Corrected Check 1: Compare ID in arc node vs ID found in route data at that position
          if route1_end_stop_id != arc1.arc_end.id
-             println("  Warning: Route1 end stop ID mismatch for arc1 end node (Route $route_id1, Trip $trip_id1, Seq $trip_sequence1). RouteDataStopID=$route1_end_stop_id at index $pos1_end_index, ArcEndNodeStopID=$(arc1.arc_end.id).")
+             @warn "  Warning: Route1 end stop ID mismatch for arc1 end node (Route $route_id1, Trip $trip_id1, Seq $trip_sequence1). RouteDataStopID=$route1_end_stop_id at index $pos1_end_index, ArcEndNodeStopID=$(arc1.arc_end.id)."
              skipped_stop_index += 1
              continue # Skip this arc1 for connections if inconsistent
          end
@@ -907,17 +897,14 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
              # Find route data for arc2 using the full key
              route2_idx = findfirst(r -> r.route_id == route_id2 && r.trip_id == trip_id2 && r.trip_sequence== trip_sequence2, routes)
              if isnothing(route2_idx)
-                 println("  Warning: Skipping inter-line check (arc2). Cannot find RouteID=$route_id2, TripID=$trip_id2, TripSequence=$trip_sequence2.")
+                 @warn "  Warning: Skipping inter-line check (arc2). Cannot find RouteID=$route_id2, TripID=$trip_id2, TripSequence=$trip_sequence2."
                  skipped_route_lookup += 1
                  continue
              end
              route2 = routes[route2_idx]
-             # Get start details for arc2 - We mainly need the ID stored in the arc node
-             # section2_start_pos = arc2.arc_start.stop_sequence # No longer needed for ID lookup
-             # Find the actual index corresponding to the stored sequence number
              pos2_start_index = findfirst(==(arc2.arc_start.stop_sequence), route2.stop_sequence)
              if isnothing(pos2_start_index) || pos2_start_index < 1 || pos2_start_index > length(route2.stop_times)
-                  println("  Warning: Cannot find valid index for start stop sequence $(arc2.arc_start.stop_sequence) in route2 $(route2.route_id). Skipping inter-line pair.")
+                  @warn "  Warning: Cannot find valid index for start stop sequence $(arc2.arc_start.stop_sequence) in route2 $(route2.route_id). Skipping inter-line pair."
                   skipped_stop_index += 1
                   continue
               end
@@ -926,17 +913,15 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
 
              # Corrected Check 2: Compare ID in arc node vs ID found in route data at that position
              if route2_start_stop_id != arc2.arc_start.id
-                println("  Warning: Route2 start stop ID mismatch for arc2 start node (Route $route_id2, Trip $trip_id2, Seq $trip_sequence2). RouteDataStopID=$route2_start_stop_id at index $pos2_start_index, ArcStartNodeStopID=$(arc2.arc_start.id).")
+                @warn "  Warning: Route2 start stop ID mismatch for arc2 start node (Route $route_id2, Trip $trip_id2, Seq $trip_sequence2). RouteDataStopID=$route2_start_stop_id at index $pos2_start_index, ArcStartNodeStopID=$(arc2.arc_start.id)."
                 skipped_stop_index += 1
                 continue # Skip this arc2 if inconsistent
              end
 
-            # Find travel time between the end of arc1 and start of arc2
-            # Use the actual stop IDs obtained correctly above
             travel_time = get(travel_time_lookup, (route1_end_stop_id, route2_start_stop_id), Inf)
 
             if travel_time == Inf
-                 println("  Warning: Missing travel time from Stop $route1_end_stop_id (Route $route_id1, Trip $trip_id1, TripSequence $trip_sequence1) to Stop $route2_start_stop_id (Route $route_id2, Trip $trip_id2, TripSequence $trip_sequence2). Skipping inter-line arc.")
+                 @warn "  Warning: Missing travel time from Stop $route1_end_stop_id (Route $route_id1, Trip $trip_id1, TripSequence $trip_sequence1) to Stop $route2_start_stop_id (Route $route_id2, Trip $trip_id2, TripSequence $trip_sequence2). Skipping inter-line arc."
                  skipped_time_lookup += 1
                  continue
             end
@@ -960,12 +945,12 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
             end
         end
     end
-    println("Finished inter-line arcs. Processed pairs: $processed_pairs (approx), Skipped (Route Lookup): $skipped_route_lookup, Skipped (Stop Index): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup, Skipped (Feasibility): $skipped_feasibility. Arcs created: $arcs_created")
+    @info "Finished inter-line arcs. Processed pairs: $processed_pairs (approx), Skipped (Route Lookup): $skipped_route_lookup, Skipped (Stop Index): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup, Skipped (Feasibility): $skipped_feasibility. Arcs created: $arcs_created"
     return inter_line_arcs
 end
 
 function add_intra_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes::Vector{Route}, buses::Vector{Bus})
-    println("Generating intra-line arcs (Capacity Constraint - Virtual Connections)...")
+    @info "Generating intra-line arcs (Capacity Constraint - Virtual Connections)..."
     intra_line_arcs = Vector{ModelArc}()
 
     # Group line arcs by (route_id, trip_id, trip_sequence, bus_id)
@@ -985,8 +970,6 @@ function add_intra_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
     for ((route_id, trip_id, trip_sequence, bus_id_str), group_arcs) in arcs_by_trip_bus
         processed_groups += 1
 
-        # Sort arcs using the specified logic: start sequence ascending, end sequence descending
-        # This uses the stop_sequence field which represents the position index.
         sort!(group_arcs, by = arc -> (arc.arc_start.stop_sequence, -arc.arc_end.stop_sequence))
 
         # Iterate through ordered pairs (i, j) where j > i
@@ -1015,19 +998,19 @@ function add_intra_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
         end # End outer loop (arc1)
     end # End group loop
 
-    println("Finished intra-line arcs (Virtual Connections). Processed groups: $processed_groups. Arcs created: $arcs_created.")
+    @info "Finished intra-line arcs (Virtual Connections). Processed groups: $processed_groups. Arcs created: $arcs_created."
     return intra_line_arcs
 end
 
 function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes::Vector{Route}, buses::Vector{Bus}, travel_times::Vector{TravelTime})
-    println("Generating inter-line arcs for capacity/break constraints...")
+    @info "Generating inter-line arcs for capacity/break constraints..."
     inter_line_arcs = Vector{ModelArc}()
 
     # Create lookups
     route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in routes)
     bus_lookup = Dict(b.bus_id => b for b in buses)
     travel_time_lookup = Dict((tt.start_stop, tt.end_stop) => tt.time for tt in travel_times if !tt.is_depot_travel)
-    println("Inter-line lookups created: Routes=$(length(route_lookup)), Buses=$(length(bus_lookup)), TravelTimes=$(length(travel_time_lookup)).")
+    @info "Inter-line lookups created: Routes=$(length(route_lookup)), Buses=$(length(bus_lookup)), TravelTimes=$(length(travel_time_lookup))."
 
 
     processed_pairs = 0
@@ -1051,7 +1034,7 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
         # Find bus data
         if !haskey(bus_lookup, bus_id_str)
              # Should not happen if line_arcs generation was correct
-             println("  Warning: Bus '$bus_id_str' for arc1 $(arc1.demand_id) not found. Skipping all connections from this arc.")
+             @warn "  Warning: Bus '$bus_id_str' for arc1 $(arc1.demand_id) not found. Skipping all connections from this arc."
              skipped_bus_lookup += (num_line_arcs - i) # Approx skips
              continue
         end
@@ -1060,18 +1043,15 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
         # Find route data for arc1
         route1_key = (route_id1, trip_id1, trip_sequence1)
          if !haskey(route_lookup, route1_key)
-             println("  Warning: Route $route1_key for arc1 $(arc1.demand_id) not found. Skipping connections from this arc.")
+             @warn "  Warning: Route $route1_key for arc1 $(arc1.demand_id) not found. Skipping connections from this arc."
              skipped_route_lookup += (num_line_arcs - i) # Approx skips
              continue
          end
          route1 = route_lookup[route1_key]
 
-         # Get end details for arc1 - We mainly need the ID stored in the arc node
-         # section1_end_pos = arc1.arc_end.stop_sequence # No longer needed for ID lookup
-         # We still need the time from the correct position
          pos1_end_index = findfirst(==(arc1.arc_end.stop_sequence), route1.stop_sequence) # Find the actual index corresponding to the stored sequence number
          if isnothing(pos1_end_index) || pos1_end_index < 1 || pos1_end_index > length(route1.stop_times)
-              println("  Warning: Cannot find valid index for end stop sequence $(arc1.arc_end.stop_sequence) in route1 $(route1.route_id). Skipping inter-line pair.")
+              @warn "  Warning: Cannot find valid index for end stop sequence $(arc1.arc_end.stop_sequence) in route1 $(route1.route_id). Skipping inter-line pair."
               skipped_stop_index += 1
               continue
           end
@@ -1110,27 +1090,23 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
 
             # Find route data for arc2
             if !haskey(route_lookup, route2_key)
-                 println("  Warning: Route $route2_key for arc2 $(arc2.demand_id) not found. Skipping pair.")
+                 @warn "  Warning: Route $route2_key for arc2 $(arc2.demand_id) not found. Skipping pair."
                  skipped_route_lookup += 1
                  continue
             end
             route2 = route_lookup[route2_key]
 
-            # Get start details for arc2 - We mainly need the ID stored in the arc node
-            # section2_start_pos = arc2.arc_start.stop_sequence # No longer needed for ID lookup
-            # Find the actual index corresponding to the stored sequence number
             pos2_start_index = findfirst(==(arc2.arc_start.stop_sequence), route2.stop_sequence)
             if isnothing(pos2_start_index) || pos2_start_index < 1 || pos2_start_index > length(route2.stop_times)
-                 println("  Warning: Cannot find valid index for start stop sequence $(arc2.arc_start.stop_sequence) in route2 $(route2.route_id). Skipping inter-line pair.")
+                 @warn "  Warning: Cannot find valid index for start stop sequence $(arc2.arc_start.stop_sequence) in route2 $(route2.route_id). Skipping inter-line pair."
                  skipped_stop_index += 1
                  continue
              end
             route2_start_stop_id = route2.stop_ids[pos2_start_index] # Get ID from route data using correct index
             route2_start_time = route2.stop_times[pos2_start_index]   # Get time from route data using correct index
 
-            # Corrected Check 2: Compare ID in arc node vs ID found in route data at that position
             if route2_start_stop_id != arc2.arc_start.id
-               println("  Warning: Route2 start stop ID mismatch for arc2 start node (Route $route_id2, Trip $trip_id2, Seq $trip_sequence2). RouteDataStopID=$route2_start_stop_id at index $pos2_start_index, ArcStartNodeStopID=$(arc2.arc_start.id).")
+               @warn "  Warning: Route2 start stop ID mismatch for arc2 start node (Route $route_id2, Trip $trip_id2, Seq $trip_sequence2). RouteDataStopID=$route2_start_stop_id at index $pos2_start_index, ArcStartNodeStopID=$(arc2.arc_start.id)."
                skipped_stop_index += 1
                continue # Skip this arc2 if inconsistent
             end
@@ -1140,7 +1116,7 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
             travel_time = get(travel_time_lookup, (route1_end_stop_id, route2_start_stop_id), Inf)
 
             if travel_time == Inf
-                println("  Warning: Missing travel time $route1_end_stop_id -> $route2_start_stop_id. Skipping pair.")
+                @warn "  Warning: Missing travel time $route1_end_stop_id -> $route2_start_stop_id. Skipping pair."
                 skipped_time_lookup += 1
                 continue
             end
@@ -1181,10 +1157,8 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
         end # End inner loop (arc2)
     end # End outer loop (arc1)
 
-    println("Finished inter-line arcs (Capacity Constraint). Processed pairs: $processed_pairs (approx), Skipped (Bus): $skipped_bus_lookup, Skipped (Route): $skipped_route_lookup, Skipped (StopIdx): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup, Skipped (Feasibility): $skipped_feasibility. Arcs created: $arcs_created.")
+    @info "Finished inter-line arcs (Capacity Constraint). Processed pairs: $processed_pairs (approx), Skipped (Bus): $skipped_bus_lookup, Skipped (Route): $skipped_route_lookup, Skipped (StopIdx): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup, Skipped (Feasibility): $skipped_feasibility. Arcs created: $arcs_created."
 
-    # Optional: Remove duplicates if the logic somehow creates them
-    # inter_line_arcs = unique(inter_line_arcs)
 
     return inter_line_arcs
 end
