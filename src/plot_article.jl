@@ -13,7 +13,7 @@ using Logging # Import the Logging module
 
 # Configure the logger to show messages with Info level and above by default
 # Users can change `Logging.Info` to `Logging.Debug` for more detailed output
-global_logger(ConsoleLogger(stderr, Logging.Info))
+global_logger(ConsoleLogger(stderr, Logging.Debug))
 
 CairoMakie.activate!()
 

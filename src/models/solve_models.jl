@@ -19,7 +19,7 @@ function expand_arc(arc::ModelArc, routes::Vector{Route})
                               r.trip_sequence == arc.arc_start.trip_sequence, 
                               routes)
     if isnothing(route_idx)
-        @warn "(expand_arc): Could not find route for arc $arc. Returning original."
+        @debug "(expand_arc): Could not find route for arc $arc. Returning original."
         return [arc] # Cannot expand without route info
     end
     route = routes[route_idx]
@@ -49,7 +49,7 @@ function expand_arc(arc::ModelArc, routes::Vector{Route})
     elseif start_pos == end_pos # Waiting arc
         push!(expanded_arcs, arc)
     else
-         @warn "(expand_arc): Arc has non-increasing sequence $(start_pos) -> $(end_pos) or invalid indices. Arc: $arc. Returning original."
+         @debug "(expand_arc): Arc has non-increasing sequence $(start_pos) -> $(end_pos) or invalid indices. Arc: $arc. Returning original."
          push!(expanded_arcs, arc) # Return original if sequence doesn't increase or indices invalid
     end
 

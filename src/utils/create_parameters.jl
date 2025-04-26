@@ -617,6 +617,13 @@ function create_parameters(
             # Add a synthetic demand (origin = first stop, destination = last stop) for every relevant route for this depot/day.
             @debug "SubSetting ALL_LINES: Adding synthetic demands for all $(length(relevant_routes)) relevant routes."
             for route in relevant_routes
+
+                if filter_demand == true && hasproperty(route, :Status) && route.Status == "DU"
+                    skipped_status_du += 1
+                    continue
+                end
+
+
                  if !isempty(route.stop_ids) && !isempty(route.stop_sequence) # Ensure route has stops defined
                     push!(passenger_demands, PassengerDemand(
                         start_id + synthetic_added_count,
@@ -637,11 +644,15 @@ function create_parameters(
             # Add a synthetic demand only for relevant routes that had at least one *real* passenger demand associated with them.
             @debug "SubSetting ALL_LINES_WITH_DEMAND: Adding synthetic demands only for routes with existing real demand."
             # Create a set of (route_id, trip_id) tuples from the *real* demands created earlier.
-            # Check demand > 0.0 to exclude any potential pre-existing zero-demand entries if the input data had them.
-            real_demand_routes = Set((d.origin.route_id, d.origin.trip_id) for d in passenger_demands if d.demand > 0.0)
+            real_demand_routes = Set((d.origin.route_id, d.origin.trip_id) for d in passenger_demands)
             @debug "Found $(length(real_demand_routes)) routes with real demand."
 
             for route in relevant_routes
+                if filter_demand == true && hasproperty(route, :Status) && route.Status == "DU"
+                    skipped_status_du += 1
+                    continue
+                end
+
                  # Check if this route had real demand and has stops defined.
                  if (route.route_id, route.trip_id) in real_demand_routes && !isempty(route.stop_ids) && !isempty(route.stop_sequence)
                     # Additionally, check if a synthetic demand covering the *entire* line (first to last stop with 0 demand)

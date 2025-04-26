@@ -9,13 +9,7 @@ using CSV
 using Dates
 using Statistics
 using Logging
-
-# Set the desired logging level. Options: Debug, Info, Warn, Error
-# Debug: Shows all messages.
-# Info: Shows info, warnings, and errors.
-# Warn: Shows warnings and errors.
-# Error: Shows only errors.
-global_logger(ConsoleLogger(stderr, Logging.Info))
+using LoggingExtras
 
 include("config.jl")
 using .Config
@@ -31,6 +25,18 @@ include("models/model_setups.jl")
 include("models/network_flow.jl")
 include("models/solve_models.jl")
 include("data/loader.jl")
+
+# Set the desired logging level. Options: Debug, Info, Warn, Error
+# Debug: Shows all messages.
+# Info: Shows info, warnings, and errors.
+# Warn: Shows warnings and errors.
+# Error: Shows only errors.
+
+logfile = open("output.log", "w")
+file_logger = SimpleLogger(logfile, Logging.Debug)
+console_logger = ConsoleLogger(stderr, Logging.Info)
+tee_logger = TeeLogger(file_logger, console_logger)
+global_logger(tee_logger)
 
 # Set the dates to process
 dates_to_process = [Date(2024, 8, 22)]
@@ -63,7 +69,7 @@ if !(solver_choice in valid_solvers)
 end
 
 # Read version from environment variable, default to "v4"
-version = get(ENV, "JULIA_SCRIPT_VERSION", "v1")
+version = get(ENV, "JULIA_SCRIPT_VERSION", "v3")
 @info "Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")"
 
 # Validate the version
@@ -117,7 +123,7 @@ elseif version == "v3"
     ]
 
     subsettings = [
-        #ALL_LINES,
+        ALL_LINES,
         ALL_LINES_WITH_DEMAND,
         ONLY_DEMAND,
     ]
@@ -299,7 +305,7 @@ for depot in depots_to_process
                                     base_plot_trip_lines=false
                                 )
                                 display(solution_plot)
-                                save("plots/solution_3d_$(depot.depot_name)_$(date).html", solution_plot)
+                                save("plots/solution_3d_$(depot.depot_name)_$(date)_$(setting)_$(subsetting)_$(service_level).html", solution_plot)
                             end
     
                             if non_interactive_plots
@@ -315,7 +321,7 @@ for depot in depots_to_process
                                     base_plot_trip_markers=true,
                                     base_plot_trip_lines=true
                                 )
-                                save("plots/solution_3d_$(depot.depot_name)_$(date).pdf", solution_plot_makie)
+                                save("plots/solution_3d_$(depot.depot_name)_$(date)_$(setting)_$(subsetting)_$(service_level).pdf", solution_plot_makie)
                             end
                         end
                     elseif result.status != :Infeasible
@@ -399,3 +405,5 @@ end
 output_filename = "results/computational_study_$(version)_$(solver_choice_str).csv"
 CSV.write(output_filename, results_df)
 @info "Results saved to CSV file: $output_filename"
+
+close(logfile)

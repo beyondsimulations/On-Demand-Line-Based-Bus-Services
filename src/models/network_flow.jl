@@ -306,34 +306,35 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     # Constraint 4: Prevent illegal allocations due to intra-line arcs (Optimized)
     # Note: Original code comments mentioned intra-line, but loop was over inter-line. Assuming inter-line logic.
     @info "Creating illegal allocation constraints (Constraint 4 - optimized)..."
+
     constraint_4_count = 0
     if isempty(network.line_arcs) || isempty(network.inter_line_arcs)
         @info "Skipping Constraint 4 due to empty line_arcs or inter_line_arcs."
     else
         # Group line_arcs by potential end-point signature for connection
-         line_arcs_by_end = Dict{Tuple{Int, Int, Int, Int, Int, String}, Vector{ModelArc}}() # (end_stop_id, route_id, trip_id, trip_sequence, end_seq, bus_id) -> arcs
+         line_arcs_by_end = Dict{Tuple{Int, Int, Int, String}, Vector{ModelArc}}() # (route_id, trip_id, trip_sequence, bus_id) -> arcs
          for arc1 in network.line_arcs
-             key = (arc1.arc_end.id, arc1.arc_end.route_id, arc1.arc_end.trip_id, arc1.arc_end.trip_sequence, arc1.arc_end.stop_sequence, string(arc1.bus_id))
+             key = (arc1.arc_end.route_id, arc1.arc_end.trip_id, arc1.arc_end.trip_sequence,string(arc1.bus_id))
              if !haskey(line_arcs_by_end, key) line_arcs_by_end[key] = [] end
              push!(line_arcs_by_end[key], arc1)
          end
 
          # Group inter_line_arcs by potential start-point signature for connection
-         inter_arcs_by_start = Dict{Tuple{Int, Int, Int, Int, Int, String}, Vector{ModelArc}}() # (start_stop_id, route_id, trip_id, trip_sequence, start_seq, bus_id) -> arcs
+         inter_arcs_by_start = Dict{Tuple{Int, Int, Int, String}, Vector{ModelArc}}() # (route_id, trip_id, trip_sequence, bus_id) -> arcs
          for arc2 in network.inter_line_arcs
-             key = (arc2.arc_start.id, arc2.arc_start.route_id, arc2.arc_start.trip_id, arc2.arc_start.trip_sequence, arc2.arc_start.stop_sequence, string(arc2.bus_id))
+             key = (arc2.arc_start.route_id, arc2.arc_start.trip_id, arc2.arc_start.trip_sequence, string(arc2.bus_id))
               if !haskey(inter_arcs_by_start, key) inter_arcs_by_start[key] = [] end
              push!(inter_arcs_by_start[key], arc2)
          end
 
         @info "Processing potential connections for Constraint 4..."
          # Find common keys based on the connection condition (arc1.end == arc2.start)
-         # We need to iterate smartly. Iterate through line_arcs, find potential inter_arcs starting where line_arc ends.
+         # Iterate through line_arcs, find potential inter_arcs starting where line_arc ends.
 
          for arc1 in network.line_arcs
              # Define the connection point signature based on arc1's end
              # (stop_id, route_id, trip_id, trip_sequence, stop_seq, bus_id)
-             connection_key = (arc1.arc_end.id, arc1.arc_end.route_id, arc1.arc_end.trip_id, arc1.arc_end.trip_sequence, arc1.arc_end.stop_sequence, string(arc1.bus_id))
+             connection_key = (arc1.arc_end.route_id, arc1.arc_end.trip_id, arc1.arc_end.trip_sequence, string(arc1.bus_id))
 
              # Check if any inter_line_arcs start at this exact point/time/bus
              if haskey(inter_arcs_by_start, connection_key)
@@ -349,7 +350,10 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
                      route1 = get(route_lookup, route1_key, nothing)
                      route2 = get(route_lookup, route2_key, nothing)
 
-                     if isnothing(route1) || isnothing(route2) continue end # Should not happen
+                     if isnothing(route1) || isnothing(route2)
+                        @warn "Warning: One of the route keys is nothing..."
+                        continue 
+                    end # Should not happen
 
                      # Find stop indices/positions based on sequence numbers stored in nodes
                      route1_end_pos = findfirst(==(arc1.arc_end.stop_sequence), route1.stop_sequence)
@@ -373,8 +377,6 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
                      if travel_time != Inf
                          # Check the time condition
                          if route1_end_time + travel_time > route2_end_time # Original condition
-                             # Avoid adding duplicate constraints if structure allows it
-                             # (Seems unlikely given arc1=line, arc2=inter)
                              @constraint(model, x[arc1] + x[arc2] <= 1)
                              constraint_4_count += 1
                          end
@@ -384,7 +386,7 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
          end # end arc1 loop
     end # end if not empty
     @info "Added $constraint_4_count illegal allocation constraints."
-
+    
 
     # Constraint 5: Prevent too much passengers on a line (Optimized)
     @info "Creating passenger capacity constraints (Constraint 5 - optimized)..."
