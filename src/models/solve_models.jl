@@ -424,6 +424,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
         return NetworkFlowSolution(
             :Optimal,
             objective_value(model),
+            size(parameters.passenger_demands, 1),
             final_bus_info,
             solve_time(model),
             gap # Pass the potentially adjusted gap
@@ -791,6 +792,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             return NetworkFlowSolution(
                 status_symbol, # Keep the original non-optimal status (e.g., :TIME_LIMIT)
                 obj_val,       # Objective value of the best feasible solution
+                size(parameters.passenger_demands, 1),
                 final_bus_info,# Reconstructed paths and metrics
                 solve_time(model),
                 current_gap    # Gap at termination (could be nothing)
@@ -801,6 +803,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             return NetworkFlowSolution(
                 status_symbol,
                 nothing, # No objective value
+                size(parameters.passenger_demands, 1),
                 nothing, # No bus paths
                 solve_time(model),
                 current_gap # Gap might be nothing or some value depending on solver/status

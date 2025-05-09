@@ -37,3 +37,5 @@ data/real_bus_lines.csv
 raw_case_data/
 clean_case_data/
 plots/
+
+.DS_STORE

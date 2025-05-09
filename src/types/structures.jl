@@ -136,6 +136,7 @@ Stores the results obtained from solving the network flow model.
 struct NetworkFlowSolution
     status::Symbol              # Solver status (e.g., :Optimal, :Infeasible, :UserLimit)
     objective_value::Union{Float64, Nothing} # Objective function value at the solution
+    num_demands::Int # Number of demands in data set
     # Dictionary mapping bus IDs to their reconstructed paths and operational metrics
     buses::Union{Dict{String, NamedTuple{(:name, :path, :operational_duration, :waiting_time, :capacity_usage, :timestamps),
         Tuple{String, Vector{Any}, Float64, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}, Nothing}
