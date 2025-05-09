@@ -366,7 +366,7 @@ for depot in depots_to_process
                         result.solve_time,
                         num_buses,
                         num_potential_buses,
-                        num_demands,
+                        result.num_demands,
                         total_operational_duration,
                         total_waiting_time,
                         num_buses > 0 ? total_capacity / num_buses : 0.0,
@@ -392,6 +392,9 @@ for depot in depots_to_process
                         @info "Solver time: $(round(result.solve_time, digits=2)) seconds"
                     end
                     @info "--------------------"
+
+                    output_filename = "results/computational_study_$(version)_$(solver_choice_str).csv"
+                    CSV.write(output_filename, results_df)
                 end
             end
         end
@@ -406,6 +409,6 @@ end
 # Include version and solver in the filename
 output_filename = "results/computational_study_$(version)_$(solver_choice_str).csv"
 CSV.write(output_filename, results_df)
-@info "Results saved to CSV file: $output_filename"
+@info "Final results saved to CSV file: $output_filename"
 
 close(logfile)
