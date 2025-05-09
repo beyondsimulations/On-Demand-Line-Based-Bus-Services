@@ -1,3 +1,0 @@
-depot_name,date,problem_type,setting,subsetting,service_level,solver_status,solve_time,num_buses,num_potential_buses,total_operational_duration,total_waiting_time,avg_capacity_utilization,optimality_gap,filter_demand,optimizer_constructor
-VLP Boizenburg,2024-08-22,Minimize_Busses,NO_CAPACITY_CONSTRAINT,ALL_LINES_WITH_DEMAND,1.0,Optimal,0.0009329319000244141,8,55,5840.261867872543,3415.49165808729,0.970848288933722,0.0,true,Gurobi.Optimizer
-VLP Boizenburg,2024-08-22,Minimize_Busses,CAPACITY_CONSTRAINT,ALL_LINES_WITH_DEMAND,1.0,Optimal,30.563727140426636,7,90,5905.154727952291,3109.0080555236173,1.3252909788745721,0.0,true,Gurobi.Optimizer

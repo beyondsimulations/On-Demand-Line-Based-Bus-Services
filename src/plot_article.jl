@@ -29,7 +29,7 @@ set_theme!(fonts = (
 
 # --- Configuration ---
 aggregation_version = "v3" # Version identifier for the input data aggregation
-plot_version = "v2"      # Version identifier for the plot output
+plot_version = "v4"      # Version identifier for the plot output
 solver = "gurobi"          # Solver used for the experiments
 
 # --- File Paths ---
@@ -275,7 +275,7 @@ try
         end
 
         # Count the number of instances that resulted in an Infeasible status.
-        num_infeasible = nrow(filter(row -> row.solver_status == "Infeasible", sub_df))
+        num_infeasible = nrow(filter(row -> row.solver_status == "INFEASIBLE_OR_UNBOUNDED", sub_df))
 
         # Count the number of instances that hit the time limit.
         df_timelimit_group = filter(row -> row.solver_status == "TIME_LIMIT", sub_df)

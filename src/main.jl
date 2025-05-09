@@ -33,7 +33,7 @@ include("data/loader.jl")
 # Error: Shows only errors.
 
 logfile = open("output.log", "w")
-file_logger = SimpleLogger(logfile, Logging.Debug)
+file_logger = SimpleLogger(logfile, Logging.Info)
 console_logger = ConsoleLogger(stderr, Logging.Info)
 tee_logger = TeeLogger(file_logger, console_logger)
 global_logger(tee_logger)
@@ -69,7 +69,7 @@ if !(solver_choice in valid_solvers)
 end
 
 # Read version from environment variable, default to "v4"
-version = get(ENV, "JULIA_SCRIPT_VERSION", "v3")
+version = get(ENV, "JULIA_SCRIPT_VERSION", "v1")
 @info "Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")"
 
 # Validate the version

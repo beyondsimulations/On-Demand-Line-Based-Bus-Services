@@ -2,8 +2,16 @@
 
 SESSION_NAME="julia_studies"
 SCRIPT_PATH="src/main.jl"
-VERSIONS=("v1" "v2" "v3" "v4")
-SOLVERS=("gurobi" "highs")
+VERSIONS=(
+    "v1" 
+    #"v2" 
+    #"v3" 
+    #"v4"
+)
+SOLVERS=(
+    "gurobi"
+    "copt"
+)
 
 # Check if Julia executable exists
 if ! command -v julia &> /dev/null
