@@ -17,12 +17,12 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
 
     # Set solver options
     if parameters.optimizer_constructor == Gurobi.Optimizer
-        set_optimizer_attribute(model, "TimeLimit", 3600*12.0)
+        set_optimizer_attribute(model, "TimeLimit", 3600*3.0)
         set_optimizer_attribute(model, "MIPGap", 0.00)
         set_optimizer_attribute(model, "Threads", 8)
     else
         set_optimizer_attribute(model, "presolve", "on")
-        set_optimizer_attribute(model, "time_limit", 3600*12.0)
+        set_optimizer_attribute(model, "time_limit", 3600*3.0)
         set_optimizer_attribute(model, "mip_rel_gap", 0.00)
         set_optimizer_attribute(model, "threads", 8)
     end
