@@ -504,7 +504,6 @@ function create_parameters(
         processed_count += 1
 
         # 1. Filter by Status == "DU" if filter_demand is true
-        # DU likely means 'Durchgeführt' (executed/performed) or similar, filtering removes these if requested.
         if filter_demand == true && hasproperty(row, :Status) && row.Status == "DU"
             skipped_status_du += 1
             continue
