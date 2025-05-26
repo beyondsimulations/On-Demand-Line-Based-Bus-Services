@@ -68,8 +68,8 @@ if !(solver_choice in valid_solvers)
     error("Invalid solver specified: '$solver_choice'. Choose from: $valid_solvers")
 end
 
-# Read version from environment variable, default to "v4"
-version = get(ENV, "JULIA_SCRIPT_VERSION", "v1")
+# Read version from environment variable, default to "v2"
+version = get(ENV, "JULIA_SCRIPT_VERSION", "v2")
 @info "Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")"
 
 # Validate the version
@@ -99,7 +99,7 @@ if version == "v1"
 elseif version == "v2"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = false
-    service_levels = 0.025:0.025:1.0
+    service_levels = 0.05:0.05:1.0
 
     # Define settings for solving
     settings = [
@@ -164,13 +164,13 @@ for depot in depots_to_process
         if !isdir("plots")
             mkdir("plots")
         end
-        
+
         if interactive_plots
             @debug "    Generating plot 2D with Plotly..."
             network_plot_2d = plot_network(data.routes, depot, date)
             display(network_plot_2d)
             save("plots/network_2d_$(depot.depot_name)_$(date).html", network_plot_2d)
-        
+
             if interactive_plots
                 @debug "    Generating plot 3D with Plotly..."
                 network_plot_3d = plot_network_3d(data.routes, data.travel_times, depot, date)
@@ -239,12 +239,12 @@ for depot in depots_to_process
 
                 for service_level in service_levels
                     @info "=== Solving for service level: $(service_level) ==="
-            
+
                     # Create parameters for current setting
                     @debug "Creating parameters..."
                     parameters = create_parameters(
                             problem_type,
-                            setting, 
+                            setting,
                             subsetting,
                             service_level,
                             depot,
@@ -254,11 +254,11 @@ for depot in depots_to_process
                             optimizer_constructor
                     )
                     @debug "Parameters created."
-                    
+
                     # Get number of potential buses before solving
                     num_potential_buses = length(parameters.buses)
                     @debug "Number of potential buses: $num_potential_buses"
-                    
+
                     # Solve network flow model
                     @info "Solving network flow model..."
                     result = solve_network_flow(parameters)
@@ -267,7 +267,7 @@ for depot in depots_to_process
                     if result.status == :Optimal
                         @info "Optimal solution found!"
                         @info "Number of buses required: $(result.objective_value)"
-                        
+
                         # Only iterate if buses exist (implied by Optimal, but good practice)
                         if result.buses !== nothing
                             for (bus_id, bus_info) in result.buses
@@ -287,18 +287,18 @@ for depot in depots_to_process
                         else
                              @warn "Optimal solution reported, but no bus data found."
                         end
-    
+
                         # Display solution visualization
                         if !isnothing(result)
                             @info "  Generating solution plot..."
-    
+
                             if interactive_plots
                                 @debug "    Generating plot with Plotly..."
                                 solution_plot = plot_solution_3d(
-                                    data.routes, 
-                                    depot, 
-                                    date, 
-                                    result, 
+                                    data.routes,
+                                    depot,
+                                    date,
+                                    result,
                                     data.travel_times,
                                     base_alpha=0.1,
                                     base_plot_connections=false,
@@ -308,16 +308,16 @@ for depot in depots_to_process
                                 display(solution_plot)
                                 save("plots/solution_3d_$(depot.depot_name)_$(date)_$(setting)_$(subsetting)_$(service_level).html", solution_plot)
                             end
-    
+
                             if non_interactive_plots
                                 @debug "    Generating plot with Makie..."
                                 solution_plot_makie = plot_solution_3d_makie(
-                                    data.routes, 
-                                    depot, 
-                                    date, 
-                                    result, 
+                                    data.routes,
+                                    depot,
+                                    date,
+                                    result,
                                     data.travel_times,
-                                    base_alpha=0.1, 
+                                    base_alpha=0.1,
                                     base_plot_connections=false,
                                     base_plot_trip_markers=true,
                                     base_plot_trip_lines=true
@@ -330,30 +330,30 @@ for depot in depots_to_process
                     else
                          @info "Model status: $(result.status)"
                     end
-                    
+
                     # Calculate metrics for logging
                     total_operational_duration = 0.0
                     total_waiting_time = 0.0
                     total_capacity = 0.0
                     num_buses = 0
-                    
+
                     if result.status == :Optimal && result.buses !== nothing
                         num_buses = length(result.buses)
-                        
+
                         # Calculate aggregated metrics
                         for (_, bus_info) in result.buses
                             total_operational_duration += bus_info.operational_duration
                             total_waiting_time += bus_info.waiting_time
-                            
+
                             # Calculate average capacity utilization for this bus
                             if !isempty(bus_info.capacity_usage)
                                 bus_avg_capacity = mean([usage[2] for usage in bus_info.capacity_usage])
                                 total_capacity += bus_avg_capacity
                             end
                         end
-                        
+
                     end
-                    
+
                     # Add row to results DataFrame
                     push!(results_df, (
                         depot.depot_name,
@@ -374,7 +374,7 @@ for depot in depots_to_process
                         filter_demand,
                         string(optimizer_constructor)
                     ))
-                    
+
                     # Print current results
                     @info "--- Run Summary ---"
                     @info "Status: $(result.status)"
