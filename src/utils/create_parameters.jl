@@ -504,7 +504,7 @@ function create_parameters(
         processed_count += 1
 
         # 1. Filter by Status == "DU" if filter_demand is true
-        if filter_demand == true && hasproperty(row, :Status) && row.Status == "DU"
+        if filter_demand == true && hasproperty(row, :Status) && row.Status == "DU" && row."Fahrzeug-ID" != 0
             skipped_status_du += 1
             continue
         end
@@ -617,7 +617,7 @@ function create_parameters(
             @debug "SubSetting ALL_LINES: Adding synthetic demands for all $(length(relevant_routes)) relevant routes."
             for route in relevant_routes
 
-                if filter_demand == true && hasproperty(route, :Status) && route.Status == "DU"
+                if filter_demand == true && hasproperty(route, :Status) && route.Status == "DU" && route."Fahrzeug-ID" != 0
                     skipped_status_du += 1
                     continue
                 end
@@ -647,7 +647,7 @@ function create_parameters(
             @debug "Found $(length(real_demand_routes)) routes with real demand."
 
             for route in relevant_routes
-                if filter_demand == true && hasproperty(route, :Status) && route.Status == "DU"
+                if filter_demand == true && hasproperty(route, :Status) && route.Status == "DU" && route."Fahrzeug-ID" != 0
                     skipped_status_du += 1
                     continue
                 end
