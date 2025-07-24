@@ -153,11 +153,11 @@ function create_parameters(
         @info "Created $total_buses_created buses (multiple capacities per shift) with generic times for Setting: CAPACITY_CONSTRAINT."
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
-        # Create buses considering shift times, break times, and vehicle capacities.
+        # Create buses considering shift times and vehicle capacities (no breaks, as they are added later!).
         # Similar to CAPACITY_CONSTRAINT, it creates a bus for each shift *and* each unique global capacity.
         # It handles shifts starting on the target day and shifts continuing from the previous day (overnight).
-        @info "Creating buses based on shifts and breaks (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS - Global Capacities)."
-        
+        @info "Creating buses based on shifts (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS - Global Capacities)."
+
         # --- Get unique capacities from all vehicles across all depots ---
         unique_capacities = Float64[]
         if !isempty(data.buses_df) && "seats" in names(data.buses_df)
@@ -175,7 +175,7 @@ function create_parameters(
         previous_date = date - Day(1)
         previous_day_abbr = get_day_abbr(previous_date)
         @debug "Checking for overnight shifts from previous day ($previous_date, :$previous_day_abbr)..."
-        
+
         # Check if the previous day's column exists in the shifts data.
         if previous_day_abbr in Symbol.(names(data.shifts_df))
             # Filter for shifts active on the previous day (across all depots).
@@ -183,33 +183,17 @@ function create_parameters(
             @debug "Found $(nrow(previous_day_shifts_df)) shifts potentially active on previous day."
 
             for row in eachrow(previous_day_shifts_df)
-                # Calculate shift and break times in minutes from the start of the *previous* day.
+                # Calculate shift and end times in minutes from the start of the *previous* day.
                 shift_start_orig = time_string_to_minutes(string(row.shiftstart))
-                break_start_1_orig = time_string_to_minutes(string(row."breakstart 1"))
-                break_end_1_orig = time_string_to_minutes(string(row."breakend 1"))
-                break_start_2_orig = time_string_to_minutes(string(row."breakstart 2"))
-                break_end_2_orig = time_string_to_minutes(string(row."breakend 2"))
                 shift_end_orig = time_string_to_minutes(string(row.shiftend))
 
                 # Adjust times if they cross midnight *relative to the previous day's start*.
                 # Add 1440 minutes (24 hours) to times that are earlier than the start time.
                 calculated_shift_end = shift_end_orig
-                calculated_break_start_1 = break_start_1_orig
-                calculated_break_end_1 = break_end_1_orig
-                calculated_break_start_2 = break_start_2_orig
-                calculated_break_end_2 = break_end_2_orig
 
                 if calculated_shift_end < shift_start_orig
                     calculated_shift_end += 1440.0
-                    # Adjust breaks only if they also cross midnight relative to shift start.
-                    if calculated_break_start_1 < shift_start_orig calculated_break_start_1 += 1440.0 end
-                    if calculated_break_end_1 < shift_start_orig calculated_break_end_1 += 1440.0 end
-                    if calculated_break_start_2 < shift_start_orig calculated_break_start_2 += 1440.0 end
-                    if calculated_break_end_2 < shift_start_orig calculated_break_end_2 += 1440.0 end
                 end
-                # Ensure break end times are not before start times after potential adjustments.
-                if calculated_break_end_1 < calculated_break_start_1 calculated_break_end_1 = calculated_break_start_1 end
-                if calculated_break_end_2 < calculated_break_start_2 calculated_break_end_2 = calculated_break_start_2 end
 
                 # Check if the calculated end time (relative to previous day's midnight) extends beyond 1440 minutes (i.e., into the target day).
                 if calculated_shift_end >= 1440.0
@@ -222,31 +206,6 @@ function create_parameters(
                     # The end time on the target day is the original end time minus 1440 minutes.
                     adj_end = calculated_shift_end - 1440.0
 
-                    # --- Calculate Breaks on Target Day ---
-                    # Calculate break times relative to target day midnight.
-                    adj_break_start_1_raw = calculated_break_start_1 - 1440.0
-                    adj_break_end_1_raw = calculated_break_end_1 - 1440.0
-                    adj_break_start_2_raw = calculated_break_start_2 - 1440.0
-                    adj_break_end_2_raw = calculated_break_end_2 - 1440.0
-
-                    # Determine the portion of each break that actually falls within the adjusted shift times on the target day.
-                    # Find the intersection of [adj_break_start_raw, adj_break_end_raw] and [adj_start, adj_end].
-
-                    # Break 1 Intersection
-                    effective_break_start_1 = max(adj_break_start_1_raw, adj_start)
-                    effective_break_end_1 = min(adj_break_end_1_raw, adj_end)
-                    # If intersection is invalid (start >= end), treat as no break (start = end = adj_start).
-                    final_break_start_1 = (effective_break_start_1 < effective_break_end_1) ? effective_break_start_1 : adj_start
-                    final_break_end_1 = (effective_break_start_1 < effective_break_end_1) ? effective_break_end_1 : adj_start
-
-                    # Break 2 Intersection
-                    effective_break_start_2 = max(adj_break_start_2_raw, adj_start)
-                    effective_break_end_2 = min(adj_break_end_2_raw, adj_end)
-                    # If intersection is invalid, treat as no break.
-                    final_break_start_2 = (effective_break_start_2 < effective_break_end_2) ? effective_break_start_2 : adj_start
-                    final_break_end_2 = (effective_break_start_2 < effective_break_end_2) ? effective_break_end_2 : adj_start
-                    # --- End Break Calculation ---
-
                     # --- Create a bus object for each unique *global* capacity ---
                     for capacity in unique_capacities
                         # Unique ID: counter_shiftnr_cont_cap<Capacity>
@@ -255,14 +214,14 @@ function create_parameters(
 
                         bus = Bus(
                             bus_id_str, capacity, adj_start,
-                            final_break_start_1, final_break_end_1, # Adjusted break times for target day
-                            final_break_start_2, final_break_end_2, # Adjusted break times for target day
+                            adj_start, adj_start, # No breaks
+                            adj_start, adj_start, # No breaks
                             adj_end, # Adjusted end time for target day
                             depot.depot_id # Assign to the *current* depot
                         )
                         push!(busses, bus)
                         total_buses_created += 1
-                        @debug "  Target day times: Start=$(adj_start), End=$(adj_end), Breaks=[$(final_break_start_1)-$(final_break_end_1), $(final_break_start_2)-$(final_break_end_2)]"
+                        @debug "  Target day times: Start=$(adj_start), End=$(adj_end), No breaks"
                     end
                 end
             end
@@ -284,26 +243,14 @@ function create_parameters(
 
             # Calculate times relative to target day's midnight.
             shift_start = time_string_to_minutes(string(row.shiftstart)) # Actual start time today
-            break_start_1 = time_string_to_minutes(string(row."breakstart 1"))
-            break_end_1 = time_string_to_minutes(string(row."breakend 1"))
-            break_start_2 = time_string_to_minutes(string(row."breakstart 2"))
-            break_end_2 = time_string_to_minutes(string(row."breakend 2"))
             shift_end = time_string_to_minutes(string(row.shiftend))
 
             # Handle shifts that start today but end *after* today's midnight.
-            # Adjust end time and potentially break times if they cross midnight relative to the shift's start time.
+            # Adjust end time if it crosses midnight relative to the shift's start time.
             calculated_shift_end_today = shift_end
             if calculated_shift_end_today < shift_start
                 calculated_shift_end_today += 1440.0 # Add 24 hours
-                # Adjust breaks if they also cross midnight relative to the shift's start.
-                if break_start_1 < shift_start break_start_1 += 1440.0 end
-                if break_end_1 < shift_start break_end_1 += 1440.0 end
-                if break_start_2 < shift_start break_start_2 += 1440.0 end
-                if break_end_2 < shift_start break_end_2 += 1440.0 end
             end
-            # Ensure break consistency
-            if break_end_1 < break_start_1 break_end_1 = break_start_1 end
-            if break_end_2 < break_start_2 break_end_2 = break_start_2 end
             # Note: calculated_shift_end_today might be > 1440, representing shifts ending early morning the *next* day.
 
             # --- Create a bus object for each unique *global* capacity ---
@@ -314,25 +261,25 @@ function create_parameters(
 
                 bus = Bus(
                     bus_id_str, capacity, shift_start,
-                    break_start_1, break_end_1, # Potentially adjusted break times
-                    break_start_2, break_end_2, # Potentially adjusted break times
+                    shift_start, shift_start, # No breaks
+                    shift_start, shift_start, # No breaks
                     calculated_shift_end_today, # Potentially > 1440 end time
                     depot.depot_id # Assign to the *current* depot
                 )
                 push!(busses, bus)
                 total_buses_created += 1
-                @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today), Breaks=[$(break_start_1)-$(break_end_1), $(break_start_2)-$(break_end_2)]"
+                @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today), No breaks"
             end
         end
-        @info "Created a total of $total_buses_created buses (multiple capacities per shift, including overnight) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS."
+        @info "Created a total of $total_buses_created buses (multiple capacities per shift, including overnight, no breaks) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS."
 
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE
-        # Create buses considering shift times, break times, and *depot-specific* vehicle capacities and availability.
+        # Create buses considering shift times and *depot-specific* vehicle capacities and availability.
         # This is the most restrictive setting: it only creates buses based on shifts assigned to the *current* depot,
         # and only considers vehicle capacities available *at that depot*.
-        @info "Creating buses based on depot-specific shifts, breaks, and vehicle availability (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE)."
-        
+        @info "Creating buses based on depot-specific shifts and vehicle availability (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE)."
+
         # --- Get unique capacities for *this specific depot* ---
         unique_capacities = Float64[]
         if !isempty(depot_vehicles_df) && "seats" in names(depot_vehicles_df)
@@ -351,37 +298,26 @@ function create_parameters(
         previous_date = date - Day(1)
         previous_day_abbr = get_day_abbr(previous_date)
         @debug "Checking for overnight shifts from previous day ($previous_date, :$previous_day_abbr) for depot $(depot.depot_name)..."
-        
+
         if previous_day_abbr in Symbol.(names(data.shifts_df))
             # Filter shifts for *this depot* that were active on the *previous* day.
             previous_day_depot_shifts_df = filter(row -> row.depot == depot.depot_name && !ismissing(row[previous_day_abbr]) && !isempty(string(row[previous_day_abbr])), data.shifts_df)
             @debug "Found $(nrow(previous_day_depot_shifts_df)) shifts for this depot potentially active on previous day."
-            
-            # --- This entire block is identical to the overnight processing in CAPACITY_CONSTRAINT_DRIVER_BREAKS ---
-            # --- The only difference is the input dataframe (`previous_day_depot_shifts_df`) and the `unique_capacities` used ---
+
+            # --- This entire block is similar to the overnight processing in CAPACITY_CONSTRAINT_DRIVER_BREAKS ---
+            # --- The only differences are the input dataframe (`previous_day_depot_shifts_df`), the `unique_capacities` used, and no breaks ---
             for row in eachrow(previous_day_depot_shifts_df)
+                 # Calculate shift and end times in minutes from the start of the *previous* day.
                  shift_start_orig = time_string_to_minutes(string(row.shiftstart))
-                 break_start_1_orig = time_string_to_minutes(string(row."breakstart 1"))
-                 break_end_1_orig = time_string_to_minutes(string(row."breakend 1"))
-                 break_start_2_orig = time_string_to_minutes(string(row."breakstart 2"))
-                 break_end_2_orig = time_string_to_minutes(string(row."breakend 2"))
                  shift_end_orig = time_string_to_minutes(string(row.shiftend))
 
+                 # Adjust times if they cross midnight *relative to the previous day's start*.
+                 # Add 1440 minutes (24 hours) to times that are earlier than the start time.
                  calculated_shift_end = shift_end_orig
-                 calculated_break_start_1 = break_start_1_orig
-                 calculated_break_end_1 = break_end_1_orig
-                 calculated_break_start_2 = break_start_2_orig
-                 calculated_break_end_2 = break_end_2_orig
 
                  if calculated_shift_end < shift_start_orig
                      calculated_shift_end += 1440.0
-                     if calculated_break_start_1 < shift_start_orig calculated_break_start_1 += 1440.0 end
-                     if calculated_break_end_1 < shift_start_orig calculated_break_end_1 += 1440.0 end
-                     if calculated_break_start_2 < shift_start_orig calculated_break_start_2 += 1440.0 end
-                     if calculated_break_end_2 < shift_start_orig calculated_break_end_2 += 1440.0 end
                  end
-                 if calculated_break_end_1 < calculated_break_start_1 calculated_break_end_1 = calculated_break_start_1 end
-                 if calculated_break_end_2 < calculated_break_start_2 calculated_break_end_2 = calculated_break_start_2 end
 
                 if calculated_shift_end >= 1440.0
                     original_shift_id = string(row.shiftnr)
@@ -390,20 +326,6 @@ function create_parameters(
                     adj_start = EFFECTIVE_START_TIME_BUFFER
                     adj_end = calculated_shift_end - 1440.0
 
-                    adj_break_start_1_raw = calculated_break_start_1 - 1440.0
-                    adj_break_end_1_raw = calculated_break_end_1 - 1440.0
-                    effective_break_start_1 = max(adj_break_start_1_raw, adj_start)
-                    effective_break_end_1 = min(adj_break_end_1_raw, adj_end)
-                    final_break_start_1 = (effective_break_start_1 < effective_break_end_1) ? effective_break_start_1 : adj_start
-                    final_break_end_1 = (effective_break_start_1 < effective_break_end_1) ? effective_break_end_1 : adj_start
-
-                    adj_break_start_2_raw = calculated_break_start_2 - 1440.0
-                    adj_break_end_2_raw = calculated_break_end_2 - 1440.0
-                    effective_break_start_2 = max(adj_break_start_2_raw, adj_start)
-                    effective_break_end_2 = min(adj_break_end_2_raw, adj_end)
-                    final_break_start_2 = (effective_break_start_2 < effective_break_end_2) ? effective_break_start_2 : adj_start
-                    final_break_end_2 = (effective_break_start_2 < effective_break_end_2) ? effective_break_end_2 : adj_start
-
                     # --- Create a bus object for each unique *depot-specific* capacity ---
                     for capacity in unique_capacities # Uses capacities specific to this depot
                          bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cont_cap" * string(Int(capacity))
@@ -411,14 +333,14 @@ function create_parameters(
 
                          bus = Bus(
                              bus_id_str, capacity, adj_start,
-                             final_break_start_1, final_break_end_1,
-                             final_break_start_2, final_break_end_2,
+                             adj_start, adj_start, # No breaks
+                             adj_start, adj_start, # No breaks
                              adj_end,
                              depot.depot_id # Assign to this depot
                          )
                          push!(busses, bus)
                          total_buses_created += 1
-                         @debug "  Target day times: Start=$(adj_start), End=$(adj_end), Breaks=[$(final_break_start_1)-$(final_break_end_1), $(final_break_start_2)-$(final_break_end_2)]"
+                         @debug "  Target day times: Start=$(adj_start), End=$(adj_end), No breaks"
                     end
                 end
             end
@@ -432,29 +354,19 @@ function create_parameters(
         # Use the pre-filtered `depot_shifts_df` which contains only shifts for this depot active on the target day.
         @debug "Found $(nrow(depot_shifts_df)) shifts active on target day for this depot."
 
-        # --- This entire block is identical to the target day processing in CAPACITY_CONSTRAINT_DRIVER_BREAKS ---
-        # --- The only difference is the input dataframe (`depot_shifts_df`) and the `unique_capacities` used ---
+        # --- This entire block is similar to the target day processing in CAPACITY_CONSTRAINT_DRIVER_BREAKS ---
+        # --- The only differences are the input dataframe (`depot_shifts_df`), the `unique_capacities` used, and no breaks ---
         for row in eachrow(depot_shifts_df) # Iterate through shifts active today for this depot
              original_shift_id = string(row.shiftnr)
              @debug "Processing target day shift: $original_shift_id"
 
              shift_start = time_string_to_minutes(string(row.shiftstart))
-             break_start_1 = time_string_to_minutes(string(row."breakstart 1"))
-             break_end_1 = time_string_to_minutes(string(row."breakend 1"))
-             break_start_2 = time_string_to_minutes(string(row."breakstart 2"))
-             break_end_2 = time_string_to_minutes(string(row."breakend 2"))
              shift_end = time_string_to_minutes(string(row.shiftend))
 
              calculated_shift_end_today = shift_end
              if calculated_shift_end_today < shift_start
                  calculated_shift_end_today += 1440.0
-                 if break_start_1 < shift_start break_start_1 += 1440.0 end
-                 if break_end_1 < shift_start break_end_1 += 1440.0 end
-                 if break_start_2 < shift_start break_start_2 += 1440.0 end
-                 if break_end_2 < shift_start break_end_2 += 1440.0 end
              end
-             if break_end_1 < break_start_1 break_end_1 = break_start_1 end
-             if break_end_2 < break_start_2 break_end_2 = break_start_2 end
 
              # --- Create a bus object for each unique *depot-specific* capacity ---
              for capacity in unique_capacities # Uses capacities specific to this depot
@@ -463,17 +375,17 @@ function create_parameters(
 
                  bus = Bus(
                      bus_id_str, capacity, shift_start,
-                     break_start_1, break_end_1,
-                     break_start_2, break_end_2,
+                     shift_start, shift_start, # No breaks
+                     shift_start, shift_start, # No breaks
                      calculated_shift_end_today,
                      depot.depot_id # Assign to this depot
                  )
                  push!(busses, bus)
                  total_buses_created += 1
-                 @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today), Breaks=[$(break_start_1)-$(break_end_1), $(break_start_2)-$(break_end_2)]"
+                 @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today), No breaks"
              end
         end
-        @info "Created a total of $total_buses_created buses (depot-specific capacities, including overnight) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE."
+        @info "Created a total of $total_buses_created buses (multiple capacities per shift for this depot, including overnight, no breaks) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE."
 
     else
         # If the setting doesn't match any known case, throw an error.

@@ -1,7 +1,7 @@
 # Common setup function
 function setup_network_flow(parameters::ProblemParameters)
     @info "Setting up network flow..."
-    
+
     buses = parameters.buses
     depot = parameters.depot
     target_day = parameters.day
@@ -11,7 +11,7 @@ function setup_network_flow(parameters::ProblemParameters)
 
     @info "Routes: $(length(routes))"
     @info "Demands: $(length(passenger_demands))"
-    
+
     print_level = 0
 
     line_arcs = ModelArc[]
@@ -123,7 +123,11 @@ function setup_network_flow(parameters::ProblemParameters)
             @info "Inter-line arcs: $(length(inter_line_arcs)) created."
         end
 
-    elseif parameters.setting in [CAPACITY_CONSTRAINT, CAPACITY_CONSTRAINT_DRIVER_BREAKS, CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE]
+    elseif parameters.setting in [
+        CAPACITY_CONSTRAINT,
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS,
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE
+        ]
 
         line_arcs = add_line_arcs_capacity_constraint(routes, buses, passenger_demands)
 
@@ -239,7 +243,7 @@ function add_line_arcs(routes)
     for route in routes
         # Add single arc from first to last stop for each route
         push!(line_arcs, ModelArc(
-            ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]), 
+            ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]),
             ModelStation(route.stop_ids[end], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[end]),
             string(route.route_id, "-", route.trip_id, "-", route.trip_sequence),
             (0, 0),
@@ -255,7 +259,7 @@ function add_line_arcs_with_demand(routes, passenger_demands)
     line_arcs = Vector{ModelArc}()
 
     routes_with_demand = Set(
-        (demand.origin.route_id, demand.origin.trip_id, demand.origin.trip_sequence) 
+        (demand.origin.route_id, demand.origin.trip_id, demand.origin.trip_sequence)
         for demand in passenger_demands
     )
 
@@ -266,7 +270,7 @@ function add_line_arcs_with_demand(routes, passenger_demands)
         if (route.route_id, route.trip_id, route.trip_sequence) in routes_with_demand
             @info "Adding arc for route $(route.route_id) $(route.trip_id) $(route.trip_sequence)"
             push!(line_arcs, ModelArc(
-                ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]), 
+                ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]),
                 ModelStation(route.stop_ids[end], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[end]),
                 string(route.route_id, "-", route.trip_id, "-", route.trip_sequence),
                 (0, 0),
@@ -285,20 +289,20 @@ function add_line_arcs_only_demand(routes, passenger_demands)
     demands_by_route = Dict()
     for demand in passenger_demands
         key = (
-            demand.origin.route_id, 
-            demand.origin.trip_id, 
+            demand.origin.route_id,
+            demand.origin.trip_id,
             demand.origin.trip_sequence,
             )
         if !haskey(demands_by_route, key)
             demands_by_route[key] = []
         end
-        
+
         # Find the stop positions in the route's sequence
         route = first(filter(r -> r.route_id == demand.origin.route_id &&
                                     r.trip_id == demand.origin.trip_id &&
-                                    r.trip_sequence== demand.origin.trip_sequence, 
+                                    r.trip_sequence== demand.origin.trip_sequence,
                                     routes))
-        
+
         # Find positions of origin and destination stops in the sequence
         origin_pos = findfirst(id -> id == demand.origin.stop_sequence, route.stop_sequence)
         dest_pos = findfirst(id -> id == demand.destination.stop_sequence, route.stop_sequence)
@@ -329,12 +333,12 @@ function add_line_arcs_only_demand(routes, passenger_demands)
 
         # Sort segments by start position
         sort!(segments, by = x -> x[1])
-        
+
         # Merge overlapping segments
         merged_segments = []
         if !isempty(segments)
             current_start, current_end = segments[1]
-            
+
             for (start, end_pos) in segments[2:end]
                 if start <= current_end
                     # Segments overlap, extend current segment
@@ -440,7 +444,7 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
             end
 
             if break1_overlap || break2_overlap
-                
+
                 continue # Demand segment overlaps with a break for this bus
             end
 
@@ -509,7 +513,7 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
     # Create depot start and end arcs for all existing non-depot arcs
     depot_start_arcs = Vector{ModelArc}()
     depot_end_arcs = Vector{ModelArc}()
-    
+
     @info "Processing $(length(arcs)) line arcs to generate depot arcs..."
     processed_count = 0
     skipped_route_lookup = 0
@@ -523,7 +527,7 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
         # section_start_pos and section_end_pos are indices (1-based) into the route's stop sequence
         section_start_pos = arc.arc_start.stop_sequence
         section_end_pos = arc.arc_end.stop_sequence
-        
+
         # Find the corresponding route
         route_idx = findfirst(r -> r.route_id == route_id && r.trip_sequence== trip_sequence && r.trip_id == trip_id, routes)
         if isnothing(route_idx)
@@ -690,7 +694,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             start_arcs_created += 1
         else
              skipped_feasibility += 1 # Count skips due to any feasibility issue for start
-             
+
         end
 
         # --- Check Depot End Arc Feasibility ---
@@ -730,9 +734,9 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             end_arcs_created += 1
         elseif start_feasible # Only count skip if start arc was feasible
             skipped_feasibility += 1 # Count skips due to end feasibility issue
-            
+
     end
-    
+
     end # End line_arc loop
 
     @info "Finished depot arcs (Capacity Constraint). Processed line arcs: $processed_line_arcs, Skipped (Bus): $skipped_bus_lookup, Skipped (Route): $skipped_route_lookup, Skipped (Stop Idx): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup, Skipped (Feasibility): $skipped_feasibility."
@@ -826,7 +830,7 @@ function add_intra_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
                             "intra-line-arc"
                         ))
                         arcs_created += 1
-                     else 
+                     else
                         @info "  Info: Intra-line arc skipped due to time: EndT1 ($end_time1) > StartT2 ($start_time2) for arc pair $(arc1.demand_id) -> $(arc2.demand_id)"
                     end
                 end
@@ -941,7 +945,7 @@ function add_inter_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
                 arcs_created += 1
             else
                 skipped_feasibility += 1
-                
+
             end
         end
     end
@@ -1151,7 +1155,7 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
                 arcs_created += 1
             else
                 skipped_feasibility += 1
-                
+
             end
 
         end # End inner loop (arc2)
