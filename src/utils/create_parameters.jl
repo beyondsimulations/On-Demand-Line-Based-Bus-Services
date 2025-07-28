@@ -75,7 +75,7 @@ function create_parameters(
     # Select rows where the depot matches and the column corresponding to the target day indicates the shift is active (e.g., contains 'x').
     depot_shifts_df = filter(row -> row.depot == depot.depot_name && !ismissing(row[day_abbr]) && !isempty(string(row[day_abbr])), data.shifts_df)
     if isempty(depot_shifts_df) && setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE
-        # Warning if no shifts are found, especially relevant when breaks/availability depend on shifts.
+        # Warning if no shifts are found, especially relevant when availability depends on shifts.
         @warn "No shifts found for depot '$(depot.depot_name)' on $date ($day_abbr) in shifts.csv."
     end
 
@@ -96,8 +96,6 @@ function create_parameters(
                 string(i), # Simple numeric ID
                 1000.0,    # Very large capacity, effectively infinite
                 EFFECTIVE_START_TIME_BUFFER, # Start time buffer before target day midnight
-                EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks defined (start==end)
-                EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks defined (start==end)
                 latest_end_target_day, # Generic latest possible end time
                 depot.depot_id # Assign the current depot's ID
             )
@@ -141,8 +139,6 @@ function create_parameters(
                       bus_id_str,
                       capacity, # Assign the specific capacity
                       EFFECTIVE_START_TIME_BUFFER, # Use generic start time buffer
-                      EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks
-                      EFFECTIVE_START_TIME_BUFFER, EFFECTIVE_START_TIME_BUFFER, # No breaks
                       latest_end_target_day, # Use generic latest end time
                       depot.depot_id # Assign the *current* depot's ID, even if shift was from another depot
                   )
@@ -153,7 +149,7 @@ function create_parameters(
         @info "Created $total_buses_created buses (multiple capacities per shift) with generic times for Setting: CAPACITY_CONSTRAINT."
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
-        # Create buses considering shift times and vehicle capacities (no breaks, as they are added later!).
+        # Create buses considering shift times and vehicle capacities.
         # Similar to CAPACITY_CONSTRAINT, it creates a bus for each shift *and* each unique global capacity.
         # It handles shifts starting on the target day and shifts continuing from the previous day (overnight).
         @info "Creating buses based on shifts (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS - Global Capacities)."
@@ -214,8 +210,6 @@ function create_parameters(
 
                         bus = Bus(
                             bus_id_str, capacity, adj_start,
-                            adj_start, adj_start, # No breaks
-                            adj_start, adj_start, # No breaks
                             adj_end, # Adjusted end time for target day
                             depot.depot_id # Assign to the *current* depot
                         )
@@ -230,7 +224,7 @@ function create_parameters(
         end
 
         # --- 2. Process Shifts Starting on the Target Day ---
-        # These shifts begin on the target day, so use their actual start/end/break times relative to target day midnight.
+        # These shifts begin on the target day, so use their actual start/end times relative to target day midnight.
         target_day_abbr = get_day_abbr(date)
         @debug "Checking for shifts starting on target day ($date, :$target_day_abbr)..."
         # Filter for shifts active on the target day (across all depots).
@@ -261,17 +255,15 @@ function create_parameters(
 
                 bus = Bus(
                     bus_id_str, capacity, shift_start,
-                    shift_start, shift_start, # No breaks
-                    shift_start, shift_start, # No breaks
                     calculated_shift_end_today, # Potentially > 1440 end time
                     depot.depot_id # Assign to the *current* depot
                 )
                 push!(busses, bus)
                 total_buses_created += 1
-                @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today), No breaks"
+                @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today)"
             end
         end
-        @info "Created a total of $total_buses_created buses (multiple capacities per shift, including overnight, no breaks) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS."
+        @info "Created a total of $total_buses_created buses (multiple capacities per shift, including overnight) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS."
 
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE
@@ -305,7 +297,7 @@ function create_parameters(
             @debug "Found $(nrow(previous_day_depot_shifts_df)) shifts for this depot potentially active on previous day."
 
             # --- This entire block is similar to the overnight processing in CAPACITY_CONSTRAINT_DRIVER_BREAKS ---
-            # --- The only differences are the input dataframe (`previous_day_depot_shifts_df`), the `unique_capacities` used, and no breaks ---
+            # --- The only differences are the input dataframe (`previous_day_depot_shifts_df`) and the `unique_capacities` used ---
             for row in eachrow(previous_day_depot_shifts_df)
                  # Calculate shift and end times in minutes from the start of the *previous* day.
                  shift_start_orig = time_string_to_minutes(string(row.shiftstart))
@@ -333,14 +325,12 @@ function create_parameters(
 
                          bus = Bus(
                              bus_id_str, capacity, adj_start,
-                             adj_start, adj_start, # No breaks
-                             adj_start, adj_start, # No breaks
                              adj_end,
                              depot.depot_id # Assign to this depot
                          )
                          push!(busses, bus)
                          total_buses_created += 1
-                         @debug "  Target day times: Start=$(adj_start), End=$(adj_end), No breaks"
+                         @debug "  Target day times: Start=$(adj_start), End=$(adj_end)"
                     end
                 end
             end
@@ -355,7 +345,7 @@ function create_parameters(
         @debug "Found $(nrow(depot_shifts_df)) shifts active on target day for this depot."
 
         # --- This entire block is similar to the target day processing in CAPACITY_CONSTRAINT_DRIVER_BREAKS ---
-        # --- The only differences are the input dataframe (`depot_shifts_df`), the `unique_capacities` used, and no breaks ---
+        # --- The only differences are the input dataframe (`depot_shifts_df`) and the `unique_capacities` used ---
         for row in eachrow(depot_shifts_df) # Iterate through shifts active today for this depot
              original_shift_id = string(row.shiftnr)
              @debug "Processing target day shift: $original_shift_id"
@@ -375,17 +365,15 @@ function create_parameters(
 
                  bus = Bus(
                      bus_id_str, capacity, shift_start,
-                     shift_start, shift_start, # No breaks
-                     shift_start, shift_start, # No breaks
                      calculated_shift_end_today,
                      depot.depot_id # Assign to this depot
                  )
                  push!(busses, bus)
                  total_buses_created += 1
-                 @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today), No breaks"
+                 @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today)"
              end
         end
-        @info "Created a total of $total_buses_created buses (multiple capacities per shift for this depot, including overnight, no breaks) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE."
+        @info "Created a total of $total_buses_created buses (multiple capacities per shift for this depot, including overnight) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE."
 
     else
         # If the setting doesn't match any known case, throw an error.

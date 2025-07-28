@@ -43,7 +43,7 @@ dates_to_process = [Date(2024, 8, 22)]
 
 # Set the plots
 interactive_plots = false
-non_interactive_plots = true
+non_interactive_plots = false
 
 # Set the depots to run the model for
 depots_to_process_names = [

@@ -25,4 +25,3 @@ Subsettings for different bus service scenarios:
     ALL_LINES_WITH_DEMAND = 2
     ONLY_DEMAND = 3
 end
-

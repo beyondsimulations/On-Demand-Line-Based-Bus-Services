@@ -40,3 +40,4 @@ plots/
 
 .DS_STORE
 CLAUDE.md
+*.log

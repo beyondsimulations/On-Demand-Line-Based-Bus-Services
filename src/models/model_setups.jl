@@ -379,7 +379,7 @@ function add_line_arcs_only_demand(routes, passenger_demands)
 end
 
 function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{Bus}, passenger_demands::Vector{PassengerDemand})
-    @info "Generating line arcs for capacity/break constraints..."
+    @info "Generating line arcs for capacity constraints..."
     line_arcs = Vector{ModelArc}()
     processed_demands = 0
     arcs_created = 0
@@ -430,23 +430,7 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
                 continue # Bus shift doesn't cover this demand segment
             end
 
-            # Break overlap check
-            break1_overlap = false
-            reason_break1 = ""
-            if bus.break_start_1 < bus.break_end_1 # Check if break 1 exists
-                break1_overlap = max(demand_origin_time, bus.break_start_1) < min(demand_dest_time, bus.break_end_1)
-            end
 
-            break2_overlap = false
-            reason_break2 = ""
-            if bus.break_start_2 < bus.break_end_2 # Check if break 2 exists
-                break2_overlap = max(demand_origin_time, bus.break_start_2) < min(demand_dest_time, bus.break_end_2)
-            end
-
-            if break1_overlap || break2_overlap
-
-                continue # Demand segment overlaps with a break for this bus
-            end
 
             bus_found_for_demand = true # Mark that at least one bus is feasible for this demand
 
@@ -474,7 +458,7 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
 
     # --- Check if any demands were unservable ---
     if !isempty(unservable_demands)
-        error_message = "Model infeasible: The following demands cannot be served by any available bus due to shift/break constraints:\n"
+        error_message = "Model infeasible: The following demands cannot be served by any available bus due to shift constraints:\n"
         for d in unservable_demands
              # Find the route again to get times (could optimize by storing earlier)
              route_key = (d.origin.route_id, d.origin.trip_id, d.origin.trip_sequence)
@@ -603,7 +587,7 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
 end
 
 function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes::Vector{Route}, buses::Vector{Bus}, travel_times::Vector{TravelTime}, depot::Depot)
-    @info "Generating depot arcs for capacity/break constraints..."
+    @info "Generating depot arcs for capacity constraints..."
     depot_start_arcs = Vector{ModelArc}()
     depot_end_arcs = Vector{ModelArc}()
 
@@ -673,13 +657,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         elseif !(bus.shift_start + depot_to_start_tt <= start_time)
             start_feasible = false
             skip_reason = "Shift Start ($(bus.shift_start)) + TT ($(depot_to_start_tt)) > Stop Start Time ($(start_time))"
-         # Check if start time falls within a break
-        elseif (bus.break_start_1 < bus.break_end_1 && bus.break_start_1 <= start_time < bus.break_end_1)
-             start_feasible = false
-             skip_reason = "Stop Start Time ($(start_time)) within Break 1 [$(bus.break_start_1), $(bus.break_end_1))"
-        elseif (bus.break_start_2 < bus.break_end_2 && bus.break_start_2 <= start_time < bus.break_end_2)
-             start_feasible = false
-             skip_reason = "Stop Start Time ($(start_time)) within Break 2 [$(bus.break_start_2), $(bus.break_end_2))"
+
         end
 
         if start_feasible
@@ -713,13 +691,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         elseif !(end_time + end_to_depot_tt <= bus.shift_end)
             end_feasible = false
             skip_reason = "Stop End Time ($(end_time)) + TT ($(end_to_depot_tt)) > Shift End ($(bus.shift_end))"
-         # Check if end time falls within a break
-        elseif (bus.break_start_1 < bus.break_end_1 && bus.break_start_1 <= end_time < bus.break_end_1)
-             end_feasible = false
-             skip_reason = "Stop End Time ($(end_time)) within Break 1 [$(bus.break_start_1), $(bus.break_end_1))"
-        elseif (bus.break_start_2 < bus.break_end_2 && bus.break_start_2 <= end_time < bus.break_end_2)
-             end_feasible = false
-             skip_reason = "Stop End Time ($(end_time)) within Break 2 [$(bus.break_start_2), $(bus.break_end_2))"
+
         end
 
         if end_feasible
@@ -816,7 +788,7 @@ function add_intra_line_arcs!(non_depot_arcs::Vector{ModelArc}, routes::Vector{R
 
                      if end_time1 <= start_time2
                          # Feasible in terms of sequence and basic time
-                         # In NO_CAPACITY setting, we don't check breaks or exact travel time here
+                         # In NO_CAPACITY setting, we don't check exact travel time here
                         push!(intra_line_arcs, ModelArc(
                             # From the end station of the first arc segment
                             # Use trip_id from the key
@@ -1007,7 +979,7 @@ function add_intra_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
 end
 
 function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes::Vector{Route}, buses::Vector{Bus}, travel_times::Vector{TravelTime})
-    @info "Generating inter-line arcs for capacity/break constraints..."
+    @info "Generating inter-line arcs for capacity constraints..."
     inter_line_arcs = Vector{ModelArc}()
 
     # Create lookups
@@ -1062,13 +1034,7 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
          route1_end_stop_id = route1.stop_ids[pos1_end_index] # Get ID from route data using correct index
          time1_end = route1.stop_times[pos1_end_index]        # Get time from route data using correct index
 
-          # Check if departure time (time1_end) is during a break
-          # Use strict inequality for end time: bus must finish break *before* departing
-          if (bus.break_start_1 < bus.break_end_1 && bus.break_start_1 <= time1_end < bus.break_end_1) ||
-             (bus.break_start_2 < bus.break_end_2 && bus.break_start_2 <= time1_end < bus.break_end_2)
-             skipped_feasibility += (num_line_arcs - i) # Approx skips
-             continue # Cannot depart during a break
-          end
+          # No additional checks needed for departure time
           # --- End Pre-calculations for arc1 ---
 
 
@@ -1125,22 +1091,8 @@ function add_inter_line_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, r
                 continue
             end
 
-            # Calculate effective travel time including full breaks within the interval (time1_end, time2_start)
+            # Use base travel time
             adjusted_travel_time = travel_time
-            break_duration_1 = bus.break_end_1 - bus.break_start_1
-            break_duration_2 = bus.break_end_2 - bus.break_start_2
-
-            # Check if break 1 is fully contained in the open interval
-            if bus.break_start_1 < bus.break_end_1 && time1_end < bus.break_start_1 && bus.break_end_1 < route2_start_time
-                adjusted_travel_time += break_duration_1
-            end
-            # Check if break 2 is fully contained in the open interval
-            if bus.break_start_2 < bus.break_end_2 && time1_end < bus.break_start_2 && bus.break_end_2 < route2_start_time
-                 # Avoid double counting if breaks are nested or identical (unlikely but possible)
-                 if !(bus.break_start_1 < bus.break_end_1 && bus.break_start_1 == bus.break_start_2 && bus.break_end_1 == bus.break_end_2)
-                     adjusted_travel_time += break_duration_2
-                end
-            end
 
             # Final feasibility check: Can the bus depart, cover adjusted travel time, and arrive on time?
             if time1_end + adjusted_travel_time <= route2_start_time
