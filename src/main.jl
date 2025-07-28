@@ -43,17 +43,17 @@ dates_to_process = [Date(2024, 8, 22)]
 
 # Set the plots
 interactive_plots = false
-non_interactive_plots = false
+non_interactive_plots = true
 
 # Set the depots to run the model for
 depots_to_process_names = [
     "VLP Boizenburg",
-    "VLP Hagenow",
-    "VLP Parchim",
-    "VLP Schwerin",
-    "VLP Ludwigslust",
-    "VLP Sternberg",
-    "VLP Zarrentin"
+    #"VLP Hagenow",
+    #"VLP Parchim",
+    #"VLP Schwerin",
+    #"VLP Ludwigslust",
+    #"VLP Sternberg",
+    #"VLP Zarrentin"
 ]
 
 # Read solver choice from environment variable, default to :gurobi
@@ -69,7 +69,7 @@ if !(solver_choice in valid_solvers)
 end
 
 # Read version from environment variable, default to "v2"
-version = get(ENV, "JULIA_SCRIPT_VERSION", "v1")
+version = get(ENV, "JULIA_SCRIPT_VERSION", "v4")
 @info "Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")"
 
 # Validate the version
@@ -194,23 +194,23 @@ end
 
 # Create a DataFrame to store results
 results_df = DataFrame(
-    depot_name = String[],
-    date = Date[],
-    problem_type = String[],
-    setting = String[],
-    subsetting = String[],
-    service_level = Float64[],
-    solver_status = Symbol[],
-    solve_time = Float64[],
-    num_buses = Int[],
-    num_potential_buses = Int[],
-    num_demands = Int[],
-    total_operational_duration = Float64[],
-    total_waiting_time = Float64[],
-    avg_capacity_utilization = Float64[],
-    optimality_gap = Union{Float64, Missing}[],
-    filter_demand = Bool[],
-    optimizer_constructor = String[]
+    depot_name=String[],
+    date=Date[],
+    problem_type=String[],
+    setting=String[],
+    subsetting=String[],
+    service_level=Float64[],
+    solver_status=Symbol[],
+    solve_time=Float64[],
+    num_buses=Int[],
+    num_potential_buses=Int[],
+    num_demands=Int[],
+    total_operational_duration=Float64[],
+    total_waiting_time=Float64[],
+    avg_capacity_utilization=Float64[],
+    optimality_gap=Union{Float64,Missing}[],
+    filter_demand=Bool[],
+    optimizer_constructor=String[]
 )
 
 optimizer_constructor = if solver_choice == :gurobi
@@ -243,15 +243,15 @@ for depot in depots_to_process
                     # Create parameters for current setting
                     @debug "Creating parameters..."
                     parameters = create_parameters(
-                            problem_type,
-                            setting,
-                            subsetting,
-                            service_level,
-                            depot,
-                            date,
-                            data,
-                            filter_demand,
-                            optimizer_constructor
+                        problem_type,
+                        setting,
+                        subsetting,
+                        service_level,
+                        depot,
+                        date,
+                        data,
+                        filter_demand,
+                        optimizer_constructor
                     )
                     @debug "Parameters created."
 
@@ -285,7 +285,7 @@ for depot in depots_to_process
                                 end
                             end
                         else
-                             @warn "Optimal solution reported, but no bus data found."
+                            @warn "Optimal solution reported, but no bus data found."
                         end
 
                         # Display solution visualization
@@ -326,9 +326,9 @@ for depot in depots_to_process
                             end
                         end
                     elseif result.status != :Infeasible
-                         @warn "No optimal solution found! Status: $(result.status)"
+                        @warn "No optimal solution found! Status: $(result.status)"
                     else
-                         @info "Model status: $(result.status)"
+                        @info "Model status: $(result.status)"
                     end
 
                     # Calculate metrics for logging
