@@ -1,16 +1,17 @@
 
-# Helper function to convert HH:MM time string to minutes since midnight.
-function time_string_to_minutes(time_str::AbstractString)::Float64
+# Helper function to convert HH:MM time string to minutes from target day midnight.
+# day_offset: -1 (previous day), 0 (target day), +1 (next day)
+function time_string_to_minutes(time_str::AbstractString, day_offset::Int = 0)::Float64
     try
         parts = split(time_str, ':')
         hours = parse(Int, parts[1])
         minutes = parse(Int, parts[2])
-        # Assumes times are within a single 24-hour cycle relative to shift start.
-        # Logic might need adjustment if input format handles multi-day shifts differently.
-        return Float64(hours * 60 + minutes)
+        base_minutes = Float64(hours * 60 + minutes)
+        # Apply day offset: previous day = -1440, target day = 0, next day = +1440
+        return base_minutes + (day_offset * 1440.0)
     catch e
         @warn "Could not parse time string '$time_str'. Error: $e. Returning 0.0."
-        return 0.0 # Or throw an error, or return NaN
+        return 0.0
     end
 end
 
@@ -21,11 +22,71 @@ function get_day_abbr(date::Date)::Symbol
     return day_map[day_idx]
 end
 
-# Constant defining a buffer time (in minutes before midnight) for the effective start time
-# of buses whose shifts started the previous day but continue onto the target day.
-# This allows these buses to be considered available from the beginning of the planning horizon
-# (or slightly before) on the target day.
-const EFFECTIVE_START_TIME_BUFFER = -120.0
+# Extended time system covering 3 days around target day:
+# Previous day: -1440 to -1 minutes
+# Target day: 0 to 1439 minutes
+# Next day: 1440 to 2879 minutes
+const DAY_MINUTES = 1440.0
+const PREVIOUS_DAY_START = -1440.0
+const TARGET_DAY_START = 0.0
+const NEXT_DAY_START = 1440.0
+
+# Helper functions for identifying which day a time/shift belongs to
+"""
+Returns which day a time value belongs to based on the extended 3-day time system.
+Returns: -1 (previous day), 0 (target day), 1 (next day)
+"""
+function get_day_from_time(time_minutes::Float64)::Int
+    if time_minutes < 0
+        return -1  # Previous day
+    elseif time_minutes < DAY_MINUTES
+        return 0   # Target day
+    else
+        return 1   # Next day
+    end
+end
+
+"""
+Returns true if the time value represents a time on the previous day.
+"""
+function is_previous_day_time(time_minutes::Float64)::Bool
+    return time_minutes < 0
+end
+
+"""
+Returns true if the time value represents a time on the target day.
+"""
+function is_target_day_time(time_minutes::Float64)::Bool
+    return 0 <= time_minutes < DAY_MINUTES
+end
+
+"""
+Returns true if the time value represents a time on the next day.
+"""
+function is_next_day_time(time_minutes::Float64)::Bool
+    return time_minutes >= DAY_MINUTES
+end
+
+"""
+Extracts the day offset from a bus ID string.
+Bus IDs have format: "{counter}_{shift_id}_day{offset}_cap{capacity}"
+Returns: -1 (previous day), 0 (target day), 1 (next day), or nothing if not found
+"""
+function get_day_from_bus_id(bus_id::String)::Union{Int, Nothing}
+    day_match = match(r"_day(-?\d+)_", bus_id)
+    if day_match !== nothing
+        return parse(Int, day_match.captures[1])
+    end
+    return nothing
+end
+
+"""
+Returns true if the bus was created for a shift starting on the previous day.
+"""
+function is_previous_day_shift(bus::Bus)::Bool
+    day_offset = get_day_from_bus_id(bus.bus_id)
+    return day_offset == -1 || is_previous_day_time(bus.shift_start)
+end
 
 """
     create_parameters(problem_type, setting, subsetting, service_level, depot, date, data, filter_demand, optimizer_constructor)
@@ -72,12 +133,7 @@ function create_parameters(
          @error "Day abbreviation ':$day_abbr' not found as a column in shifts.csv."
          throw(ArgumentError("Day abbreviation ':$day_abbr' not found as a column in shifts.csv."))
     end
-    # Select rows where the depot matches and the column corresponding to the target day indicates the shift is active (e.g., contains 'x').
-    depot_shifts_df = filter(row -> row.depot == depot.depot_name && !ismissing(row[day_abbr]) && !isempty(string(row[day_abbr])), data.shifts_df)
-    if isempty(depot_shifts_df) && setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE
-        # Warning if no shifts are found, especially relevant when availability depends on shifts.
-        @warn "No shifts found for depot '$(depot.depot_name)' on $date ($day_abbr) in shifts.csv."
-    end
+    # Note: Individual day shift filtering is now handled within the 3-day processing loop for each setting
 
 
     busses = Bus[] # Initialize an empty vector to store the Bus objects.
@@ -90,13 +146,23 @@ function create_parameters(
         # This setting ignores actual vehicle constraints and focuses only on routing feasibility.
         num_dummy_buses = max(1, nrow(data.shifts_df)) # Use nrow for clarity
 
-        @info "Creating $(num_dummy_buses) dummy buses (Setting: NO_CAPACITY_CONSTRAINT)."
+        @info "Created $(num_dummy_buses) dummy buses (Setting: NO_CAPACITY_CONSTRAINT)."
+        @debug "Bus creation summary (NO_CAPACITY_CONSTRAINT):"
+        @debug "  Total buses: $(length(busses))"
+        @debug "  All buses have infinite capacity (1000.0) and cover full 3-day window"
         for i in 1:num_dummy_buses
+            bus_id = string(i)
+            capacity = 1000.0
+            shift_start = PREVIOUS_DAY_START
+            shift_end = NEXT_DAY_START + DAY_MINUTES - 1
+
+            @debug "Creating dummy bus: ID=$bus_id, Capacity=$capacity, Start=$shift_start, End=$shift_end, Depot=$(depot.depot_id)"
+
             bus = Bus(
-                string(i), # Simple numeric ID
-                1000.0,    # Very large capacity, effectively infinite
-                EFFECTIVE_START_TIME_BUFFER, # Start time buffer before target day midnight
-                latest_end_target_day, # Generic latest possible end time
+                bus_id, # Simple numeric ID
+                capacity,    # Very large capacity, effectively infinite
+                shift_start, # Start from beginning of 3-day window
+                shift_end, # End at end of 3-day window
                 depot.depot_id # Assign the current depot's ID
             )
             push!(busses, bus)
@@ -133,13 +199,20 @@ function create_parameters(
              for capacity in unique_capacities
                  # Create a unique ID combining a running counter, original shift ID, and capacity.
                  bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cap" * string(Int(capacity))
-                 @debug "Creating bus for shift $original_shift_id with capacity $capacity: $bus_id_str"
+                 shift_start = PREVIOUS_DAY_START
+                 shift_end = NEXT_DAY_START + DAY_MINUTES - 1
+
+                 @debug "Creating bus for shift $original_shift_id with capacity $capacity:"
+                 @debug "  Bus ID: $bus_id_str"
+                 @debug "  Capacity: $capacity"
+                 @debug "  Shift: $shift_start to $shift_end (generic times)"
+                 @debug "  Depot: $(depot.depot_id)"
 
                  bus = Bus(
                       bus_id_str,
                       capacity, # Assign the specific capacity
-                      EFFECTIVE_START_TIME_BUFFER, # Use generic start time buffer
-                      latest_end_target_day, # Use generic latest end time
+                      shift_start, # Start from beginning of 3-day window
+                      shift_end, # End at end of 3-day window
                       depot.depot_id # Assign the *current* depot's ID, even if shift was from another depot
                   )
                  push!(busses, bus)
@@ -147,12 +220,16 @@ function create_parameters(
              end
         end
         @info "Created $total_buses_created buses (multiple capacities per shift) with generic times for Setting: CAPACITY_CONSTRAINT."
+        @debug "Bus creation summary (CAPACITY_CONSTRAINT):"
+        @debug "  Total buses: $total_buses_created"
+        @debug "  Unique capacities: $(length(unique_capacities))"
+        @debug "  Capacities used: $unique_capacities"
+        @debug "  All buses use generic 3-day time window"
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
-        # Create buses considering shift times and vehicle capacities.
-        # Similar to CAPACITY_CONSTRAINT, it creates a bus for each shift *and* each unique global capacity.
-        # It handles shifts starting on the target day and shifts continuing from the previous day (overnight).
-        @info "Creating buses based on shifts (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS - Global Capacities)."
+        # Create buses considering shift times and vehicle capacities using 3-day extended time system.
+        # Creates a bus for each shift *and* each unique global capacity across 3 days.
+        @info "Creating buses based on shifts (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS - Global Capacities, 3-day system)."
 
         # --- Get unique capacities from all vehicles across all depots ---
         unique_capacities = Float64[]
@@ -163,114 +240,84 @@ function create_parameters(
             @warn "No vehicles found or 'seats' column missing in buses_df. Using fallback capacity: 3.0"
             unique_capacities = [3.0] # Fallback
         end
-        # --- End Get unique capacities ---
 
         total_buses_created = 0 # Counter for total buses generated
 
-        # --- 1. Process Shifts from Previous Day (Overnight Continuations) ---
-        previous_date = date - Day(1)
-        previous_day_abbr = get_day_abbr(previous_date)
-        @debug "Checking for overnight shifts from previous day ($previous_date, :$previous_day_abbr)..."
+        # Process relevant shifts: previous day (if extending to target) and target day
+        for day_offset in [-1, 0]
+            current_date = date + Day(day_offset)
+            day_abbr = get_day_abbr(current_date)
+            day_name = day_offset == -1 ? "previous" : "target"
 
-        # Check if the previous day's column exists in the shifts data.
-        if previous_day_abbr in Symbol.(names(data.shifts_df))
-            # Filter for shifts active on the previous day (across all depots).
-            previous_day_shifts_df = filter(row -> !ismissing(row[previous_day_abbr]) && !isempty(string(row[previous_day_abbr])), data.shifts_df)
-            @debug "Found $(nrow(previous_day_shifts_df)) shifts potentially active on previous day."
+            @debug "Processing $day_name day ($current_date, :$day_abbr)..."
 
-            for row in eachrow(previous_day_shifts_df)
-                # Calculate shift and end times in minutes from the start of the *previous* day.
-                shift_start_orig = time_string_to_minutes(string(row.shiftstart))
-                shift_end_orig = time_string_to_minutes(string(row.shiftend))
+            if day_abbr in Symbol.(names(data.shifts_df))
+                # Filter for shifts active on this day (across all depots)
+                day_shifts_df = filter(row -> !ismissing(row[day_abbr]) && !isempty(string(row[day_abbr])), data.shifts_df)
+                @debug "Found $(nrow(day_shifts_df)) shifts active on $day_name day across all depots"
 
-                # Adjust times if they cross midnight *relative to the previous day's start*.
-                # Add 1440 minutes (24 hours) to times that are earlier than the start time.
-                calculated_shift_end = shift_end_orig
-
-                if calculated_shift_end < shift_start_orig
-                    calculated_shift_end += 1440.0
-                end
-
-                # Check if the calculated end time (relative to previous day's midnight) extends beyond 1440 minutes (i.e., into the target day).
-                if calculated_shift_end >= 1440.0
+                for row in eachrow(day_shifts_df)
                     original_shift_id = string(row.shiftnr)
-                    @debug "Processing overnight shift continuation: $original_shift_id (Original End: $calculated_shift_end minutes from prev. midnight)"
 
-                    # --- Adjust times for the portion falling on the *target* day ---
-                    # The effective start on the target day is buffered.
-                    adj_start = EFFECTIVE_START_TIME_BUFFER
-                    # The end time on the target day is the original end time minus 1440 minutes.
-                    adj_end = calculated_shift_end - 1440.0
+                    @debug "Processing shift $original_shift_id on $day_name day (offset: $day_offset)"
 
-                    # --- Create a bus object for each unique *global* capacity ---
+                    # Convert times using extended 3-day system
+                    shift_start = time_string_to_minutes(string(row.shiftstart), day_offset)
+                    shift_end = time_string_to_minutes(string(row.shiftend), day_offset)
+
+                    @debug "  Raw times: $(row.shiftstart) → $(row.shiftend)"
+                    @debug "  Converted times: $shift_start → $shift_end minutes"
+
+                    # Handle shifts that cross midnight (end time < start time)
+                    if shift_end < shift_start
+                        @debug "  Shift crosses midnight, adding 24 hours to end time"
+                        shift_end += DAY_MINUTES # Add 24 hours to end time
+                        @debug "  Adjusted end time: $shift_end minutes"
+                    end
+
+                    # For previous day: only include shifts that extend into target day
+                    if day_offset == -1 && shift_end <= TARGET_DAY_START
+                        @debug "  ❌ Skipping previous day shift $original_shift_id - doesn't extend into target day (ends at $shift_end, target starts at $TARGET_DAY_START)"
+                        continue
+                    else
+                        @debug "  Shift $original_shift_id is relevant to target day operations"
+                    end
+
+                    # Create a bus object for each unique global capacity
                     for capacity in unique_capacities
-                        # Unique ID: counter_shiftnr_cont_cap<Capacity>
-                        bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cont_cap" * string(Int(capacity))
-                        @debug "Creating continuation bus for shift $original_shift_id with capacity $capacity: $bus_id_str"
+                        bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_day" * string(day_offset) * "_cap" * string(Int(capacity))
+
+                        @debug "Creating bus for shift $original_shift_id ($day_name day) with capacity $capacity:"
+                        @debug "  Bus ID: $bus_id_str"
+                        @debug "  Capacity: $capacity"
+                        @debug "  Shift: $shift_start to $shift_end minutes"
+                        @debug "  Day offset: $day_offset"
+                        @debug "  Depot: $(depot.depot_id)"
 
                         bus = Bus(
-                            bus_id_str, capacity, adj_start,
-                            adj_end, # Adjusted end time for target day
-                            depot.depot_id # Assign to the *current* depot
+                            bus_id_str, capacity, shift_start, shift_end, depot.depot_id
                         )
                         push!(busses, bus)
                         total_buses_created += 1
-                        @debug "  Target day times: Start=$(adj_start), End=$(adj_end), No breaks"
                     end
                 end
-            end
-        else
-            @warn "No column found for previous day :$previous_day_abbr in shifts.csv, cannot check for overnight shifts."
-        end
-
-        # --- 2. Process Shifts Starting on the Target Day ---
-        # These shifts begin on the target day, so use their actual start/end times relative to target day midnight.
-        target_day_abbr = get_day_abbr(date)
-        @debug "Checking for shifts starting on target day ($date, :$target_day_abbr)..."
-        # Filter for shifts active on the target day (across all depots).
-        target_day_all_shifts_df = filter(row -> !ismissing(row[target_day_abbr]) && !isempty(string(row[target_day_abbr])), data.shifts_df)
-        @debug "Found $(nrow(target_day_all_shifts_df)) shifts marked active on target day across all depots."
-
-        for row in eachrow(target_day_all_shifts_df)
-            original_shift_id = string(row.shiftnr)
-            @debug "Processing target day shift: $original_shift_id"
-
-            # Calculate times relative to target day's midnight.
-            shift_start = time_string_to_minutes(string(row.shiftstart)) # Actual start time today
-            shift_end = time_string_to_minutes(string(row.shiftend))
-
-            # Handle shifts that start today but end *after* today's midnight.
-            # Adjust end time if it crosses midnight relative to the shift's start time.
-            calculated_shift_end_today = shift_end
-            if calculated_shift_end_today < shift_start
-                calculated_shift_end_today += 1440.0 # Add 24 hours
-            end
-            # Note: calculated_shift_end_today might be > 1440, representing shifts ending early morning the *next* day.
-
-            # --- Create a bus object for each unique *global* capacity ---
-            for capacity in unique_capacities
-                # Unique ID: counter_shiftnr_cap<Capacity>
-                bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cap" * string(Int(capacity))
-                @debug "Creating bus for shift $original_shift_id with capacity $capacity: $bus_id_str"
-
-                bus = Bus(
-                    bus_id_str, capacity, shift_start,
-                    calculated_shift_end_today, # Potentially > 1440 end time
-                    depot.depot_id # Assign to the *current* depot
-                )
-                push!(busses, bus)
-                total_buses_created += 1
-                @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today)"
+            else
+                @debug "No column found for :$day_abbr in shifts.csv, skipping $day_name day."
             end
         end
-        @info "Created a total of $total_buses_created buses (multiple capacities per shift, including overnight) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS."
+        @info "Created a total of $total_buses_created buses (multiple capacities per relevant shifts) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS."
+        @debug "Bus creation summary (CAPACITY_CONSTRAINT_DRIVER_BREAKS):"
+        @debug "  Total buses: $total_buses_created"
+        @debug "  Unique capacities: $(length(unique_capacities))"
+        @debug "  Capacities used: $unique_capacities"
+        @debug "  Days processed: previous (-1) and target (0)"
+        @debug "  Previous day buses only created if extending into target day"
 
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE
-        # Create buses considering shift times and *depot-specific* vehicle capacities and availability.
-        # This is the most restrictive setting: it only creates buses based on shifts assigned to the *current* depot,
-        # and only considers vehicle capacities available *at that depot*.
-        @info "Creating buses based on depot-specific shifts and vehicle availability (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE)."
+        # Create buses considering shift times and *depot-specific* vehicle capacities using 3-day extended time system.
+        # Most restrictive setting: only uses shifts and vehicles assigned to the current depot.
+        @info "Creating buses based on depot-specific shifts and vehicle availability (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE, 3-day system)."
 
         # --- Get unique capacities for *this specific depot* ---
         unique_capacities = Float64[]
@@ -281,99 +328,79 @@ function create_parameters(
             @warn "No vehicles found for depot $(depot.depot_name) or 'seats' column missing. Using fallback capacity: 3.0"
             unique_capacities = [3.0] # Fallback
         end
-        # --- End Get unique capacities ---
 
-        @debug "Processing based on $(nrow(depot_shifts_df)) shifts found for depot $(depot.depot_name) on $date."
         total_buses_created = 0 # Counter for total buses
 
-        # --- 1. Process Shifts from Previous Day (Overnight Continuations for THIS DEPOT) ---
-        previous_date = date - Day(1)
-        previous_day_abbr = get_day_abbr(previous_date)
-        @debug "Checking for overnight shifts from previous day ($previous_date, :$previous_day_abbr) for depot $(depot.depot_name)..."
+        # Process relevant depot-specific shifts: previous day (if extending to target) and target day
+        for day_offset in [-1, 0]
+            current_date = date + Day(day_offset)
+            day_abbr = get_day_abbr(current_date)
+            day_name = day_offset == -1 ? "previous" : "target"
 
-        if previous_day_abbr in Symbol.(names(data.shifts_df))
-            # Filter shifts for *this depot* that were active on the *previous* day.
-            previous_day_depot_shifts_df = filter(row -> row.depot == depot.depot_name && !ismissing(row[previous_day_abbr]) && !isempty(string(row[previous_day_abbr])), data.shifts_df)
-            @debug "Found $(nrow(previous_day_depot_shifts_df)) shifts for this depot potentially active on previous day."
+            @debug "Processing $day_name day ($current_date, :$day_abbr) for depot $(depot.depot_name)..."
 
-            # --- This entire block is similar to the overnight processing in CAPACITY_CONSTRAINT_DRIVER_BREAKS ---
-            # --- The only differences are the input dataframe (`previous_day_depot_shifts_df`) and the `unique_capacities` used ---
-            for row in eachrow(previous_day_depot_shifts_df)
-                 # Calculate shift and end times in minutes from the start of the *previous* day.
-                 shift_start_orig = time_string_to_minutes(string(row.shiftstart))
-                 shift_end_orig = time_string_to_minutes(string(row.shiftend))
+            if day_abbr in Symbol.(names(data.shifts_df))
+                # Filter shifts for *this depot* on this day
+                day_depot_shifts_df = filter(row -> row.depot == depot.depot_name && !ismissing(row[day_abbr]) && !isempty(string(row[day_abbr])), data.shifts_df)
+                @debug "Found $(nrow(day_depot_shifts_df)) shifts for depot $(depot.depot_name) on $day_name day"
 
-                 # Adjust times if they cross midnight *relative to the previous day's start*.
-                 # Add 1440 minutes (24 hours) to times that are earlier than the start time.
-                 calculated_shift_end = shift_end_orig
-
-                 if calculated_shift_end < shift_start_orig
-                     calculated_shift_end += 1440.0
-                 end
-
-                if calculated_shift_end >= 1440.0
+                for row in eachrow(day_depot_shifts_df)
                     original_shift_id = string(row.shiftnr)
-                    @debug "Processing overnight shift continuation: $original_shift_id (Original End: $calculated_shift_end minutes from prev. midnight)"
 
-                    adj_start = EFFECTIVE_START_TIME_BUFFER
-                    adj_end = calculated_shift_end - 1440.0
+                    @debug "Processing depot-specific shift $original_shift_id on $day_name day (offset: $day_offset) for depot $(depot.depot_name)"
 
-                    # --- Create a bus object for each unique *depot-specific* capacity ---
-                    for capacity in unique_capacities # Uses capacities specific to this depot
-                         bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cont_cap" * string(Int(capacity))
-                         @debug "Creating continuation bus for shift $original_shift_id with capacity $capacity: $bus_id_str"
+                    # Convert times using extended 3-day system
+                    shift_start = time_string_to_minutes(string(row.shiftstart), day_offset)
+                    shift_end = time_string_to_minutes(string(row.shiftend), day_offset)
 
-                         bus = Bus(
-                             bus_id_str, capacity, adj_start,
-                             adj_end,
-                             depot.depot_id # Assign to this depot
-                         )
-                         push!(busses, bus)
-                         total_buses_created += 1
-                         @debug "  Target day times: Start=$(adj_start), End=$(adj_end)"
+                    @debug "  Raw times: $(row.shiftstart) → $(row.shiftend)"
+                    @debug "  Converted times: $shift_start → $shift_end minutes"
+
+                    # Handle shifts that cross midnight (end time < start time)
+                    if shift_end < shift_start
+                        @debug "  Shift crosses midnight, adding 24 hours to end time"
+                        shift_end += DAY_MINUTES # Add 24 hours to end time
+                        @debug "  Adjusted end time: $shift_end minutes"
+                    end
+
+                    # For previous day: only include shifts that extend into target day
+                    if day_offset == -1 && shift_end <= TARGET_DAY_START
+                        @debug "  ❌ Skipping previous day shift $original_shift_id - doesn't extend into target day (ends at $shift_end, target starts at $TARGET_DAY_START)"
+                        continue
+                    else
+                        @debug "  Shift $original_shift_id is relevant to target day operations for depot $(depot.depot_name)"
+                    end
+
+                    # Create a bus object for each unique depot-specific capacity
+                    for capacity in unique_capacities
+                        bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_day" * string(day_offset) * "_cap" * string(Int(capacity))
+
+                        @debug "Creating depot-specific bus for shift $original_shift_id ($day_name day):"
+                        @debug "  Bus ID: $bus_id_str"
+                        @debug "  Capacity: $capacity (depot-specific)"
+                        @debug "  Shift: $shift_start to $shift_end minutes"
+                        @debug "  Day offset: $day_offset"
+                        @debug "  Depot: $(depot.depot_name) (ID: $(depot.depot_id))"
+
+                        bus = Bus(
+                            bus_id_str, capacity, shift_start, shift_end, depot.depot_id
+                        )
+                        push!(busses, bus)
+                        total_buses_created += 1
                     end
                 end
+            else
+                @debug "No column found for :$day_abbr in shifts.csv, skipping $day_name day for depot $(depot.depot_name)."
             end
-        else
-             @warn "No column found for previous day :$previous_day_abbr in shifts.csv, cannot check for overnight shifts for depot $(depot.depot_name)."
         end
-
-        # --- 2. Process Shifts Starting on the Target Day (for THIS DEPOT) ---
-        target_day_abbr = get_day_abbr(date)
-        @debug "Checking for shifts starting on target day ($date, :$target_day_abbr) for depot $(depot.depot_name)..."
-        # Use the pre-filtered `depot_shifts_df` which contains only shifts for this depot active on the target day.
-        @debug "Found $(nrow(depot_shifts_df)) shifts active on target day for this depot."
-
-        # --- This entire block is similar to the target day processing in CAPACITY_CONSTRAINT_DRIVER_BREAKS ---
-        # --- The only differences are the input dataframe (`depot_shifts_df`) and the `unique_capacities` used ---
-        for row in eachrow(depot_shifts_df) # Iterate through shifts active today for this depot
-             original_shift_id = string(row.shiftnr)
-             @debug "Processing target day shift: $original_shift_id"
-
-             shift_start = time_string_to_minutes(string(row.shiftstart))
-             shift_end = time_string_to_minutes(string(row.shiftend))
-
-             calculated_shift_end_today = shift_end
-             if calculated_shift_end_today < shift_start
-                 calculated_shift_end_today += 1440.0
-             end
-
-             # --- Create a bus object for each unique *depot-specific* capacity ---
-             for capacity in unique_capacities # Uses capacities specific to this depot
-                 bus_id_str = string(total_buses_created) * "_" * original_shift_id * "_cap" * string(Int(capacity))
-                 @debug "Creating bus for shift $original_shift_id with capacity $capacity: $bus_id_str"
-
-                 bus = Bus(
-                     bus_id_str, capacity, shift_start,
-                     calculated_shift_end_today,
-                     depot.depot_id # Assign to this depot
-                 )
-                 push!(busses, bus)
-                 total_buses_created += 1
-                 @debug "  Times: Start=$(shift_start), End=$(calculated_shift_end_today)"
-             end
-        end
-        @info "Created a total of $total_buses_created buses (multiple capacities per shift for this depot, including overnight) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE."
+        @info "Created a total of $total_buses_created buses (depot-specific capacities per relevant shifts) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE."
+        @debug "Bus creation summary (CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE):"
+        @debug "  Total buses: $total_buses_created"
+        @debug "  Depot: $(depot.depot_name) (ID: $(depot.depot_id))"
+        @debug "  Depot-specific capacities: $(length(unique_capacities))"
+        @debug "  Capacities used: $unique_capacities"
+        @debug "  Days processed: previous (-1) and target (0)"
+        @debug "  Previous day buses only created if extending into target day"
 
     else
         # If the setting doesn't match any known case, throw an error.

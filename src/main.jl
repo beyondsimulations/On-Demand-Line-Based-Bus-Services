@@ -33,7 +33,7 @@ include("data/loader.jl")
 # Error: Shows only errors.
 
 logfile = open("output.log", "w")
-file_logger = SimpleLogger(logfile, Logging.Info)
+file_logger = SimpleLogger(logfile, Logging.Debug)
 console_logger = ConsoleLogger(stderr, Logging.Info)
 tee_logger = TeeLogger(file_logger, console_logger)
 global_logger(tee_logger)
