@@ -4,8 +4,10 @@ function solve_network_flow(parameters::ProblemParameters)
     elseif parameters.setting == CAPACITY_CONSTRAINT
         return solve_network_flow_capacity_constraint(parameters)
     elseif parameters.setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
+        @info "Using capacity constraint model with driver break requirements"
         return solve_network_flow_capacity_constraint(parameters)
     elseif parameters.setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE
+        @info "Using capacity constraint model with available driver break opportunities"
         return solve_network_flow_capacity_constraint(parameters)
     else
         throw(ArgumentError("Invalid setting: $(parameters.setting)"))
@@ -99,6 +101,141 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
     return solve_and_return_results(model, network, parameters)
 end
 
+function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vector{ModelArc}, routes::Vector{Route}, travel_times::Vector{TravelTime})
+    @info "Computing break opportunity sets for driver breaks..."
+    
+    # Create lookups
+    route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in routes)
+    travel_time_lookup = Dict((tt.start_stop, tt.end_stop) => tt.time for tt in travel_times if !tt.is_depot_travel)
+    
+    # Initialize break sets for each bus
+    phi_45 = Dict{String, Vector{ModelArc}}()
+    phi_15 = Dict{String, Vector{ModelArc}}()
+    phi_30 = Dict{String, Vector{ModelArc}}()
+    
+    for bus in buses
+        bus_id_str = string(bus.bus_id)
+        phi_45[bus_id_str] = ModelArc[]
+        phi_15[bus_id_str] = ModelArc[]
+        phi_30[bus_id_str] = ModelArc[]
+        
+        # Shift times are already in minutes (extended 3-day system)
+        shift_start = bus.shift_start
+        shift_end = bus.shift_end
+        
+        # Only process buses with shifts long enough to require breaks (>4.5h = 270min)
+        if (shift_end - shift_start) <= 270
+            continue
+        end
+        
+        # Check each inter-line arc for this bus
+        for arc in inter_line_arcs
+            if string(arc.bus_id) != bus_id_str
+                continue  # Not for this bus
+            end
+            
+            # Get route information for timing
+            start_route_key = (arc.arc_start.route_id, arc.arc_start.trip_id, arc.arc_start.trip_sequence)
+            end_route_key = (arc.arc_end.route_id, arc.arc_end.trip_id, arc.arc_end.trip_sequence)
+            
+            start_route = get(route_lookup, start_route_key, nothing)
+            end_route = get(route_lookup, end_route_key, nothing)
+            
+            if isnothing(start_route) || isnothing(end_route)
+                continue
+            end
+            
+            # Find stop positions and times
+            start_pos = findfirst(==(arc.arc_start.stop_sequence), start_route.stop_sequence)
+            end_pos = findfirst(==(arc.arc_end.stop_sequence), end_route.stop_sequence)
+            
+            if isnothing(start_pos) || isnothing(end_pos) || 
+               start_pos > length(start_route.stop_times) || end_pos > length(end_route.stop_times)
+                continue
+            end
+            
+            # Times are already in minutes (extended 3-day system)
+            start_time = start_route.stop_times[start_pos]
+            end_time = end_route.stop_times[end_pos]
+            
+            # Get precomputed travel time between stops
+            travel_time = get(travel_time_lookup, (arc.arc_start.id, arc.arc_end.id), Inf)
+            if travel_time == Inf
+                continue  # No travel time available
+            end
+            
+            # Calculate minimum required time for this inter-line transition
+            min_transition_time = travel_time
+            
+            # Available break time = actual time gap - minimum travel time
+            actual_time_gap = end_time - start_time
+            if actual_time_gap < min_transition_time
+                continue  # Not feasible
+            end
+            
+            # Check 45-minute break conditions (Φ_k^45)
+            if (start_time - shift_start <= 270) &&  # ≤ 4.5h from shift start
+               (shift_end - end_time <= 270) &&      # ≤ 4.5h to shift end
+               (actual_time_gap >= min_transition_time + 45)  # ≥ travel_time + 45min
+                push!(phi_45[bus_id_str], arc)
+            end
+            
+            # Check 15-minute break conditions (Φ_k^15) - first break
+            if (start_time - shift_start <= 180) &&  # ≤ 3.0h from shift start
+               (actual_time_gap >= min_transition_time + 15)  # ≥ travel_time + 15min
+                push!(phi_15[bus_id_str], arc)
+            end
+            
+            # Check 30-minute break conditions (Φ_k^30) - second break
+            if (start_time - shift_start >= 180) &&  # ≥ 3.0h from shift start
+               (start_time - shift_start <= 285) &&  # ≤ 4.75h from shift start
+               (shift_end - end_time <= 270) &&      # ≤ 4.5h to shift end
+               (actual_time_gap >= min_transition_time + 30)  # ≥ travel_time + 30min
+                push!(phi_30[bus_id_str], arc)
+            end
+        end
+    end
+    
+    # Log statistics with detailed breakdown
+    total_45 = sum(length(arcs) for arcs in values(phi_45))
+    total_15 = sum(length(arcs) for arcs in values(phi_15))
+    total_30 = sum(length(arcs) for arcs in values(phi_30))
+    @info "Break opportunities computed: 45-min=$total_45, 15-min=$total_15, 30-min=$total_30"
+    
+    # Debug: Check for buses with no break opportunities
+    buses_no_45 = sum(1 for (k, v) in phi_45 if isempty(v))
+    buses_no_15 = sum(1 for (k, v) in phi_15 if isempty(v))
+    buses_no_30 = sum(1 for (k, v) in phi_30 if isempty(v))
+    @info "Buses with no break opportunities: 45-min=$buses_no_45, 15-min=$buses_no_15, 30-min=$buses_no_30"
+    
+    # Detailed investigation of problematic buses
+    buses_no_breaks = [k for (k, v) in phi_45 if isempty(v)]
+    if !isempty(buses_no_breaks)
+        @warn "Investigating buses with no break opportunities:"
+        for bus_id_str in buses_no_breaks[1:min(5, length(buses_no_breaks))]  # Show first 5 for debugging
+            # Find the actual bus object
+            bus = nothing
+            for b in buses
+                if string(b.bus_id) == bus_id_str
+                    bus = b
+                    break
+                end
+            end
+            
+            if !isnothing(bus)
+                shift_duration = (bus.shift_end - bus.shift_start) / 60.0
+                @warn "  Bus $bus_id_str: shift $(bus.shift_start) to $(bus.shift_end) ($(shift_duration)h)"
+                
+                # Count inter-line arcs for this bus
+                inter_arcs_for_bus = count(arc -> string(arc.bus_id) == bus_id_str, inter_line_arcs)
+                @warn "    Inter-line arcs available: $inter_arcs_for_bus"
+            end
+        end
+    end
+    
+    return phi_45, phi_15, phi_30
+end
+
 function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     @info "Setting up network for capacity constraint model..."
     model = Model(parameters.optimizer_constructor)
@@ -118,6 +255,12 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     network = setup_network_flow(parameters)
 
     @info "Network setup complete. Building capacity constraint model..."
+
+    # Compute break opportunity sets for driver breaks (if applicable)
+    phi_45, phi_15, phi_30 = Dict{String, Vector{ModelArc}}(), Dict{String, Vector{ModelArc}}(), Dict{String, Vector{ModelArc}}()
+    if parameters.setting in [CAPACITY_CONSTRAINT_DRIVER_BREAKS, CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE]
+        phi_45, phi_15, phi_30 = compute_break_opportunity_sets(parameters.buses, network.inter_line_arcs, parameters.routes, parameters.travel_times)
+    end
 
     @info "Problem type: $(parameters.problem_type)"
 
@@ -193,6 +336,18 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     @info "Creating variables..."
     # Use the pre-computed arc list which contains all arc types
     @variable(model, x[network.arcs], Bin)
+    
+    # Driver break pattern selection variable (if driver breaks are enabled)
+    # z[k] = 1 if bus k uses single 45-min break, 0 if split 15+30-min breaks
+    z = nothing
+    if parameters.setting in [CAPACITY_CONSTRAINT_DRIVER_BREAKS, CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE]
+        # Only create variables for buses with shifts long enough to require breaks (>4.5h)
+        buses_requiring_breaks = [string(b.bus_id) for b in parameters.buses if (b.shift_end - b.shift_start) > 270]
+        if !isempty(buses_requiring_breaks)
+            @variable(model, z[buses_requiring_breaks], Bin)
+            @info "Created break pattern variables for $(length(buses_requiring_breaks)) buses requiring breaks."
+        end
+    end
     @info "Variables created."
 
     # Objective: Minimize total number of buses used
@@ -457,6 +612,58 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     end
     @info "Added $constraint_6_count vehicle count constraints."
     # --- End NEW Constraint 6 ---
+
+    # --- Driver Break Constraints (C71-C73) ---
+    if parameters.setting in [CAPACITY_CONSTRAINT_DRIVER_BREAKS, CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE] && !isnothing(z)
+        @info "Creating driver break constraints..."
+        constraint_break_count = 0
+        
+        for bus in parameters.buses
+            bus_id_str = string(bus.bus_id)
+            
+            # Skip buses with shifts too short to require breaks
+            if (bus.shift_end - bus.shift_start) <= 270
+                continue
+            end
+            
+            # Skip if this bus doesn't have break pattern variable (shouldn't happen)
+            if !(bus_id_str in axes(z, 1))
+                continue
+            end
+            
+            # Find depot start arcs for this bus (needed for conditional constraints)
+            bus_depot_arcs = get(depot_start_by_bus, bus_id_str, ModelArc[])
+            
+            # Add conditional break constraints - only apply when bus is actually used
+            # The sum of depot start arcs naturally indicates bus usage (0 or 1)
+            
+            # Constraint C71: Single 45-minute break enforcement (conditional)
+            # ∑ x[φ45] ≥ z_k * ∑ x[depot_start_arcs_for_bus_k]
+            @constraint(model, 
+                sum(x[arc] for arc in get(phi_45, bus_id_str, ModelArc[])) >= 
+                z[bus_id_str] * sum(x[arc] for arc in bus_depot_arcs))
+            constraint_break_count += 1
+            
+            # Constraint C72: First split break (15-minute) enforcement (conditional)
+            # ∑ x[φ15] ≥ (1-z_k) * ∑ x[depot_start_arcs_for_bus_k]  
+            @constraint(model, 
+                sum(x[arc] for arc in get(phi_15, bus_id_str, ModelArc[])) >= 
+                (1 - z[bus_id_str]) * sum(x[arc] for arc in bus_depot_arcs))
+            constraint_break_count += 1
+            
+            # Constraint C73: Second split break (30-minute) enforcement (conditional)
+            # ∑ x[φ30] ≥ (1-z_k) * ∑ x[depot_start_arcs_for_bus_k]
+            @constraint(model, 
+                sum(x[arc] for arc in get(phi_30, bus_id_str, ModelArc[])) >= 
+                (1 - z[bus_id_str]) * sum(x[arc] for arc in bus_depot_arcs))
+            constraint_break_count += 1
+        end
+        
+        buses_requiring_breaks = length([b for b in parameters.buses if (b.shift_end - b.shift_start) > 270])
+        @info "Added $constraint_break_count driver break constraints for $buses_requiring_breaks buses requiring breaks."
+        @info "Break constraints are conditional - only enforced when buses are actually used in the solution."
+    end
+    # --- End Driver Break Constraints ---
 
     @info "Model building complete."
     return solve_and_return_results(model, network, parameters, parameters.buses)
