@@ -483,6 +483,19 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
     return line_arcs
 end
 
+# Helper function to determine break duration based on available slack time
+function _calculate_break_duration(available_time::Float64)::Float64
+    if available_time >= 45.0
+        return 45.0
+    elseif available_time >= 30.0
+        return 30.0
+    elseif available_time >= 15.0
+        return 15.0
+    else
+        return 0.0
+    end
+end
+
 function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::Vector{Route}, shift_end::Float64, bus_shift_start::Float64, travel_times::Vector{TravelTime}, depot::Depot)
     # Create travel time lookup: (start_stop_id, end_stop_id) -> time
     @info "Creating travel time lookup for depot arcs..."
@@ -539,12 +552,19 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
         first_stop_id = route.stop_ids[section_start_pos]
         last_stop_id = route.stop_ids[section_end_pos]
 
-        # Check temporal feasibility for depot start arc
+        # Check temporal feasibility for depot start arc with break opportunities
         depot_to_start_time = get(travel_time_lookup, (depot_id, first_stop_id), Inf)
         if depot_to_start_time == Inf
              @warn "  Warning: Missing travel time from Depot $depot_id to Stop $first_stop_id (Route $route_id, Trip $trip_id, TripSequence $trip_sequence). Skipping start arc."
              skipped_time_lookup += 1
-        elseif bus_shift_start + depot_to_start_time <= start_stop_time
+        else
+            # Calculate available slack time for breaks
+            available_time = start_stop_time - bus_shift_start - depot_to_start_time
+            break_duration = _calculate_break_duration(available_time)
+
+            # Check if arc is feasible with break included
+            total_arc_time = depot_to_start_time + break_duration
+            if bus_shift_start + total_arc_time <= start_stop_time
                 push!(depot_start_arcs, ModelArc(
                 # Depot is represented by stop_sequence 0 for the specific route/trip
                 ModelStation(depot_id, route_id, trip_id, trip_sequence, 0),
@@ -555,19 +575,27 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
                 0,      # Demand value not relevant
                     "depot-start-arc"
                 ))
-        else # Added else block for debugging
-            @info "  Info: Skipping depot start arc for Route=$route_id, Trip=$trip_id, TripSequence=$trip_sequence, StartStop=$first_stop_id. Reason: Start time ($start_stop_time) < Travel time from depot ($depot_to_start_time)."
+            else
+                @info "  Info: Skipping depot start arc for Route=$route_id, Trip=$trip_id, TripSequence=$trip_sequence, StartStop=$first_stop_id. Reason: Insufficient time for travel + break. Required: $(total_arc_time), Available: $(start_stop_time - bus_shift_start)."
+            end
         end
 
-        # Check temporal feasibility for depot end arc
+        # Check temporal feasibility for depot end arc with break opportunities
         end_to_depot_time = get(travel_time_lookup, (last_stop_id, depot_id), Inf)
          if end_to_depot_time == Inf
-             @warn "  Warning: Missing travel time from Stop $last_stop_id to Depot $depot_id (Route $route_id, Trip $stop_sequence). Skipping end arc."
+             @warn "  Warning: Missing travel time from Stop $last_stop_id to Depot $depot_id (Route $route_id, Trip $trip_id, TripSequence $trip_sequence). Skipping end arc."
               # Avoid double counting skip if start was also skipped
              if depot_to_start_time != Inf # Only count skip if start time was found
                  skipped_time_lookup += 1
              end
-         elseif end_stop_time + end_to_depot_time <= shift_end
+         else
+            # Calculate available slack time for breaks
+            available_time = shift_end - end_stop_time - end_to_depot_time
+            break_duration = _calculate_break_duration(available_time)
+
+            # Check if arc is feasible with break included
+            total_arc_time = end_to_depot_time + break_duration
+            if end_stop_time + total_arc_time <= shift_end
                 push!(depot_end_arcs, ModelArc(
                 # Connects from the actual end position of the arc's section
                 ModelStation(last_stop_id, route_id, trip_id, trip_sequence, section_end_pos),
@@ -580,6 +608,7 @@ function add_depot_arcs_no_capacity_constraint!(arcs::Vector{ModelArc}, routes::
                 ))
             end
         end
+    end # End main arc processing loop
     @info "Finished processing arcs. Total: $processed_count, Skipped (Route Lookup): $skipped_route_lookup, Skipped (Stop Index): $skipped_stop_index, Skipped (Time Lookup): $skipped_time_lookup"
     @info "Generated $(length(depot_start_arcs)) depot start arcs and $(length(depot_end_arcs)) depot end arcs."
 
@@ -644,7 +673,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         start_time = route.stop_times[start_pos]
         end_time = route.stop_times[end_pos]
 
-        # --- Check Depot Start Arc Feasibility ---
+        # --- Check Depot Start Arc Feasibility with Break Opportunities ---
         depot_to_start_tt = get(travel_time_lookup, (depot_id, start_stop_id), Inf)
         start_feasible = true
         skip_reason = "" # Variable to store reason
@@ -654,10 +683,17 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             skipped_time_lookup += 1
             start_feasible = false
             skip_reason = "Missing travel time"
-        elseif !(bus.shift_start + depot_to_start_tt <= start_time)
-            start_feasible = false
-            skip_reason = "Shift Start ($(bus.shift_start)) + TT ($(depot_to_start_tt)) > Stop Start Time ($(start_time))"
+        else
+            # Calculate available slack time for breaks
+            available_time = start_time - bus.shift_start - depot_to_start_tt
+            break_duration = _calculate_break_duration(available_time)
 
+            # Check if arc is feasible with break included
+            total_arc_time = depot_to_start_tt + break_duration
+            if !(bus.shift_start + total_arc_time <= start_time)
+                start_feasible = false
+                skip_reason = "Shift Start ($(bus.shift_start)) + Travel + Break ($(total_arc_time)) > Stop Start Time ($(start_time))"
+            end
         end
 
         if start_feasible
@@ -675,7 +711,7 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
 
         end
 
-        # --- Check Depot End Arc Feasibility ---
+        # --- Check Depot End Arc Feasibility with Break Opportunities ---
         end_to_depot_tt = get(travel_time_lookup, (end_stop_id, depot_id), Inf)
         end_feasible = true
         skip_reason = "" # Reset reason
@@ -688,10 +724,17 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             end
             end_feasible = false
             skip_reason = "Missing travel time"
-        elseif !(end_time + end_to_depot_tt <= bus.shift_end)
-            end_feasible = false
-            skip_reason = "Stop End Time ($(end_time)) + TT ($(end_to_depot_tt)) > Shift End ($(bus.shift_end))"
+        else
+            # Calculate available slack time for breaks
+            available_time = bus.shift_end - end_time - end_to_depot_tt
+            break_duration = _calculate_break_duration(available_time)
 
+            # Check if arc is feasible with break included
+            total_arc_time = end_to_depot_tt + break_duration
+            if !(end_time + total_arc_time <= bus.shift_end)
+                end_feasible = false
+                skip_reason = "Stop End Time ($(end_time)) + Travel + Break ($(total_arc_time)) > Shift End ($(bus.shift_end))"
+            end
         end
 
         if end_feasible

@@ -191,7 +191,7 @@ function _compute_break_opportunities_if_needed(parameters::ProblemParameters, n
 
     if parameters.setting in [CAPACITY_CONSTRAINT_DRIVER_BREAKS, CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE]
         phi_45, phi_15, phi_30 = compute_break_opportunity_sets(
-            parameters.buses, network.inter_line_arcs, parameters.routes, parameters.travel_times
+            parameters.buses, network.inter_line_arcs, network.depot_start_arcs, network.depot_end_arcs, parameters.routes, parameters.travel_times
         )
     end
 
@@ -721,12 +721,12 @@ Returns three dictionaries mapping bus_id to eligible arcs for:
 - phi_15: 15-minute break opportunities (first break)
 - phi_30: 30-minute break opportunities (second break)
 """
-function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vector{ModelArc}, routes::Vector{Route}, travel_times::Vector{TravelTime})
-    @info "Computing break opportunity sets for driver breaks..."
+function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vector{ModelArc}, depot_start_arcs::Vector{ModelArc}, depot_end_arcs::Vector{ModelArc}, routes::Vector{Route}, travel_times::Vector{TravelTime})
+    @info "Computing break opportunity sets for driver breaks (including depot arcs)..."
 
     # Create lookups
     route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in routes)
-    travel_time_lookup = Dict((tt.start_stop, tt.end_stop) => tt.time for tt in travel_times if !tt.is_depot_travel)
+    travel_time_lookup = Dict((tt.start_stop, tt.end_stop) => tt.time for tt in travel_times)
 
     # Initialize break sets for each bus
     phi_45 = Dict{String, Vector{ModelArc}}()
@@ -746,6 +746,113 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
         # Only process buses with shifts long enough to require breaks (>4.5h = 270min)
         if (shift_end - shift_start) <= 270
             continue
+        end
+
+        # Helper function to calculate break duration based on available time
+        function calculate_depot_break_duration(available_time::Float64)::Float64
+            if available_time >= 45.0
+                return 45.0
+            elseif available_time >= 30.0
+                return 30.0
+            elseif available_time >= 15.0
+                return 15.0
+            else
+                return 0.0
+            end
+        end
+
+        # Process depot start arcs for break opportunities
+        for arc in depot_start_arcs
+            if string(arc.bus_id) != bus_id_str
+                continue  # Not for this bus
+            end
+
+            # Get route information for timing
+            route_key = (arc.arc_end.route_id, arc.arc_end.trip_id, arc.arc_end.trip_sequence)
+            route = get(route_lookup, route_key, nothing)
+            if isnothing(route)
+                continue
+            end
+
+            # Get timing information
+            route_start_time = route.stop_times[arc.arc_end.stop_sequence]
+
+            # Calculate available time for breaks
+            travel_time = get(travel_time_lookup, (arc.arc_start.id, arc.arc_end.id), Inf)
+            if travel_time == Inf
+                continue
+            end
+
+            available_time = route_start_time - shift_start - travel_time
+            break_duration = calculate_depot_break_duration(available_time)
+
+            if break_duration > 0
+                # Check break conditions based on duration and timing
+                if break_duration >= 45.0 &&
+                   (route_start_time - shift_start <= 270) &&
+                   (shift_end - route_start_time <= 270)
+                    push!(phi_45[bus_id_str], arc)
+                end
+
+                if break_duration >= 15.0 &&
+                   (route_start_time - shift_start <= 150)
+                    push!(phi_15[bus_id_str], arc)
+                end
+
+                if break_duration >= 30.0 &&
+                   (route_start_time - shift_start >= 150) &&
+                   (route_start_time - shift_start <= 285) &&
+                   (shift_end - route_start_time <= 270)
+                    push!(phi_30[bus_id_str], arc)
+                end
+            end
+        end
+
+        # Process depot end arcs for break opportunities
+        for arc in depot_end_arcs
+            if string(arc.bus_id) != bus_id_str
+                continue  # Not for this bus
+            end
+
+            # Get route information for timing
+            route_key = (arc.arc_start.route_id, arc.arc_start.trip_id, arc.arc_start.trip_sequence)
+            route = get(route_lookup, route_key, nothing)
+            if isnothing(route)
+                continue
+            end
+
+            # Get timing information
+            route_end_time = route.stop_times[arc.arc_start.stop_sequence]
+
+            # Calculate available time for breaks
+            travel_time = get(travel_time_lookup, (arc.arc_start.id, arc.arc_end.id), Inf)
+            if travel_time == Inf
+                continue
+            end
+
+            available_time = shift_end - route_end_time - travel_time
+            break_duration = calculate_depot_break_duration(available_time)
+
+            if break_duration > 0
+                # Check break conditions based on duration and timing
+                if break_duration >= 45.0 &&
+                   (route_end_time - shift_start <= 270) &&
+                   (shift_end - route_end_time <= 270)
+                    push!(phi_45[bus_id_str], arc)
+                end
+
+                if break_duration >= 15.0 &&
+                   (route_end_time - shift_start <= 150)
+                    push!(phi_15[bus_id_str], arc)
+                end
+
+                if break_duration >= 30.0 &&
+                   (route_end_time - shift_start >= 150) &&
+                   (route_end_time - shift_start <= 285) &&
+                   (shift_end - route_end_time <= 270)
+                    push!(phi_30[bus_id_str], arc)
+                end
+            end
         end
 
         # Check each inter-line arc for this bus
@@ -820,7 +927,13 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
     total_45 = sum(length(arcs) for arcs in values(phi_45))
     total_15 = sum(length(arcs) for arcs in values(phi_15))
     total_30 = sum(length(arcs) for arcs in values(phi_30))
-    @info "Break opportunities computed: 45-min=$total_45, 15-min=$total_15, 30-min=$total_30"
+
+    # Count depot arc break opportunities separately
+    depot_45 = sum(count(arc -> arc.kind in ["depot-start-arc", "depot-end-arc"], arcs) for arcs in values(phi_45))
+    depot_15 = sum(count(arc -> arc.kind in ["depot-start-arc", "depot-end-arc"], arcs) for arcs in values(phi_15))
+    depot_30 = sum(count(arc -> arc.kind in ["depot-start-arc", "depot-end-arc"], arcs) for arcs in values(phi_30))
+
+    @info "Break opportunities computed: 45-min=$total_45 (depot: $depot_45), 15-min=$total_15 (depot: $depot_15), 30-min=$total_30 (depot: $depot_30)"
 
     # Debug: Check for buses with no break opportunities
     buses_no_45 = sum(1 for (k, v) in phi_45 if isempty(v))
