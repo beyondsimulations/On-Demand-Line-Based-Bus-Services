@@ -69,7 +69,7 @@ if !(solver_choice in valid_solvers)
 end
 
 # Read version from environment variable, default to "v2"
-version = get(ENV, "JULIA_SCRIPT_VERSION", "v4")
+version = get(ENV, "JULIA_SCRIPT_VERSION", "v2")
 @info "Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")"
 
 # Validate the version
