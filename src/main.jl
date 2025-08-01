@@ -24,6 +24,7 @@ include("utils/create_parameters.jl")
 include("models/model_setups.jl")
 include("models/network_flow.jl")
 include("models/solve_models.jl")
+include("models/solution_logger.jl")
 include("data/loader.jl")
 
 # Set the desired logging level. Options: Debug, Info, Warn, Error
@@ -32,7 +33,7 @@ include("data/loader.jl")
 # Warn: Shows warnings and errors.
 # Error: Shows only errors.
 
-logfile = open("output.log", "w")
+logfile = open("logs/output.log", "w")
 file_logger = SimpleLogger(logfile, Logging.Debug)
 console_logger = ConsoleLogger(stderr, Logging.Info)
 tee_logger = TeeLogger(file_logger, console_logger)

@@ -64,7 +64,21 @@ function solve_network_flow_no_capacity_constraint(parameters::ProblemParameters
     _add_service_coverage_constraints_simple!(model, network, x)
 
     @info "Model building complete."
-    return solve_and_return_results(model, network, parameters)
+
+    # Solve the model and get results
+    solution = solve_and_return_results(model, network, parameters)
+
+    # Log comprehensive bus operations analysis (no break opportunities for this setting)
+    if solution.status == :Optimal || !isnothing(solution.buses)
+        @info "Generating comprehensive bus operations analysis..."
+        # No break patterns for no-capacity constraint setting
+        break_patterns = Dict{String, String}()
+        log_complete_solution_analysis(solution, parameters, Dict{String, Vector{ModelArc}}(),
+                                     Dict{String, Vector{ModelArc}}(), Dict{String, Vector{ModelArc}}(),
+                                     break_patterns)
+    end
+
+    return solution
 end
 
 # =============================================================================
@@ -152,7 +166,41 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     _add_driver_break_constraints!(model, parameters, lookups, phi_45, phi_15, phi_30, x, z)
 
     @info "Model building complete."
-    return solve_and_return_results(model, network, parameters, parameters.buses)
+
+    # Solve the model and get results
+    solution = solve_and_return_results(model, network, parameters, parameters.buses)
+
+    # Extract break pattern decisions from z variable if available
+    break_patterns = Dict{String, String}()
+    if !isnothing(z) && (solution.status == :Optimal || primal_status(model) == MOI.FEASIBLE_POINT)
+        try
+            for bus in parameters.buses
+                bus_id_str = string(bus.bus_id)
+                try
+                    z_value = value(z[bus_id_str])
+                    if z_value > 0.5
+                        break_patterns[bus_id_str] = "Single 45-minute break (z=1)"
+                    else
+                        break_patterns[bus_id_str] = "Split breaks: 15+30 minutes (z=0)"
+                    end
+                catch BoundsError
+                    # Bus not in z variable container (likely doesn't require breaks)
+                    continue
+                end
+            end
+            @info "Extracted break patterns for $(length(break_patterns)) buses"
+        catch e
+            @warn "Could not extract break patterns from z variable: $e"
+        end
+    end
+
+    # Log comprehensive bus operations analysis
+    if solution.status == :Optimal || !isnothing(solution.buses)
+        @info "Generating comprehensive bus operations analysis..."
+        log_complete_solution_analysis(solution, parameters, phi_45, phi_15, phi_30, break_patterns)
+    end
+
+    return solution
 end
 
 # =============================================================================
