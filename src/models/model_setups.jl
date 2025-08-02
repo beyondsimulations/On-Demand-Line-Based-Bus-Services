@@ -390,6 +390,11 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
     # Pre-build a lookup for routes for efficiency
     route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in routes)
 
+    @debug "Route lookup contains $(length(route_lookup)) entries"
+    if length(route_lookup) <= 20  # Only show if reasonable number
+        @debug "Available route keys: $(collect(keys(route_lookup)))"
+    end
+
     for demand in passenger_demands
         processed_demands += 1
         route_key = (demand.origin.route_id, demand.origin.trip_id, demand.origin.trip_sequence)
@@ -397,6 +402,7 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
         # Find the corresponding route
         if !haskey(route_lookup, route_key)
             @warn "  Warning: Cannot find route for Demand ID $(demand.demand_id) (Route $(demand.origin.route_id), Trip $(demand.origin.trip_id), TripSequence $(demand.origin.trip_sequence)). Skipping demand."
+            @debug "  Available route keys with same route_id $(demand.origin.route_id): $(filter(k -> k[1] == demand.origin.route_id, collect(keys(route_lookup))))"
             skipped_route_lookup += 1
             continue
         end
@@ -424,10 +430,25 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
 
         # Check feasibility for each bus
         bus_found_for_demand = false # Flag to check if *any* bus could serve this demand
+        overnight_buses_checked = 0
         for bus in buses
+            # Track overnight buses for debugging
+            is_overnight_bus = contains(bus.bus_id, "day-1")
+            if is_overnight_bus
+                overnight_buses_checked += 1
+                @debug "  Checking overnight bus $(bus.bus_id) for demand $(demand.demand_id): shift $(bus.shift_start) to $(bus.shift_end), demand $(demand_origin_time) to $(demand_dest_time)"
+            end
+
             # Basic shift window check
             if demand_origin_time < bus.shift_start || demand_dest_time > bus.shift_end
+                if is_overnight_bus
+                    @debug "    ❌ Overnight bus $(bus.bus_id) cannot serve demand $(demand.demand_id): time window mismatch"
+                end
                 continue # Bus shift doesn't cover this demand segment
+            end
+
+            if is_overnight_bus
+                @debug "    ✅ Overnight bus $(bus.bus_id) CAN serve demand $(demand.demand_id): creating line arc"
             end
 
 
@@ -448,7 +469,10 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
 
         # If no bus was found feasible for this demand, add it to the list
         if !bus_found_for_demand && !isempty(buses)
-             push!(unservable_demands, demand)
+            if overnight_buses_checked > 0
+                @debug "  ❌ Demand $(demand.demand_id) unservable despite $(overnight_buses_checked) overnight buses checked"
+            end
+            push!(unservable_demands, demand)
         elseif isempty(buses)
              # Technically unservable, but should be handled by the check below
              push!(unservable_demands, demand)
@@ -640,13 +664,26 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         processed_line_arcs += 1
         bus_id_str = arc.bus_id # Bus ID is likely a string from create_parameters
 
+        # Debug overnight buses
+        is_overnight_bus = contains(bus_id_str, "day-1")
+        if is_overnight_bus
+            @debug "  Processing depot arcs for overnight bus $bus_id_str, line arc $(arc.demand_id)"
+        end
+
         # Find the bus
         if !haskey(bus_lookup, bus_id_str)
             @warn "  Warning: Cannot find bus with ID '$bus_id_str' for line arc $(arc.demand_id). Skipping depot arcs."
+            if is_overnight_bus
+                @debug "    ❌ Overnight bus $bus_id_str not found in bus lookup"
+            end
             skipped_bus_lookup += 1
             continue
         end
         bus = bus_lookup[bus_id_str]
+
+        if is_overnight_bus
+            @debug "    Found overnight bus: shift $(bus.shift_start) to $(bus.shift_end)"
+        end
 
         # Find the route using the correct key structure
         route_key = (arc.arc_start.route_id, arc.arc_start.trip_id, arc.arc_start.trip_sequence)
@@ -678,8 +715,16 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         start_feasible = true
         skip_reason = "" # Variable to store reason
 
+        if is_overnight_bus
+            @debug "    Checking depot start arc: depot $depot_id -> stop $start_stop_id, travel_time $depot_to_start_tt"
+            @debug "    Start time: $start_time, bus shift start: $(bus.shift_start)"
+        end
+
         if depot_to_start_tt == Inf
             @warn "  Warning: Missing travel time Depot $depot_id -> Stop $start_stop_id for bus $bus_id_str, arc $(arc.demand_id)."
+            if is_overnight_bus
+                @debug "    ❌ Overnight bus $bus_id_str: missing travel time for depot start arc"
+            end
             skipped_time_lookup += 1
             start_feasible = false
             skip_reason = "Missing travel time"
@@ -693,22 +738,34 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             if !(bus.shift_start + total_arc_time <= start_time)
                 start_feasible = false
                 skip_reason = "Shift Start ($(bus.shift_start)) + Travel + Break ($(total_arc_time)) > Stop Start Time ($(start_time))"
+                if is_overnight_bus
+                    @debug "    ❌ Overnight bus $bus_id_str depot start arc infeasible: $skip_reason"
+                end
+            else
+                if is_overnight_bus
+                    @debug "    ✅ Overnight bus $bus_id_str depot start arc feasible: $(bus.shift_start) + $total_arc_time <= $start_time"
+                end
             end
         end
 
         if start_feasible
-        push!(depot_start_arcs, ModelArc(
+            push!(depot_start_arcs, ModelArc(
                 ModelStation(depot_id, route.route_id, route.trip_id, route.trip_sequence, 0), # Depot node
                 ModelStation(start_stop_id, route.route_id, route.trip_id, route.trip_sequence, start_pos), # Connects to line arc start
                 bus.bus_id,
                 (0, arc.demand_id[1]), # Link demand ID if needed
-            0,
-            "depot-start-arc"
-        ))
+                0,
+                "depot-start-arc"
+            ))
             start_arcs_created += 1
+            if is_overnight_bus
+                @debug "    ✅ Created depot start arc for overnight bus $bus_id_str"
+            end
         else
-             skipped_feasibility += 1 # Count skips due to any feasibility issue for start
-
+            skipped_feasibility += 1 # Count skips due to any feasibility issue for start
+            if is_overnight_bus
+                @debug "    ❌ Skipped depot start arc for overnight bus $bus_id_str: $skip_reason"
+            end
         end
 
         # --- Check Depot End Arc Feasibility with Break Opportunities ---
@@ -716,8 +773,16 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
         end_feasible = true
         skip_reason = "" # Reset reason
 
+        if is_overnight_bus
+            @debug "    Checking depot end arc: stop $end_stop_id -> depot $depot_id, travel_time $end_to_depot_tt"
+            @debug "    End time: $end_time, bus shift end: $(bus.shift_end)"
+        end
+
         if end_to_depot_tt == Inf
             @warn "  Warning: Missing travel time Stop $end_stop_id -> Depot $depot_id for bus $bus_id_str, arc $(arc.demand_id)."
+            if is_overnight_bus
+                @debug "    ❌ Overnight bus $bus_id_str: missing travel time for depot end arc"
+            end
              # Avoid double counting skip if start was also skipped for time
             if start_feasible && depot_to_start_tt != Inf # Count if start wasn't skipped for time
                  skipped_time_lookup += 1
@@ -734,23 +799,35 @@ function add_depot_arcs_capacity_constraint!(line_arcs::Vector{ModelArc}, routes
             if !(end_time + total_arc_time <= bus.shift_end)
                 end_feasible = false
                 skip_reason = "Stop End Time ($(end_time)) + Travel + Break ($(total_arc_time)) > Shift End ($(bus.shift_end))"
+                if is_overnight_bus
+                    @debug "    ❌ Overnight bus $bus_id_str depot end arc infeasible: $skip_reason"
+                end
+            else
+                if is_overnight_bus
+                    @debug "    ✅ Overnight bus $bus_id_str depot end arc feasible: $end_time + $total_arc_time <= $(bus.shift_end)"
+                end
             end
         end
 
         if end_feasible
-        push!(depot_end_arcs, ModelArc(
+            push!(depot_end_arcs, ModelArc(
                 ModelStation(end_stop_id, route.route_id, route.trip_id, route.trip_sequence, end_pos), # Connects from line arc end
                 ModelStation(depot_id, route.route_id, route.trip_id, route.trip_sequence, 0), # Depot node
                 bus.bus_id,
                 (arc.demand_id[1], 0), # Link demand ID if needed
-            0,
-            "depot-end-arc"
-        ))
+                0,
+                "depot-end-arc"
+            ))
             end_arcs_created += 1
+            if is_overnight_bus
+                @debug "    ✅ Created depot end arc for overnight bus $bus_id_str"
+            end
         elseif start_feasible # Only count skip if start arc was feasible
             skipped_feasibility += 1 # Count skips due to end feasibility issue
-
-    end
+            if is_overnight_bus
+                @debug "    ❌ Skipped depot end arc for overnight bus $bus_id_str: $skip_reason"
+            end
+        end
 
     end # End line_arc loop
 

@@ -838,7 +838,6 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
             if break_duration > 0
                 # Check break conditions based on duration and timing
                 if break_duration >= 45.0 &&
-                   (route_start_time - shift_start <= 270) &&
                    (route_start_time - shift_start >= 180) &&
                    (shift_end - (route_start_time + 45) <= 270)
                     push!(phi_45[bus_id_str], arc)
@@ -846,7 +845,6 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
 
                 if break_duration >= 30.0 &&
                    (route_start_time - shift_start >= 180) &&
-                   (route_start_time - shift_start <= 285) &&
                    (shift_end - (route_start_time + 30) <= 270)
                     push!(phi_30[bus_id_str], arc)
                 end
@@ -886,26 +884,21 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
             break_duration = calculate_depot_break_duration(available_time)
 
             if break_duration > 0
-                # Check break conditions based on duration and timing
+                # Check break conditions for depot end arcs (no more driving after depot)
+                # 45-min break: must start within 4.5h, no time-remaining constraints
                 if break_duration >= 45.0 &&
-                    (route_start_time - shift_start <= 270) &&
-                    (route_start_time - shift_start >= 180) &&
-                    (shift_end - (route_start_time + 45) <= 270)
+                    (route_start_time - shift_start <= 270)
                     push!(phi_45[bus_id_str], arc)
                 end
 
+                # 30-min break: must start within 4.75h and after 3h, no time-remaining constraints
                 if break_duration >= 30.0 &&
                     (route_start_time - shift_start >= 180) &&
-                    (route_start_time - shift_start <= 285) &&
-                    (shift_end - (route_start_time + 30) <= 270)
+                    (route_start_time - shift_start <= 285)
                     push!(phi_30[bus_id_str], arc)
                 end
 
-                if break_duration >= 15.0 &&
-                    (route_end_time - shift_start < 180) &&
-                    (route_start_time - shift_start >= 90)
-                    push!(phi_15[bus_id_str], arc)
-                end
+                # No 15-min breaks for depot end (must be followed by 30-min break)
             end
         end
 
@@ -992,9 +985,9 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
     @info "Break opportunities computed: 45-min=$total_45 (depot: $depot_45), 15-min=$total_15 (depot: $depot_15), 30-min=$total_30 (depot: $depot_30)"
 
     # Debug: Check for buses with no break opportunities
-    buses_no_45 = sum(1 for (k, v) in phi_45 if isempty(v))
-    buses_no_15 = sum(1 for (k, v) in phi_15 if isempty(v))
-    buses_no_30 = sum(1 for (k, v) in phi_30 if isempty(v))
+    buses_no_45 = sum(1 for (k, v) in phi_45 if isempty(v); init=0)
+    buses_no_15 = sum(1 for (k, v) in phi_15 if isempty(v); init=0)
+    buses_no_30 = sum(1 for (k, v) in phi_30 if isempty(v); init=0)
     @info "Buses with no break opportunities: 45-min=$buses_no_45, 15-min=$buses_no_15, 30-min=$buses_no_30"
 
     # Detailed investigation of problematic buses
