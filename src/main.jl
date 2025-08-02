@@ -40,7 +40,7 @@ tee_logger = TeeLogger(file_logger, console_logger)
 global_logger(tee_logger)
 
 # Set the dates to process
-dates_to_process = [Date(2025, 6, 01)]
+dates_to_process = [Date(2025, 6, day) for day in 1:30]
 
 # Set the plots
 interactive_plots = false
