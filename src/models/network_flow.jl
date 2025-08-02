@@ -823,7 +823,8 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
             end
 
             # Get timing information
-            route_start_time = route.stop_times[arc.arc_end.stop_sequence]
+            route_start_time = route.stop_times[1]  # First stop of the route
+            route_end_time = route.stop_times[end]  # Last stop of the route
 
             # Calculate available time for breaks
             travel_time = get(travel_time_lookup, (arc.arc_start.id, arc.arc_end.id), Inf)
@@ -838,20 +839,22 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
                 # Check break conditions based on duration and timing
                 if break_duration >= 45.0 &&
                    (route_start_time - shift_start <= 270) &&
-                   (shift_end - route_start_time <= 270)
+                   (route_start_time - shift_start >= 180) &&
+                   (shift_end - (route_start_time + 45) <= 270)
                     push!(phi_45[bus_id_str], arc)
                 end
 
-                if break_duration >= 15.0 &&
-                   (route_start_time - shift_start <= 150)
-                    push!(phi_15[bus_id_str], arc)
+                if break_duration >= 30.0 &&
+                   (route_start_time - shift_start >= 180) &&
+                   (route_start_time - shift_start <= 285) &&
+                   (shift_end - (route_start_time + 30) <= 270)
+                    push!(phi_30[bus_id_str], arc)
                 end
 
-                if break_duration >= 30.0 &&
-                   (route_start_time - shift_start >= 150) &&
-                   (route_start_time - shift_start <= 285) &&
-                   (shift_end - route_start_time <= 270)
-                    push!(phi_30[bus_id_str], arc)
+                if break_duration >= 15.0 &&
+                    (route_end_time - shift_start < 180) &&
+                    (route_start_time - shift_start >= 90)
+                    push!(phi_15[bus_id_str], arc)
                 end
             end
         end
@@ -870,7 +873,8 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
             end
 
             # Get timing information
-            route_end_time = route.stop_times[arc.arc_start.stop_sequence]
+            route_start_time = route.stop_times[1]  # First stop of the route
+            route_end_time = route.stop_times[end]  # Last stop of the route
 
             # Calculate available time for breaks
             travel_time = get(travel_time_lookup, (arc.arc_start.id, arc.arc_end.id), Inf)
@@ -884,21 +888,23 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
             if break_duration > 0
                 # Check break conditions based on duration and timing
                 if break_duration >= 45.0 &&
-                   (route_end_time - shift_start <= 270) &&
-                   (shift_end - route_end_time <= 270)
+                    (route_start_time - shift_start <= 270) &&
+                    (route_start_time - shift_start >= 180) &&
+                    (shift_end - (route_start_time + 45) <= 270)
                     push!(phi_45[bus_id_str], arc)
                 end
 
-                if break_duration >= 15.0 &&
-                   (route_end_time - shift_start <= 150)
-                    push!(phi_15[bus_id_str], arc)
+                if break_duration >= 30.0 &&
+                    (route_start_time - shift_start >= 180) &&
+                    (route_start_time - shift_start <= 285) &&
+                    (shift_end - (route_start_time + 30) <= 270)
+                    push!(phi_30[bus_id_str], arc)
                 end
 
-                if break_duration >= 30.0 &&
-                   (route_end_time - shift_start >= 150) &&
-                   (route_end_time - shift_start <= 285) &&
-                   (shift_end - route_end_time <= 270)
-                    push!(phi_30[bus_id_str], arc)
+                if break_duration >= 15.0 &&
+                    (route_end_time - shift_start < 180) &&
+                    (route_start_time - shift_start >= 90)
+                    push!(phi_15[bus_id_str], arc)
                 end
             end
         end
@@ -950,23 +956,25 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
 
             # Check 45-minute break conditions (Φ_k^45)
             if (start_time - shift_start <= 270) &&  # ≤ 4.5h from shift start
-               (shift_end - end_time <= 270) &&      # ≤ 4.5h to shift end
+               (shift_end - (start_time + 45) <= 270) &&      # ≤ 4.5h to shift end
+               (start_time - shift_start >= 180) &&      # ≥ 3.0h after shift start
                (actual_time_gap >= min_transition_time + 45)  # ≥ travel_time + 45min
                 push!(phi_45[bus_id_str], arc)
             end
 
-            # Check 15-minute break conditions (Φ_k^15) - first break
-            if (start_time - shift_start <= 150) &&  # ≤ 2.5h from shift start
-               (actual_time_gap >= min_transition_time + 15)  # ≥ travel_time + 15min
-                push!(phi_15[bus_id_str], arc)
-            end
-
             # Check 30-minute break conditions (Φ_k^30) - second break
-            if (start_time - shift_start >= 150) &&  # ≥ 2.5h from shift start
-               (start_time - shift_start <= 285) &&  # ≤ 4.75h from shift start
-               (shift_end - end_time <= 270) &&      # ≤ 4.5h to shift end
+            if (start_time - shift_start <= 285) &&  # ≤ 4.75h from shift start
+               (shift_end - (start_time + 30) <= 270) &&      # ≤ 4.5h to shift end
+               (start_time - shift_start >= 180) &&  # ≥ 3.0h from shift start
                (actual_time_gap >= min_transition_time + 30)  # ≥ travel_time + 30min
                 push!(phi_30[bus_id_str], arc)
+            end
+
+            # Check 15-minute break conditions (Φ_k^15) - first break
+            if (start_time - shift_start < 180) &&  # < 3.0h from shift start
+               (start_time - shift_start >= 90) &&  # ≥ 1.5h from shift start
+               (actual_time_gap >= min_transition_time + 15)  # ≥ travel_time + 15min
+                push!(phi_15[bus_id_str], arc)
             end
         end
     end
