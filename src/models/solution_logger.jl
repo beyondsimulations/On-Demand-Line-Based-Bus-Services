@@ -683,15 +683,6 @@ function log_detailed_unserved_demands(unserved_details::Vector{Any}, file_handl
             log_to_both_debug("   Direct Distance: $(round(distance_km, digits=2)) km", file_handle)
         end
     end
-
-    log_to_both_debug("", file_handle)
-    log_to_both_debug("="^60, file_handle)
-    log_to_both_debug("DEBUGGING SUGGESTIONS:", file_handle)
-    log_to_both_debug("  • Check if routes exist connecting frequent unserved origin-destination pairs", file_handle)
-    log_to_both_debug("  • Verify bus capacity constraints are not too restrictive", file_handle)
-    log_to_both_debug("  • Review time windows - demands may fall outside service hours", file_handle)
-    log_to_both_debug("  • Consider depot assignments - demands may be assigned to distant depots", file_handle)
-    log_to_both_debug("  • Analyze geographical clustering - some areas may lack adequate coverage", file_handle)
 end
 
 # ============================================================================
