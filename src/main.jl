@@ -48,13 +48,13 @@ non_interactive_plots = false
 
 # Set the depots to run the model for
 depots_to_process_names = [
-    #"VLP Boizenburg",
-    #"VLP Hagenow",
-    #"VLP Parchim",
-    #"VLP Schwerin",
-    #"VLP Ludwigslust",
+    "VLP Boizenburg",
+    "VLP Hagenow",
+    "VLP Parchim",
+    "VLP Schwerin",
+    "VLP Ludwigslust",
     "VLP Sternberg",
-    #"VLP Zarrentin"
+    "VLP Zarrentin"
 ]
 
 # Read solver choice from environment variable, default to :gurobi

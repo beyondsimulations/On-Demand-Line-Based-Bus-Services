@@ -861,7 +861,6 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
             if break_duration > 0
                 # Check break conditions based on duration and timing
                 if break_duration >= 45.0 &&
-                   (route_start_time - shift_start >= 180) &&
                    (shift_end - (route_start_time + 45) <= 270)
                     push!(phi_45[bus_id_str], arc)
                 end
@@ -873,8 +872,7 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
                 end
 
                 if break_duration >= 15.0 &&
-                    (route_start_time - shift_start < 180) &&
-                    (route_start_time - shift_start >= 90)
+                    (route_start_time - shift_start < 180)
                     push!(phi_15[bus_id_str], arc)
                 end
             end
