@@ -311,6 +311,7 @@ function _create_constraint_lookups(parameters::ProblemParameters, network)
     travel_time_lookup = Dict((tt.start_stop, tt.end_stop) => tt.time for tt in parameters.travel_times
                              if !hasfield(typeof(tt), :is_depot_travel) || !tt.is_depot_travel)
     bus_capacity_lookup = Dict(string(b.bus_id) => b.capacity for b in parameters.buses)
+    bus_lookup = Dict(string(b.bus_id) => b for b in parameters.buses)
 
     @info "Lookup structures created."
 
@@ -322,7 +323,8 @@ function _create_constraint_lookups(parameters::ProblemParameters, network)
         line_arcs_by_bus_trip = line_arcs_by_bus_trip,
         route_lookup = route_lookup,
         travel_time_lookup = travel_time_lookup,
-        bus_capacity_lookup = bus_capacity_lookup
+        bus_capacity_lookup = bus_capacity_lookup,
+        bus_lookup = bus_lookup
     )
 end
 
@@ -677,36 +679,57 @@ end
 Add vehicle count constraints limiting available vehicles by capacity type.
 """
 function _add_vehicle_count_constraints!(model, parameters::ProblemParameters, network, lookups, x)
-    @info "Creating vehicle count constraints per capacity type (Constraint 6)..."
+    @info "Creating event-based vehicle count constraints per capacity type (Constraint 6)..."
 
     constraint_6_count = 0
 
     if !isempty(parameters.vehicle_capacity_counts) && !isempty(network.depot_start_arcs)
-        for (capacity, available_count) in parameters.vehicle_capacity_counts
-            # Find depot start arcs for buses with this capacity
-            arcs_for_this_capacity = ModelArc[]
-            for arc in network.depot_start_arcs
-                bus_id = string(arc.bus_id)
-                arc_bus_capacity = get(lookups.bus_capacity_lookup, bus_id, nothing)
+        # Collect all shift start/end events
+        events = Set{Float64}()
+        for bus in parameters.buses
+            push!(events, bus.shift_start)
+            push!(events, bus.shift_end)
+        end
 
-                if !isnothing(arc_bus_capacity) && arc_bus_capacity == capacity
-                    push!(arcs_for_this_capacity, arc)
+        @info "Found $(length(events)) temporal events for capacity constraints"
+
+        # For each event time and capacity type, create constraints
+        for event_time in sort(collect(events))
+            for (capacity, available_count) in parameters.vehicle_capacity_counts
+                # Find depot start arcs for buses with this capacity that are active at event_time
+                active_arcs = ModelArc[]
+
+                for arc in network.depot_start_arcs
+                    bus_id = string(arc.bus_id)
+                    arc_bus_capacity = get(lookups.bus_capacity_lookup, bus_id, nothing)
+                    bus = get(lookups.bus_lookup, bus_id, nothing)
+
+                    if !isnothing(arc_bus_capacity) && !isnothing(bus) &&
+                       arc_bus_capacity == capacity &&
+                       bus.shift_start <= event_time < bus.shift_end
+                        push!(active_arcs, arc)
+                    end
+                end
+
+                # Only create constraint if there are active buses at this time
+                if !isempty(active_arcs)
+                    constraint_name = "vehicle_capacity_t$(Int(event_time))_c$(Int(capacity))"
+                    @constraint(model, sum(x[arc] for arc in active_arcs) <= available_count, base_name = constraint_name)
+                    constraint_6_count += 1
+                    @info "  Added constraint at time $event_time for capacity $capacity: $(length(active_arcs)) active buses ≤ $available_count vehicles"
                 end
             end
+        end
 
-            if !isempty(arcs_for_this_capacity)
-                @constraint(model, sum(x[arc] for arc in arcs_for_this_capacity) <= available_count)
-                constraint_6_count += 1
-                @info "  Added constraint for capacity $capacity: max $available_count vehicles."
-            else
-                @info "  No depot start arcs found for capacity $capacity, skipping constraint."
-            end
+        if constraint_6_count > 0
+            @info "  Created event-based constraints for $(length(events)) time events and $(length(parameters.vehicle_capacity_counts)) capacity types"
+            @info "  Time range: $(minimum(events)) to $(maximum(events)) minutes"
         end
     else
         @info "  Skipping vehicle count constraints (no vehicle counts provided or no depot start arcs)."
     end
 
-    @info "Added $constraint_6_count vehicle count constraints."
+    @info "Added $constraint_6_count event-based vehicle count constraints."
 end
 
 """
@@ -850,7 +873,7 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
                 end
 
                 if break_duration >= 15.0 &&
-                    (route_end_time - shift_start < 180) &&
+                    (route_start_time - shift_start < 180) &&
                     (route_start_time - shift_start >= 90)
                     push!(phi_15[bus_id_str], arc)
                 end

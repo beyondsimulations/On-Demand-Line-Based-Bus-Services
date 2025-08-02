@@ -48,13 +48,13 @@ non_interactive_plots = false
 
 # Set the depots to run the model for
 depots_to_process_names = [
-    "VLP Boizenburg",
-    "VLP Hagenow",
-    "VLP Parchim",
-    "VLP Schwerin",
-    "VLP Ludwigslust",
+    #"VLP Boizenburg",
+    #"VLP Hagenow",
+    #"VLP Parchim",
+    #"VLP Schwerin",
+    #"VLP Ludwigslust",
     "VLP Sternberg",
-    "VLP Zarrentin"
+    #"VLP Zarrentin"
 ]
 
 # Read solver choice from environment variable, default to :gurobi
@@ -131,7 +131,7 @@ elseif version == "v3"
 elseif version == "v4"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = true
-    service_levels = 0.5:0.5:1.0
+    service_levels = 0.05:0.05:1.0
 
     # Define settings for solving
     settings = [
