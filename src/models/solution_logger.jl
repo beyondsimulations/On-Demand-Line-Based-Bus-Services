@@ -434,6 +434,50 @@ end
 """
 Log detailed demand fulfillment analysis.
 """
+# Helper function to extract detailed information about a demand
+function get_demand_details(demand::PassengerDemand, routes::Vector{Route})
+    # Find the route information for origin and destination
+    origin_route = findfirst(r -> r.route_id == demand.origin.route_id && r.trip_id == demand.origin.trip_id, routes)
+    dest_route = findfirst(r -> r.route_id == demand.destination.route_id && r.trip_id == demand.destination.trip_id, routes)
+
+    details = Dict{String, Any}()
+    details["demand_id"] = demand.demand_id
+    details["passengers"] = demand.demand
+    details["date"] = demand.date
+    details["depot_id"] = demand.depot_id
+
+    # Origin details
+    if !isnothing(origin_route)
+        route = routes[origin_route]
+        stop_idx = findfirst(seq -> seq == demand.origin.stop_sequence, route.stop_sequence)
+        if !isnothing(stop_idx)
+            details["origin_time"] = route.stop_times[stop_idx]
+            details["origin_location"] = route.locations[stop_idx]
+            details["origin_stop_name"] = route.stop_names[stop_idx]
+            details["origin_stop_id"] = route.stop_ids[stop_idx]
+        end
+    end
+
+    # Destination details
+    if !isnothing(dest_route)
+        route = routes[dest_route]
+        stop_idx = findfirst(seq -> seq == demand.destination.stop_sequence, route.stop_sequence)
+        if !isnothing(stop_idx)
+            details["dest_time"] = route.stop_times[stop_idx]
+            details["dest_location"] = route.locations[stop_idx]
+            details["dest_stop_name"] = route.stop_names[stop_idx]
+            details["dest_stop_id"] = route.stop_ids[stop_idx]
+        end
+    end
+
+    # Calculate travel time window if both times are available
+    if haskey(details, "origin_time") && haskey(details, "dest_time")
+        details["travel_time_window"] = details["dest_time"] - details["origin_time"]
+    end
+
+    return details
+end
+
 function log_demand_fulfillment_summary(solution::NetworkFlowSolution, parameters::ProblemParameters,
                                        break_patterns::Dict{String, String}=Dict{String, String}(),
                                        log_files::Union{NamedTuple, Nothing}=nothing)
@@ -501,7 +545,7 @@ function log_demand_fulfillment_summary(solution::NetworkFlowSolution, parameter
         end
     end
 
-    # Enhanced unserved demands section
+    # Enhanced unserved demands section with comprehensive details
     if unserved_count > 0
         log_to_both("", demand_file)
         log_to_both("🚨 CRITICAL: UNSERVED DEMANDS ANALYSIS", demand_file)
@@ -512,11 +556,16 @@ function log_demand_fulfillment_summary(solution::NetworkFlowSolution, parameter
         # Group unserved demands by route patterns for better analysis
         unserved_by_origin = Dict{Int, Vector{PassengerDemand}}()
         unserved_by_dest = Dict{Int, Vector{PassengerDemand}}()
+        unserved_by_time = Dict{Int, Vector{PassengerDemand}}()  # Group by hour of day
+        unserved_by_depot = Dict{Int, Vector{PassengerDemand}}()
         total_unserved_passengers = 0.0
+        unserved_details = []
 
         for demand in parameters.passenger_demands
             if !(demand.demand_id in served_demands)
                 total_unserved_passengers += demand.demand
+                details = get_demand_details(demand, parameters.routes)
+                push!(unserved_details, details)
 
                 # Group by origin
                 if !haskey(unserved_by_origin, demand.origin.id)
@@ -529,6 +578,21 @@ function log_demand_fulfillment_summary(solution::NetworkFlowSolution, parameter
                     unserved_by_dest[demand.destination.id] = []
                 end
                 push!(unserved_by_dest[demand.destination.id], demand)
+
+                # Group by time (hour of day for origin time)
+                if haskey(details, "origin_time")
+                    hour = Int(floor(details["origin_time"] / 60)) % 24
+                    if !haskey(unserved_by_time, hour)
+                        unserved_by_time[hour] = []
+                    end
+                    push!(unserved_by_time[hour], demand)
+                end
+
+                # Group by depot
+                if !haskey(unserved_by_depot, demand.depot_id)
+                    unserved_by_depot[demand.depot_id] = []
+                end
+                push!(unserved_by_depot[demand.depot_id], demand)
             end
         end
 
@@ -536,10 +600,32 @@ function log_demand_fulfillment_summary(solution::NetworkFlowSolution, parameter
         log_to_both("  Total Unserved Passengers: $(round(total_unserved_passengers, digits=1))", demand_file)
         log_to_both("  Average Demand per Unserved Request: $(round(total_unserved_passengers/unserved_count, digits=2))", demand_file)
 
+        # Time distribution analysis
+        if !isempty(unserved_by_time)
+            log_to_both("", demand_file)
+            log_to_both("🕐 UNSERVED DEMANDS BY TIME OF DAY:", demand_file)
+            sorted_times = sort(collect(unserved_by_time), by=x->x[1])
+            for (hour, demands) in sorted_times
+                passengers = sum(d.demand for d in demands)
+                log_to_both("  $(hour):00-$(hour):59: $(length(demands)) requests, $(round(passengers, digits=1)) passengers", demand_file)
+            end
+        end
+
+        # Depot distribution analysis
+        if !isempty(unserved_by_depot)
+            log_to_both("", demand_file)
+            log_to_both("🏢 UNSERVED DEMANDS BY DEPOT:", demand_file)
+            sorted_depots = sort(collect(unserved_by_depot), by=x->(length(x[2]), x[1]), rev=true)
+            for (depot_id, demands) in sorted_depots
+                passengers = sum(d.demand for d in demands)
+                log_to_both("  Depot $(depot_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", demand_file)
+            end
+        end
+
         # Show top unserved origins
         log_to_both("", demand_file)
         log_to_both("🔍 TOP UNSERVED ORIGINS:", demand_file)
-        sorted_origins = sort(collect(unserved_by_origin), by=x->length(x[2]), rev=true)
+        sorted_origins = sort(collect(unserved_by_origin), by=x->(length(x[2]), x[1]), rev=true)
         for (i, (origin_id, demands)) in enumerate(sorted_origins[1:min(10, end)])
             passengers = sum(d.demand for d in demands)
             log_to_both("  $(i). Stop $(origin_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", demand_file)
@@ -548,19 +634,88 @@ function log_demand_fulfillment_summary(solution::NetworkFlowSolution, parameter
         # Show top unserved destinations
         log_to_both("", demand_file)
         log_to_both("🔍 TOP UNSERVED DESTINATIONS:", demand_file)
-        sorted_dests = sort(collect(unserved_by_dest), by=x->length(x[2]), rev=true)
+        sorted_dests = sort(collect(unserved_by_dest), by=x->(length(x[2]), x[1]), rev=true)
         for (i, (dest_id, demands)) in enumerate(sorted_dests[1:min(10, end)])
             passengers = sum(d.demand for d in demands)
             log_to_both("  $(i). Stop $(dest_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", demand_file)
         end
 
         log_to_both("", demand_file)
-        log_to_both("📋 DETAILED UNSERVED DEMANDS:", demand_file)
-        for demand in parameters.passenger_demands
-            if !(demand.demand_id in served_demands)
-                log_to_both("  ❌ Demand $(demand.demand_id): $(demand.demand) passengers (Stop $(demand.origin.id) → Stop $(demand.destination.id))", demand_file)
+        log_to_both("📋 COMPREHENSIVE UNSERVED DEMANDS DETAILS:", demand_file)
+        log_to_both("="^60, demand_file)
+
+        # Sort unserved details by demand ID for consistent ordering
+        sorted_details = sort(unserved_details, by=x->x["demand_id"])
+
+        for details in sorted_details
+            log_to_both("", demand_file)
+            log_to_both("❌ DEMAND $(details["demand_id"]):", demand_file)
+            log_to_both("   👥 Passengers: $(details["passengers"])", demand_file)
+            log_to_both("   📅 Date: $(details["date"])", demand_file)
+            log_to_both("   🏢 Depot: $(details["depot_id"])", demand_file)
+
+            # Origin information
+            if haskey(details, "origin_stop_name")
+                log_to_both("   🚀 ORIGIN:", demand_file)
+                log_to_both("     Stop: $(details["origin_stop_name"]) (ID: $(details["origin_stop_id"]))", demand_file)
+                if haskey(details, "origin_time")
+                    log_to_both("     Time: $(format_time(details["origin_time"]))", demand_file)
+                end
+                if haskey(details, "origin_location")
+                    lat, lon = details["origin_location"]
+                    log_to_both("     Location: ($(round(lat, digits=6)), $(round(lon, digits=6)))", demand_file)
+                end
+            else
+                log_to_both("   🚀 ORIGIN: Station ID $(details["demand_id"]) (route/trip info not found)", demand_file)
+            end
+
+            # Destination information
+            if haskey(details, "dest_stop_name")
+                log_to_both("   🎯 DESTINATION:", demand_file)
+                log_to_both("     Stop: $(details["dest_stop_name"]) (ID: $(details["dest_stop_id"]))", demand_file)
+                if haskey(details, "dest_time")
+                    log_to_both("     Time: $(format_time(details["dest_time"]))", demand_file)
+                end
+                if haskey(details, "dest_location")
+                    lat, lon = details["dest_location"]
+                    log_to_both("     Location: ($(round(lat, digits=6)), $(round(lon, digits=6)))", demand_file)
+                end
+            else
+                log_to_both("   🎯 DESTINATION: Station ID $(details["demand_id"]) (route/trip info not found)", demand_file)
+            end
+
+            # Travel time window
+            if haskey(details, "travel_time_window")
+                window_minutes = details["travel_time_window"]
+                if window_minutes >= 0
+                    log_to_both("   ⏱️  Travel Time Window: $(round(window_minutes, digits=1)) minutes", demand_file)
+                else
+                    log_to_both("   ⚠️  Invalid Time Window: $(round(window_minutes, digits=1)) minutes (destination before origin)", demand_file)
+                end
+            end
+
+            # Distance calculation if both locations available
+            if haskey(details, "origin_location") && haskey(details, "dest_location")
+                orig_lat, orig_lon = details["origin_location"]
+                dest_lat, dest_lon = details["dest_location"]
+                # Approximate distance using Haversine formula (simplified)
+                Δlat = deg2rad(dest_lat - orig_lat)
+                Δlon = deg2rad(dest_lon - orig_lon)
+                a = sin(Δlat/2)^2 + cos(deg2rad(orig_lat)) * cos(deg2rad(dest_lat)) * sin(Δlon/2)^2
+                c = 2 * atan(sqrt(a), sqrt(1-a))
+                distance_km = 6371 * c  # Earth's radius in km
+                log_to_both("   📏 Direct Distance: $(round(distance_km, digits=2)) km", demand_file)
             end
         end
+
+        log_to_both("", demand_file)
+        log_to_both("="^60, demand_file)
+        log_to_both("💡 DEBUGGING SUGGESTIONS:", demand_file)
+        log_to_both("  • Check if routes exist connecting frequent unserved origin-destination pairs", demand_file)
+        log_to_both("  • Verify bus capacity constraints are not too restrictive", demand_file)
+        log_to_both("  • Review time windows - demands may fall outside service hours", demand_file)
+        log_to_both("  • Consider depot assignments - demands may be assigned to distant depots", demand_file)
+        log_to_both("  • Analyze geographical clustering - some areas may lack adequate coverage", demand_file)
     end
 
     log_to_both("="^80, demand_file)
