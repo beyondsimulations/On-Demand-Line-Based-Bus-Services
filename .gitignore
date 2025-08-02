@@ -34,10 +34,11 @@ secrets/secrets.jl
 data/extended_real_bus_lines.csv
 data/real_bus_line_trip_times.csv
 data/real_bus_lines.csv
-raw_case_data/
-clean_case_data/
+case_data_raw/
+case_data_clean/
 plots/
 
 .DS_STORE
 CLAUDE.md
 *.log
+/results

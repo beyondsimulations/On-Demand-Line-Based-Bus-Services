@@ -40,7 +40,7 @@ tee_logger = TeeLogger(file_logger, console_logger)
 global_logger(tee_logger)
 
 # Set the dates to process
-dates_to_process = [Date(2024, 8, 22)]
+dates_to_process = [Date(2025, 6, 01)]
 
 # Set the plots
 interactive_plots = false
@@ -70,7 +70,7 @@ if !(solver_choice in valid_solvers)
 end
 
 # Read version from environment variable, default to "v2"
-version = get(ENV, "JULIA_SCRIPT_VERSION", "v4")
+version = get(ENV, "JULIA_SCRIPT_VERSION", "v2")
 @info "Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")"
 
 # Validate the version
