@@ -7,39 +7,9 @@ including detailed route tracking, demand fulfillment, timing analysis, and brea
 
 using Dates
 
-"""
-Create output directory and return file paths for logging.
-"""
-function setup_log_files(parameters::ProblemParameters)::NamedTuple{(:bus_operations, :demand_analysis, :summary), Tuple{String, String, String}}
-    # Create logs directory if it doesn't exist
-    logs_dir = "logs"
-    if !isdir(logs_dir)
-        mkdir(logs_dir)
-    end
-
-    # Create timestamp for unique file names
-    timestamp = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
-    depot_name = replace(parameters.depot.depot_name, " " => "_")
-    day = parameters.day
-
-    # Generate file paths
-    bus_ops_file = joinpath(logs_dir, "bus_operations_$(depot_name)_$(day)_$(timestamp).log")
-    demand_file = joinpath(logs_dir, "demand_analysis_$(depot_name)_$(day)_$(timestamp).log")
-    summary_file = joinpath(logs_dir, "system_summary_$(depot_name)_$(day)_$(timestamp).log")
-
-    return (bus_operations=bus_ops_file, demand_analysis=demand_file, summary=summary_file)
-end
-
-"""
-Write content to both console and file.
-"""
-function log_to_both(content::String, file_handle::Union{IO, Nothing}=nothing)
-    @info content
-    if !isnothing(file_handle)
-        println(file_handle, "[$(Dates.format(now(), "HH:MM:SS"))] $content")
-        flush(file_handle)
-    end
-end
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
 """
 Convert minutes from midnight to HH:MM format, handling the 3-day time system.
@@ -47,13 +17,13 @@ Convert minutes from midnight to HH:MM format, handling the 3-day time system.
 function format_time(minutes::Float64)::String
     if minutes < 0
         # Previous day
-        day_minutes = minutes + 1440  # Add 24 hours to get positive time
+        day_minutes = minutes + 1440
         hours = floor(Int, day_minutes / 60)
         mins = round(Int, day_minutes % 60)
         return "D-1 $(lpad(hours, 2, '0')):$(lpad(mins, 2, '0'))"
     elseif minutes >= 1440
         # Next day
-        day_minutes = minutes - 1440  # Subtract 24 hours
+        day_minutes = minutes - 1440
         hours = floor(Int, day_minutes / 60)
         mins = round(Int, day_minutes % 60)
         return "D+1 $(lpad(hours, 2, '0')):$(lpad(mins, 2, '0'))"
@@ -75,12 +45,67 @@ function format_duration(minutes::Float64)::String
 end
 
 """
+Write content to both console and file with timestamp (INFO level).
+"""
+function log_to_both(content::String, file_handle::Union{IO, Nothing}=nothing)
+    @info content
+    if !isnothing(file_handle)
+        println(file_handle, "[$(Dates.format(now(), "HH:MM:SS"))] $content")
+        flush(file_handle)
+    end
+end
+
+"""
+Write content to both console and file with timestamp (DEBUG level).
+"""
+function log_to_both_debug(content::String, file_handle::Union{IO, Nothing}=nothing)
+    @debug content
+    if !isnothing(file_handle)
+        println(file_handle, "[$(Dates.format(now(), "HH:MM:SS"))] $content")
+        flush(file_handle)
+    end
+end
+
+"""
+Create log directory and generate timestamped file paths.
+"""
+function setup_log_files(parameters::ProblemParameters)::NamedTuple{(:bus_operations, :demand_analysis, :summary), Tuple{String, String, String}}
+    logs_dir = "logs"
+    if !isdir(logs_dir)
+        mkdir(logs_dir)
+    end
+
+    timestamp = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
+    depot_name = replace(parameters.depot.depot_name, " " => "_")
+    day = parameters.day
+
+    bus_ops_file = joinpath(logs_dir, "bus_operations_$(depot_name)_$(day)_$(timestamp).log")
+    demand_file = joinpath(logs_dir, "demand_analysis_$(depot_name)_$(day)_$(timestamp).log")
+    summary_file = joinpath(logs_dir, "system_summary_$(depot_name)_$(day)_$(timestamp).log")
+
+    return (bus_operations=bus_ops_file, demand_analysis=demand_file, summary=summary_file)
+end
+
+"""
+Write standard log file header.
+"""
+function write_log_header(file_handle::IO, title::String)
+    println(file_handle, title)
+    println(file_handle, "Generated: $(Dates.format(now(), "yyyy-mm-dd HH:MM:SS"))")
+    println(file_handle, "="^80)
+end
+
+# ============================================================================
+# DEMAND ANALYSIS FUNCTIONS
+# ============================================================================
+
+"""
 Extract demand information for a specific arc from passenger demands.
 """
 function get_arc_demands(arc::ModelArc, passenger_demands::Vector{PassengerDemand})::Vector{NamedTuple{(:id, :passengers, :origin_stop, :dest_stop), Tuple{Int, Float64, Int, Int}}}
     demands = NamedTuple{(:id, :passengers, :origin_stop, :dest_stop), Tuple{Int, Float64, Int, Int}}[]
 
-    # Only consider line arcs for demand (not depot, intra-line, or inter-line arcs)
+    # Only consider line arcs for demand
     if arc.kind != "line-arc"
         return demands
     end
@@ -89,7 +114,6 @@ function get_arc_demands(arc::ModelArc, passenger_demands::Vector{PassengerDeman
     to_node = arc.arc_end
 
     for demand in passenger_demands
-        # Check if this demand is served by this arc
         if demand.origin.route_id == from_node.route_id &&
            demand.origin.trip_id == from_node.trip_id &&
            demand.origin.trip_sequence == from_node.trip_sequence &&
@@ -112,9 +136,70 @@ function get_arc_demands(arc::ModelArc, passenger_demands::Vector{PassengerDeman
 end
 
 """
-Determine if an arc represents a break opportunity.
+Get detailed information about a demand including route and timing details.
 """
-function is_break_arc(arc::ModelArc, phi_45::Dict{String, Vector{ModelArc}}, phi_15::Dict{String, Vector{ModelArc}}, phi_30::Dict{String, Vector{ModelArc}})::Tuple{Bool, String}
+function get_demand_details(demand::PassengerDemand, routes::Vector{Route})::Dict{String, Any}
+    origin_route = findfirst(r -> r.route_id == demand.origin.route_id && r.trip_id == demand.origin.trip_id, routes)
+    dest_route = findfirst(r -> r.route_id == demand.destination.route_id && r.trip_id == demand.destination.trip_id, routes)
+
+    details = Dict{String, Any}()
+    details["demand_id"] = demand.demand_id
+    details["passengers"] = demand.demand
+    details["date"] = demand.date
+    details["depot_id"] = demand.depot_id
+
+    # Extract origin details
+    if !isnothing(origin_route)
+        route = routes[origin_route]
+        stop_idx = findfirst(seq -> seq == demand.origin.stop_sequence, route.stop_sequence)
+        if !isnothing(stop_idx)
+            details["origin_time"] = route.stop_times[stop_idx]
+            details["origin_location"] = route.locations[stop_idx]
+            details["origin_stop_name"] = route.stop_names[stop_idx]
+            details["origin_stop_id"] = route.stop_ids[stop_idx]
+        end
+    end
+
+    # Extract destination details
+    if !isnothing(dest_route)
+        route = routes[dest_route]
+        stop_idx = findfirst(seq -> seq == demand.destination.stop_sequence, route.stop_sequence)
+        if !isnothing(stop_idx)
+            details["dest_time"] = route.stop_times[stop_idx]
+            details["dest_location"] = route.locations[stop_idx]
+            details["dest_stop_name"] = route.stop_names[stop_idx]
+            details["dest_stop_id"] = route.stop_ids[stop_idx]
+        end
+    end
+
+    # Calculate travel time window
+    if haskey(details, "origin_time") && haskey(details, "dest_time")
+        details["travel_time_window"] = details["dest_time"] - details["origin_time"]
+    end
+
+    return details
+end
+
+"""
+Calculate approximate distance between two geographic coordinates using Haversine formula.
+"""
+function calculate_distance_km(lat1::Float64, lon1::Float64, lat2::Float64, lon2::Float64)::Float64
+    Δlat = deg2rad(lat2 - lat1)
+    Δlon = deg2rad(lon2 - lon1)
+    a = sin(Δlat/2)^2 + cos(deg2rad(lat1)) * cos(deg2rad(lat2)) * sin(Δlon/2)^2
+    c = 2 * atan(sqrt(a), sqrt(1-a))
+    return 6371 * c  # Earth's radius in km
+end
+
+# ============================================================================
+# BREAK ANALYSIS FUNCTIONS
+# ============================================================================
+
+"""
+Determine if an arc represents a break opportunity and its type.
+"""
+function get_break_info(arc::ModelArc, phi_45::Dict{String, Vector{ModelArc}},
+                       phi_15::Dict{String, Vector{ModelArc}}, phi_30::Dict{String, Vector{ModelArc}})::Tuple{Bool, String}
     bus_id = arc.bus_id
 
     if haskey(phi_45, bus_id) && arc in phi_45[bus_id]
@@ -129,6 +214,491 @@ function is_break_arc(arc::ModelArc, phi_45::Dict{String, Vector{ModelArc}}, phi
 end
 
 """
+Count break usage by type for a specific bus.
+"""
+function count_break_usage(bus_path::Vector{Any}, bus_id::String, phi_45::Dict{String, Vector{ModelArc}},
+                          phi_15::Dict{String, Vector{ModelArc}}, phi_30::Dict{String, Vector{ModelArc}})::NamedTuple{(:breaks_45, :breaks_15, :breaks_30), Tuple{Int, Int, Int}}
+    breaks_45 = count(arc -> haskey(phi_45, bus_id) && arc in phi_45[bus_id], bus_path)
+    breaks_15 = count(arc -> haskey(phi_15, bus_id) && arc in phi_15[bus_id], bus_path)
+    breaks_30 = count(arc -> haskey(phi_30, bus_id) && arc in phi_30[bus_id], bus_path)
+
+    return (breaks_45=breaks_45, breaks_15=breaks_15, breaks_30=breaks_30)
+end
+
+"""
+Analyze break pattern compliance for a bus.
+"""
+function analyze_break_compliance(break_pattern::String, break_usage::NamedTuple)::Tuple{String, String}
+    is_single_pattern = contains(break_pattern, "Single 45-minute")
+
+    if is_single_pattern
+        if break_usage.breaks_45 >= 1 && break_usage.breaks_15 == 0 && break_usage.breaks_30 == 0
+            return ("COMPLIANT", "Uses single 45-minute break as planned")
+        elseif break_usage.breaks_45 >= 1
+            return ("OVER-COMPLIANCE", "Uses 45-minute break + additional breaks")
+        else
+            return ("NON-COMPLIANT", "No 45-minute break used despite z=1")
+        end
+    else
+        if break_usage.breaks_15 >= 1 && break_usage.breaks_30 >= 1 && break_usage.breaks_45 == 0
+            return ("COMPLIANT", "Uses split 15+30 minute breaks as planned")
+        elseif break_usage.breaks_15 >= 1 && break_usage.breaks_30 >= 1
+            return ("OVER-COMPLIANCE", "Uses split breaks + additional breaks")
+        elseif break_usage.breaks_45 >= 1
+            return ("NON-COMPLIANT", "Uses 45-minute break despite z=0 (split pattern)")
+        else
+            return ("NON-COMPLIANT", "Missing required split breaks (15+30 min)")
+        end
+    end
+end
+
+# ============================================================================
+# ROUTE AND STOP INFORMATION FUNCTIONS
+# ============================================================================
+
+"""
+Get stop information for display.
+"""
+function get_stop_info(arc::ModelArc, routes::Vector{Route}, is_start::Bool=true)::String
+    node = is_start ? arc.arc_start : arc.arc_end
+
+    if node.stop_sequence <= 0
+        return "DEPOT"
+    end
+
+    route_key = (node.route_id, node.trip_id, node.trip_sequence)
+    route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in routes)
+
+    if haskey(route_lookup, route_key)
+        route = route_lookup[route_key]
+        if node.stop_sequence <= length(route.stop_names)
+            stop_name = route.stop_names[node.stop_sequence]
+            return "Stop $(node.id) - $(stop_name)"
+        end
+    end
+
+    return "Stop $(node.id)"
+end
+
+"""
+Get arc type description for logging.
+"""
+function get_arc_description(arc::ModelArc)::String
+    descriptions = Dict(
+        "depot-start-arc" => "DEPOT DEPARTURE",
+        "depot-end-arc" => "DEPOT ARRIVAL",
+        "line-arc" => "PASSENGER SERVICE",
+        "intra-line-arc" => "CONTINUE ROUTE",
+        "inter-line-arc" => "ROUTE TRANSFER"
+    )
+
+    return get(descriptions, arc.kind, arc.kind)
+end
+
+# ============================================================================
+# BUS OPERATIONS LOGGING
+# ============================================================================
+
+"""
+Log detailed information for a single bus operation.
+"""
+function log_single_bus_operation(bus_id::String, bus_info, parameters::ProblemParameters,
+                                 phi_45::Dict{String, Vector{ModelArc}}, phi_15::Dict{String, Vector{ModelArc}},
+                                 phi_30::Dict{String, Vector{ModelArc}}, break_patterns::Dict{String, String},
+                                 file_handle::Union{IO, Nothing})
+
+    # Basic operational metrics
+    start_time = bus_info.timestamps[1][2]
+    end_time = bus_info.timestamps[end][2]
+
+    log_to_both_debug("", file_handle)
+    log_to_both_debug("BUS: $(bus_id)", file_handle)
+    log_to_both_debug("-"^60, file_handle)
+    log_to_both_debug("  Operational Period: $(format_time(start_time)) → $(format_time(end_time))", file_handle)
+    log_to_both_debug("  Total Duration: $(format_duration(bus_info.operational_duration))", file_handle)
+    log_to_both_debug("  Waiting Time: $(format_duration(bus_info.waiting_time))", file_handle)
+    log_to_both_debug("  Active Time: $(format_duration(bus_info.operational_duration - bus_info.waiting_time))", file_handle)
+
+    # Route details
+    log_to_both_debug("", file_handle)
+    log_to_both_debug("  ROUTE DETAILS:", file_handle)
+
+    total_passengers = 0
+    break_count = 0
+    route_segments = 0
+
+    for (i, arc) in enumerate(bus_info.path)
+        arc_time = bus_info.timestamps[i][2]
+        capacity = length(bus_info.capacity_usage) >= i ? bus_info.capacity_usage[i][2] : 0
+
+        arc_desc = get_arc_description(arc)
+
+        # Check for break opportunity
+        is_break, break_type = get_break_info(arc, phi_45, phi_15, phi_30)
+        if is_break
+            if haskey(break_patterns, bus_id)
+                is_single_pattern = contains(break_patterns[bus_id], "Single 45-minute")
+                if break_type == "45-min break" && is_single_pattern
+                    arc_desc *= " + $(break_type) [PLANNED]"
+                elseif (break_type == "15-min break" || break_type == "30-min break") && !is_single_pattern
+                    arc_desc *= " + $(break_type) [PLANNED]"
+                else
+                    arc_desc *= " + $(break_type) [EXTRA]"
+                end
+            else
+                arc_desc *= " + $(break_type)"
+            end
+            break_count += 1
+        end
+
+        log_to_both_debug("    $(lpad(i, 2)). $(format_time(arc_time)) | $(arc_desc)", file_handle)
+
+        # Show route and stop details for service arcs
+        if arc.kind in ["line-arc", "depot-start-arc", "depot-end-arc", "intra-line-arc", "inter-line-arc"]
+            log_to_both_debug("        From: $(get_stop_info(arc, parameters.routes, true))", file_handle)
+            log_to_both_debug("        To:   $(get_stop_info(arc, parameters.routes, false))", file_handle)
+
+            if capacity > 0
+                log_to_both_debug("        Passengers: $(capacity)", file_handle)
+                total_passengers += capacity
+            end
+        end
+
+        # Show demand details for line arcs
+        if arc.kind == "line-arc"
+            route_segments += 1
+            demands = get_arc_demands(arc, parameters.passenger_demands)
+            if !isempty(demands)
+                log_to_both_debug("        Demand Details:", file_handle)
+                for demand in demands
+                    log_to_both_debug("          • Demand $(demand.id): $(demand.passengers) passengers ($(demand.origin_stop) → $(demand.dest_stop))", file_handle)
+                end
+            end
+        end
+    end
+
+    # Bus summary
+    log_to_both_debug("", file_handle)
+    log_to_both_debug("  BUS SUMMARY:", file_handle)
+    log_to_both_debug("    Route Segments Served: $(route_segments)", file_handle)
+    log_to_both_debug("    Total Passenger-Kilometers: $(total_passengers)", file_handle)
+    log_to_both_debug("    Break Opportunities Used: $(break_count)", file_handle)
+
+    # Bus capacity and shift information
+    bus_obj = findfirst(b -> b.bus_id == bus_id, parameters.buses)
+    if !isnothing(bus_obj)
+        bus = parameters.buses[bus_obj]
+        log_to_both_debug("    Bus Capacity: $(bus.capacity) passengers", file_handle)
+        log_to_both_debug("    Shift Window: $(format_time(bus.shift_start)) → $(format_time(bus.shift_end))", file_handle)
+
+        # Break pattern analysis
+        if haskey(break_patterns, bus_id)
+            log_to_both_debug("    Break Pattern: $(break_patterns[bus_id])", file_handle)
+            log_break_analysis(bus_id, bus_info.path, break_patterns[bus_id], phi_45, phi_15, phi_30, file_handle)
+        end
+    end
+end
+
+"""
+Log detailed break analysis for a specific bus.
+"""
+function log_break_analysis(bus_id::String, bus_path::Vector{Any}, break_pattern::String,
+                           phi_45::Dict{String, Vector{ModelArc}}, phi_15::Dict{String, Vector{ModelArc}},
+                           phi_30::Dict{String, Vector{ModelArc}}, file_handle::Union{IO, Nothing})
+
+    log_to_both_debug("", file_handle)
+    log_to_both_debug("  DETAILED BREAK ANALYSIS:", file_handle)
+
+    break_usage = count_break_usage(bus_path, bus_id, phi_45, phi_15, phi_30)
+
+    log_to_both_debug("    Planned Pattern: $(break_pattern)", file_handle)
+    log_to_both_debug("    Actual Breaks Used:", file_handle)
+    log_to_both_debug("      • 45-minute breaks: $(break_usage.breaks_45)", file_handle)
+    log_to_both_debug("      • 15-minute breaks: $(break_usage.breaks_15)", file_handle)
+    log_to_both_debug("      • 30-minute breaks: $(break_usage.breaks_30)", file_handle)
+
+    compliance_status, compliance_desc = analyze_break_compliance(break_pattern, break_usage)
+    log_to_both_debug("    $(compliance_status): $(compliance_desc)", file_handle)
+end
+
+"""
+Log system-wide statistics.
+"""
+function log_system_statistics(solution::NetworkFlowSolution, phi_45::Dict{String, Vector{ModelArc}},
+                               phi_15::Dict{String, Vector{ModelArc}}, phi_30::Dict{String, Vector{ModelArc}},
+                               break_patterns::Dict{String, String}, file_handle::Union{IO, Nothing})
+
+    log_to_both_debug("", file_handle)
+    log_to_both_debug("="^80, file_handle)
+    log_to_both_debug("SYSTEM SUMMARY", file_handle)
+    log_to_both_debug("="^80, file_handle)
+
+    # Fleet statistics
+    total_operational_time = sum(bus_info.operational_duration for (_, bus_info) in solution.buses)
+    total_waiting_time = sum(bus_info.waiting_time for (_, bus_info) in solution.buses)
+    total_active_time = total_operational_time - total_waiting_time
+
+    log_to_both_debug("Total Fleet Operational Time: $(format_duration(total_operational_time))", file_handle)
+    log_to_both_debug("Total Fleet Waiting Time: $(format_duration(total_waiting_time))", file_handle)
+    log_to_both_debug("Total Fleet Active Time: $(format_duration(total_active_time))", file_handle)
+    log_to_both_debug("Fleet Utilization: $(round((total_active_time / total_operational_time) * 100, digits=1))%", file_handle)
+
+    # Break statistics
+    total_breaks = sum(sum(length(arcs) for arcs in values(phi)) for phi in [phi_45, phi_15, phi_30])
+    if total_breaks > 0
+        breaks_45 = sum(length(arcs) for arcs in values(phi_45))
+        breaks_15 = sum(length(arcs) for arcs in values(phi_15))
+        breaks_30 = sum(length(arcs) for arcs in values(phi_30))
+        log_to_both_debug("Break Opportunities Available: $(total_breaks) (45min: $(breaks_45), 15min: $(breaks_15), 30min: $(breaks_30))", file_handle)
+    end
+
+    # Break pattern analysis
+    if !isempty(break_patterns)
+        log_break_pattern_summary(solution, phi_45, phi_15, phi_30, break_patterns, file_handle)
+    end
+end
+
+"""
+Log fleet break pattern analysis summary.
+"""
+function log_break_pattern_summary(solution::NetworkFlowSolution, phi_45::Dict{String, Vector{ModelArc}},
+                                  phi_15::Dict{String, Vector{ModelArc}}, phi_30::Dict{String, Vector{ModelArc}},
+                                  break_patterns::Dict{String, String}, file_handle::Union{IO, Nothing})
+
+    log_to_both_debug("", file_handle)
+    log_to_both_debug("FLEET BREAK PATTERN ANALYSIS:", file_handle)
+
+    single_break_count = count(pattern -> contains(pattern, "Single 45-minute"), values(break_patterns))
+    split_break_count = count(pattern -> contains(pattern, "Split breaks"), values(break_patterns))
+
+    log_to_both_debug("  Pattern Distribution:", file_handle)
+    log_to_both_debug("    Single 45-minute breaks: $(single_break_count) buses", file_handle)
+    log_to_both_debug("    Split 15+30 minute breaks: $(split_break_count) buses", file_handle)
+
+    # Calculate compliance statistics
+    compliant_buses = 0
+    for (bus_id, pattern) in break_patterns
+        if haskey(solution.buses, bus_id)
+            bus_info = solution.buses[bus_id]
+            break_usage = count_break_usage(bus_info.path, bus_id, phi_45, phi_15, phi_30)
+            compliance_status, _ = analyze_break_compliance(pattern, break_usage)
+
+            if compliance_status == "COMPLIANT"
+                compliant_buses += 1
+            end
+        end
+    end
+
+    compliance_rate = round((compliant_buses / length(break_patterns)) * 100, digits=1)
+    log_to_both_debug("  Regulatory Compliance: $(compliant_buses)/$(length(break_patterns)) buses ($(compliance_rate)%)", file_handle)
+end
+
+# ============================================================================
+# DEMAND FULFILLMENT LOGGING
+# ============================================================================
+
+"""
+Analyze and categorize unserved demands.
+"""
+function analyze_unserved_demands(unserved_demands::Vector{PassengerDemand}, routes::Vector{Route})::Dict{String, Any}
+    analysis = Dict{String, Any}()
+
+    # Initialize grouping dictionaries
+    unserved_by_origin = Dict{Int, Vector{PassengerDemand}}()
+    unserved_by_dest = Dict{Int, Vector{PassengerDemand}}()
+    unserved_by_time = Dict{Int, Vector{PassengerDemand}}()
+    unserved_by_depot = Dict{Int, Vector{PassengerDemand}}()
+
+    total_unserved_passengers = 0.0
+    unserved_details = []
+
+    for demand in unserved_demands
+        total_unserved_passengers += demand.demand
+        details = get_demand_details(demand, routes)
+        push!(unserved_details, details)
+
+        # Group by origin
+        if !haskey(unserved_by_origin, demand.origin.id)
+            unserved_by_origin[demand.origin.id] = []
+        end
+        push!(unserved_by_origin[demand.origin.id], demand)
+
+        # Group by destination
+        if !haskey(unserved_by_dest, demand.destination.id)
+            unserved_by_dest[demand.destination.id] = []
+        end
+        push!(unserved_by_dest[demand.destination.id], demand)
+
+        # Group by time (hour of day for origin time)
+        if haskey(details, "origin_time")
+            hour = Int(floor(details["origin_time"] / 60)) % 24
+            if !haskey(unserved_by_time, hour)
+                unserved_by_time[hour] = []
+            end
+            push!(unserved_by_time[hour], demand)
+        end
+
+        # Group by depot
+        if !haskey(unserved_by_depot, demand.depot_id)
+            unserved_by_depot[demand.depot_id] = []
+        end
+        push!(unserved_by_depot[demand.depot_id], demand)
+    end
+
+    analysis["total_unserved_passengers"] = total_unserved_passengers
+    analysis["unserved_details"] = unserved_details
+    analysis["by_origin"] = unserved_by_origin
+    analysis["by_dest"] = unserved_by_dest
+    analysis["by_time"] = unserved_by_time
+    analysis["by_depot"] = unserved_by_depot
+
+    return analysis
+end
+
+"""
+Log unserved demands analysis.
+"""
+function log_unserved_demands(analysis::Dict{String, Any}, unserved_count::Int, total_demands::Int,
+                             file_handle::Union{IO, Nothing})
+
+    log_to_both_debug("", file_handle)
+    log_to_both_debug("CRITICAL: UNSERVED DEMANDS ANALYSIS", file_handle)
+    log_to_both_debug("="^50, file_handle)
+    log_to_both_debug("$(unserved_count) out of $(total_demands) demands could not be served ($(round((unserved_count/total_demands)*100, digits=1))%)", file_handle)
+    log_to_both_debug("", file_handle)
+
+    # Statistics
+    total_unserved_passengers = analysis["total_unserved_passengers"]
+    log_to_both_debug("UNSERVED DEMAND STATISTICS:", file_handle)
+    log_to_both_debug("  Total Unserved Passengers: $(round(total_unserved_passengers, digits=1))", file_handle)
+    log_to_both_debug("  Average Demand per Unserved Request: $(round(total_unserved_passengers/unserved_count, digits=2))", file_handle)
+
+    # Time distribution
+    if !isempty(analysis["by_time"])
+        log_to_both_debug("", file_handle)
+        log_to_both_debug("UNSERVED DEMANDS BY TIME OF DAY:", file_handle)
+        sorted_times = sort(collect(analysis["by_time"]), by=x->x[1])
+        for (hour, demands) in sorted_times
+            passengers = sum(d.demand for d in demands)
+            log_to_both_debug("  $(hour):00-$(hour):59: $(length(demands)) requests, $(round(passengers, digits=1)) passengers", file_handle)
+        end
+    end
+
+    # Depot distribution
+    if !isempty(analysis["by_depot"])
+        log_to_both_debug("", file_handle)
+        log_to_both_debug("UNSERVED DEMANDS BY DEPOT:", file_handle)
+        sorted_depots = sort(collect(analysis["by_depot"]), by=x->(length(x[2]), x[1]), rev=true)
+        for (depot_id, demands) in sorted_depots
+            passengers = sum(d.demand for d in demands)
+            log_to_both_debug("  Depot $(depot_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", file_handle)
+        end
+    end
+
+    # Top unserved origins and destinations
+    log_top_locations(analysis["by_origin"], "TOP UNSERVED ORIGINS", file_handle)
+    log_top_locations(analysis["by_dest"], "TOP UNSERVED DESTINATIONS", file_handle)
+
+    # Detailed unserved demands
+    log_detailed_unserved_demands(analysis["unserved_details"], file_handle)
+end
+
+"""
+Log top unserved locations (origins or destinations).
+"""
+function log_top_locations(location_dict::Dict{Int, Vector{PassengerDemand}}, title::String,
+                          file_handle::Union{IO, Nothing})
+    log_to_both_debug("", file_handle)
+    log_to_both_debug(title, file_handle)
+
+    sorted_locations = sort(collect(location_dict), by=x->(length(x[2]), x[1]), rev=true)
+    for (i, (location_id, demands)) in enumerate(sorted_locations[1:min(10, end)])
+        passengers = sum(d.demand for d in demands)
+        log_to_both_debug("  $(i). Stop $(location_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", file_handle)
+    end
+end
+
+"""
+Log comprehensive details for each unserved demand.
+"""
+function log_detailed_unserved_demands(unserved_details::Vector{Any}, file_handle::Union{IO, Nothing})
+    log_to_both_debug("", file_handle)
+    log_to_both_debug("COMPREHENSIVE UNSERVED DEMANDS DETAILS:", file_handle)
+    log_to_both_debug("="^60, file_handle)
+
+    sorted_details = sort(unserved_details, by=x->x["demand_id"])
+
+    for details in sorted_details
+        log_to_both_debug("", file_handle)
+        log_to_both_debug("DEMAND $(details["demand_id"]):", file_handle)
+        log_to_both_debug("   Passengers: $(details["passengers"])", file_handle)
+        log_to_both_debug("   Date: $(details["date"])", file_handle)
+        log_to_both_debug("   Depot: $(details["depot_id"])", file_handle)
+
+        # Origin information
+        if haskey(details, "origin_stop_name")
+            log_to_both_debug("   ORIGIN:", file_handle)
+            log_to_both_debug("     Stop: $(details["origin_stop_name"]) (ID: $(details["origin_stop_id"]))", file_handle)
+            if haskey(details, "origin_time")
+                log_to_both_debug("     Time: $(format_time(details["origin_time"]))", file_handle)
+            end
+            if haskey(details, "origin_location")
+                lat, lon = details["origin_location"]
+                log_to_both_debug("     Location: ($(round(lat, digits=6)), $(round(lon, digits=6)))", file_handle)
+            end
+        else
+            log_to_both_debug("   ORIGIN: Station ID $(details["demand_id"]) (route/trip info not found)", file_handle)
+        end
+
+        # Destination information
+        if haskey(details, "dest_stop_name")
+            log_to_both_debug("   DESTINATION:", file_handle)
+            log_to_both_debug("     Stop: $(details["dest_stop_name"]) (ID: $(details["dest_stop_id"]))", file_handle)
+            if haskey(details, "dest_time")
+                log_to_both_debug("     Time: $(format_time(details["dest_time"]))", file_handle)
+            end
+            if haskey(details, "dest_location")
+                lat, lon = details["dest_location"]
+                log_to_both_debug("     Location: ($(round(lat, digits=6)), $(round(lon, digits=6)))", file_handle)
+            end
+        else
+            log_to_both_debug("   DESTINATION: Station ID $(details["demand_id"]) (route/trip info not found)", file_handle)
+        end
+
+        # Travel time window
+        if haskey(details, "travel_time_window")
+            window_minutes = details["travel_time_window"]
+            if window_minutes >= 0
+                log_to_both_debug("   Travel Time Window: $(round(window_minutes, digits=1)) minutes", file_handle)
+            else
+                log_to_both_debug("   Invalid Time Window: $(round(window_minutes, digits=1)) minutes (destination before origin)", file_handle)
+            end
+        end
+
+        # Distance calculation if both locations available
+        if haskey(details, "origin_location") && haskey(details, "dest_location")
+            orig_lat, orig_lon = details["origin_location"]
+            dest_lat, dest_lon = details["dest_location"]
+            distance_km = calculate_distance_km(orig_lat, orig_lon, dest_lat, dest_lon)
+            log_to_both_debug("   Direct Distance: $(round(distance_km, digits=2)) km", file_handle)
+        end
+    end
+
+    log_to_both_debug("", file_handle)
+    log_to_both_debug("="^60, file_handle)
+    log_to_both_debug("DEBUGGING SUGGESTIONS:", file_handle)
+    log_to_both_debug("  • Check if routes exist connecting frequent unserved origin-destination pairs", file_handle)
+    log_to_both_debug("  • Verify bus capacity constraints are not too restrictive", file_handle)
+    log_to_both_debug("  • Review time windows - demands may fall outside service hours", file_handle)
+    log_to_both_debug("  • Consider depot assignments - demands may be assigned to distant depots", file_handle)
+    log_to_both_debug("  • Analyze geographical clustering - some areas may lack adequate coverage", file_handle)
+end
+
+# ============================================================================
+# MAIN LOGGING FUNCTIONS
+# ============================================================================
+
+"""
 Log comprehensive bus operations summary.
 """
 function log_bus_operations_summary(solution::NetworkFlowSolution, parameters::ProblemParameters,
@@ -139,294 +709,42 @@ function log_bus_operations_summary(solution::NetworkFlowSolution, parameters::P
                                   log_files::Union{NamedTuple, Nothing}=nothing)
 
     if isnothing(solution.buses)
-        content = "No bus operations to log (solution has no bus data)."
-        @info content
+        @info "No bus operations to log (solution has no bus data)."
         return
     end
 
-    # Open bus operations log file
     bus_file = nothing
     if !isnothing(log_files)
         bus_file = open(log_files.bus_operations, "w")
-        println(bus_file, "BUS OPERATIONS LOG")
-        println(bus_file, "Generated: $(Dates.format(now(), "yyyy-mm-dd HH:MM:SS"))")
-        println(bus_file, "="^80)
+        write_log_header(bus_file, "BUS OPERATIONS LOG")
     end
 
     try
-        log_to_both("="^80, bus_file)
-        log_to_both("BUS OPERATIONS SUMMARY", bus_file)
-        log_to_both("="^80, bus_file)
-        log_to_both("Depot: $(parameters.depot.depot_name) (ID: $(parameters.depot.depot_id))", bus_file)
-        log_to_both("Date: $(parameters.day)", bus_file)
-        log_to_both("Solution Status: $(solution.status)", bus_file)
-        log_to_both("Objective Value: $(solution.objective_value)", bus_file)
-        log_to_both("Total Demands: $(solution.num_demands)", bus_file)
-        log_to_both("Buses Used: $(length(solution.buses))", bus_file)
-        log_to_both("="^80, bus_file)
+        log_to_both_debug("="^80, bus_file)
+        log_to_both_debug("BUS OPERATIONS SUMMARY", bus_file)
+        log_to_both_debug("="^80, bus_file)
+        log_to_both_debug("Depot: $(parameters.depot.depot_name) (ID: $(parameters.depot.depot_id))", bus_file)
+        log_to_both_debug("Date: $(parameters.day)", bus_file)
+        log_to_both_debug("Solution Status: $(solution.status)", bus_file)
+        log_to_both_debug("Objective Value: $(solution.objective_value)", bus_file)
+        log_to_both_debug("Total Demands: $(solution.num_demands)", bus_file)
+        log_to_both_debug("Buses Used: $(length(solution.buses))", bus_file)
+        log_to_both_debug("="^80, bus_file)
 
-    # Route lookup for stop names and times
-    route_lookup = Dict((r.route_id, r.trip_id, r.trip_sequence) => r for r in parameters.routes)
+        # Sort buses by operational start time
+        sorted_buses = sort(collect(solution.buses), by=x -> x[2].timestamps[1][2])
 
-    # Sort buses by operational start time for logical ordering
-    sorted_buses = sort(collect(solution.buses), by=x -> x[2].timestamps[1][2])
-
-    for (bus_id, bus_info) in sorted_buses
-        log_to_both("", bus_file)
-        log_to_both("🚌 BUS: $(bus_id)", bus_file)
-        log_to_both("─"^60, bus_file)
-
-        # Basic operational metrics
-        start_time = bus_info.timestamps[1][2]
-        end_time = bus_info.timestamps[end][2]
-        log_to_both("  Operational Period: $(format_time(start_time)) → $(format_time(end_time))", bus_file)
-        log_to_both("  Total Duration: $(format_duration(bus_info.operational_duration))", bus_file)
-        log_to_both("  Waiting Time: $(format_duration(bus_info.waiting_time))", bus_file)
-        log_to_both("  Active Time: $(format_duration(bus_info.operational_duration - bus_info.waiting_time))", bus_file)
-
-        # Path details
-        log_to_both("", bus_file)
-        log_to_both("  📍 ROUTE DETAILS:", bus_file)
-
-        total_passengers = 0
-        break_count = 0
-        route_segments = 0
-
-        for (i, arc) in enumerate(bus_info.path)
-            arc_time = bus_info.timestamps[i][2]
-            capacity = length(bus_info.capacity_usage) >= i ? bus_info.capacity_usage[i][2] : 0
-
-            # Arc type description
-            arc_desc = ""
-            if arc.kind == "depot-start-arc"
-                arc_desc = "🏠 DEPOT DEPARTURE"
-            elseif arc.kind == "depot-end-arc"
-                arc_desc = "🏠 DEPOT ARRIVAL"
-            elseif arc.kind == "line-arc"
-                arc_desc = "🚶 PASSENGER SERVICE"
-                route_segments += 1
-            elseif arc.kind == "intra-line-arc"
-                arc_desc = "⏭️  CONTINUE ROUTE"
-            elseif arc.kind == "inter-line-arc"
-                arc_desc = "🔄 ROUTE TRANSFER"
-            else
-                arc_desc = "❓ $(arc.kind)"
-            end
-
-            # Check for break opportunity with detailed pattern info
-            is_break, break_type = is_break_arc(arc, phi_45, phi_15, phi_30)
-            if is_break
-                # Add break pattern context if available
-                if haskey(break_patterns, bus_id)
-                    is_single_pattern = contains(break_patterns[bus_id], "Single 45-minute")
-                    if break_type == "45-min break" && is_single_pattern
-                        arc_desc *= " + ☕ $(break_type) [PLANNED]"
-                    elseif (break_type == "15-min break" || break_type == "30-min break") && !is_single_pattern
-                        arc_desc *= " + ☕ $(break_type) [PLANNED]"
-                    else
-                        arc_desc *= " + ☕ $(break_type) [EXTRA]"
-                    end
-                else
-                    arc_desc *= " + ☕ $(break_type)"
-                end
-                break_count += 1
-            end
-
-            log_to_both("    $(lpad(i, 2)). $(format_time(arc_time)) │ $(arc_desc)", bus_file)
-
-            # Show route and stop details for service arcs
-            if arc.kind in ["line-arc", "depot-start-arc", "depot-end-arc", "intra-line-arc", "inter-line-arc"]
-                from_stop = arc.arc_start.id
-                to_stop = arc.arc_end.id
-
-                # Get route info for better descriptions
-                if arc.arc_start.stop_sequence > 0  # Not depot
-                    route_key = (arc.arc_start.route_id, arc.arc_start.trip_id, arc.arc_start.trip_sequence)
-                    if haskey(route_lookup, route_key)
-                        route = route_lookup[route_key]
-                        if arc.arc_start.stop_sequence <= length(route.stop_names)
-                            from_name = route.stop_names[arc.arc_start.stop_sequence]
-                            log_to_both("        From: Stop $(from_stop) - $(from_name)", bus_file)
-                        end
-                    end
-                else
-                    log_to_both("        From: DEPOT", bus_file)
-                end
-
-                if arc.arc_end.stop_sequence > 0  # Not depot
-                    route_key = (arc.arc_end.route_id, arc.arc_end.trip_id, arc.arc_end.trip_sequence)
-                    if haskey(route_lookup, route_key)
-                        route = route_lookup[route_key]
-                        if arc.arc_end.stop_sequence <= length(route.stop_names)
-                            to_name = route.stop_names[arc.arc_end.stop_sequence]
-                            log_to_both("        To:   Stop $(to_stop) - $(to_name)", bus_file)
-                        end
-                    end
-                else
-                    log_to_both("        To:   DEPOT", bus_file)
-                end
-
-                if capacity > 0
-                    log_to_both("        Passengers: $(capacity)", bus_file)
-                    total_passengers += capacity
-                end
-            end
-
-            # Show demand details for line arcs
-            if arc.kind == "line-arc"
-                demands = get_arc_demands(arc, parameters.passenger_demands)
-                if !isempty(demands)
-                    log_to_both("        Demand Details:", bus_file)
-                    for demand in demands
-                        log_to_both("          • Demand $(demand.id): $(demand.passengers) passengers ($(demand.origin_stop) → $(demand.dest_stop))", bus_file)
-                    end
-                end
-            end
+        for (bus_id, bus_info) in sorted_buses
+            log_single_bus_operation(bus_id, bus_info, parameters, phi_45, phi_15, phi_30, break_patterns, bus_file)
         end
 
-        # Summary for this bus
-        log_to_both("", bus_file)
-        log_to_both("  📊 BUS SUMMARY:", bus_file)
-        log_to_both("    Route Segments Served: $(route_segments)", bus_file)
-        log_to_both("    Total Passenger-Kilometers: $(total_passengers)", bus_file)  # This is approximate
-        log_to_both("    Break Opportunities Used: $(break_count)", bus_file)
-
-        # Find bus capacity if available
-        bus_obj = findfirst(b -> b.bus_id == bus_id, parameters.buses)
-        if !isnothing(bus_obj)
-            bus_capacity = parameters.buses[bus_obj].capacity
-            shift_start = parameters.buses[bus_obj].shift_start
-            shift_end = parameters.buses[bus_obj].shift_end
-            log_to_both("    Bus Capacity: $(bus_capacity) passengers", bus_file)
-            log_to_both("    Shift Window: $(format_time(shift_start)) → $(format_time(shift_end))", bus_file)
-
-            # Show break pattern decision if available
-            if haskey(break_patterns, bus_id)
-                log_to_both("    ☕ Break Pattern: $(break_patterns[bus_id])", bus_file)
-
-                # Detailed break analysis
-                log_to_both("", bus_file)
-                log_to_both("  🔍 DETAILED BREAK ANALYSIS:", bus_file)
-
-                # Count actual breaks used by type
-                breaks_45_used = 0
-                breaks_15_used = 0
-                breaks_30_used = 0
-
-                for arc in bus_info.path
-                    is_break_45 = haskey(phi_45, bus_id) && arc in phi_45[bus_id]
-                    is_break_15 = haskey(phi_15, bus_id) && arc in phi_15[bus_id]
-                    is_break_30 = haskey(phi_30, bus_id) && arc in phi_30[bus_id]
-
-                    if is_break_45
-                        breaks_45_used += 1
-                    end
-                    if is_break_15
-                        breaks_15_used += 1
-                    end
-                    if is_break_30
-                        breaks_30_used += 1
-                    end
-                end
-
-                # Analyze compliance with chosen pattern
-                is_single_pattern = contains(break_patterns[bus_id], "Single 45-minute")
-
-                log_to_both("    Planned Pattern: $(break_patterns[bus_id])", bus_file)
-                log_to_both("    Actual Breaks Used:", bus_file)
-                log_to_both("      • 45-minute breaks: $(breaks_45_used)", bus_file)
-                log_to_both("      • 15-minute breaks: $(breaks_15_used)", bus_file)
-                log_to_both("      • 30-minute breaks: $(breaks_30_used)", bus_file)
-
-                # Compliance analysis
-                if is_single_pattern
-                    if breaks_45_used >= 1 && breaks_15_used == 0 && breaks_30_used == 0
-                        log_to_both("    ✅ COMPLIANT: Uses single 45-minute break as planned", bus_file)
-                    elseif breaks_45_used >= 1
-                        log_to_both("    ⚠️  OVER-COMPLIANCE: Uses 45-minute break + additional breaks", bus_file)
-                    else
-                        log_to_both("    ❌ NON-COMPLIANT: No 45-minute break used despite z=1", bus_file)
-                    end
-                else
-                    if breaks_15_used >= 1 && breaks_30_used >= 1 && breaks_45_used == 0
-                        log_to_both("    ✅ COMPLIANT: Uses split 15+30 minute breaks as planned", bus_file)
-                    elseif breaks_15_used >= 1 && breaks_30_used >= 1
-                        log_to_both("    ⚠️  OVER-COMPLIANCE: Uses split breaks + additional breaks", bus_file)
-                    elseif breaks_45_used >= 1
-                        log_to_both("    ❌ NON-COMPLIANT: Uses 45-minute break despite z=0 (split pattern)", bus_file)
-                    else
-                        log_to_both("    ❌ NON-COMPLIANT: Missing required split breaks (15+30 min)", bus_file)
-                    end
-                end
-            end
-        end
-    end
-
-    log_to_both("", bus_file)
-    log_to_both("="^80, bus_file)
-    log_to_both("SYSTEM SUMMARY", bus_file)
-    log_to_both("="^80, bus_file)
-
-    # Overall statistics
-    total_operational_time = sum(bus_info.operational_duration for (_, bus_info) in solution.buses)
-    total_waiting_time = sum(bus_info.waiting_time for (_, bus_info) in solution.buses)
-    total_active_time = total_operational_time - total_waiting_time
-
-    log_to_both("Total Fleet Operational Time: $(format_duration(total_operational_time))", bus_file)
-    log_to_both("Total Fleet Waiting Time: $(format_duration(total_waiting_time))", bus_file)
-    log_to_both("Total Fleet Active Time: $(format_duration(total_active_time))", bus_file)
-    log_to_both("Fleet Utilization: $(round((total_active_time / total_operational_time) * 100, digits=1))%", bus_file)
-
-    # Break statistics
-    total_breaks = sum(sum(length(arcs) for arcs in values(phi)) for phi in [phi_45, phi_15, phi_30])
-    if total_breaks > 0
-        breaks_45 = sum(length(arcs) for arcs in values(phi_45))
-        breaks_15 = sum(length(arcs) for arcs in values(phi_15))
-        breaks_30 = sum(length(arcs) for arcs in values(phi_30))
-        log_to_both("Break Opportunities Available: $(total_breaks) (45min: $(breaks_45), 15min: $(breaks_15), 30min: $(breaks_30))", bus_file)
-    end
-
-    # Log break pattern summary if available
-    if !isempty(break_patterns)
-        log_to_both("", bus_file)
-        log_to_both("🔍 FLEET BREAK PATTERN ANALYSIS:", bus_file)
-        single_break_count = count(pattern -> contains(pattern, "Single 45-minute"), values(break_patterns))
-        split_break_count = count(pattern -> contains(pattern, "Split breaks"), values(break_patterns))
-        log_to_both("  📊 Pattern Distribution:", bus_file)
-        log_to_both("    Single 45-minute breaks: $(single_break_count) buses", bus_file)
-        log_to_both("    Split 15+30 minute breaks: $(split_break_count) buses", bus_file)
-
-        # Calculate compliance statistics
-        compliant_buses = 0
-        for (bus_id, pattern) in break_patterns
-            if haskey(solution.buses, bus_id)
-                bus_info = solution.buses[bus_id]
-                is_single_pattern = contains(pattern, "Single 45-minute")
-
-                # Count breaks for this bus
-                breaks_45 = count(arc -> haskey(phi_45, bus_id) && arc in phi_45[bus_id], bus_info.path)
-                breaks_15 = count(arc -> haskey(phi_15, bus_id) && arc in phi_15[bus_id], bus_info.path)
-                breaks_30 = count(arc -> haskey(phi_30, bus_id) && arc in phi_30[bus_id], bus_info.path)
-
-                # Check compliance
-                if is_single_pattern && breaks_45 >= 1
-                    compliant_buses += 1
-                elseif !is_single_pattern && breaks_15 >= 1 && breaks_30 >= 1
-                    compliant_buses += 1
-                end
-            end
-        end
-
-        compliance_rate = round((compliant_buses / length(break_patterns)) * 100, digits=1)
-        log_to_both("  ✅ Regulatory Compliance: $(compliant_buses)/$(length(break_patterns)) buses ($(compliance_rate)%)", bus_file)
-    end
-
-    log_to_both("="^80, bus_file)
+        log_system_statistics(solution, phi_45, phi_15, phi_30, break_patterns, bus_file)
+        log_to_both_debug("="^80, bus_file)
 
     finally
         if !isnothing(bus_file)
             close(bus_file)
-            @info "Bus operations log saved to: $(log_files.bus_operations)"
+            @debug "Bus operations log saved to: $(log_files.bus_operations)"
         end
     end
 end
@@ -434,50 +752,6 @@ end
 """
 Log detailed demand fulfillment analysis.
 """
-# Helper function to extract detailed information about a demand
-function get_demand_details(demand::PassengerDemand, routes::Vector{Route})
-    # Find the route information for origin and destination
-    origin_route = findfirst(r -> r.route_id == demand.origin.route_id && r.trip_id == demand.origin.trip_id, routes)
-    dest_route = findfirst(r -> r.route_id == demand.destination.route_id && r.trip_id == demand.destination.trip_id, routes)
-
-    details = Dict{String, Any}()
-    details["demand_id"] = demand.demand_id
-    details["passengers"] = demand.demand
-    details["date"] = demand.date
-    details["depot_id"] = demand.depot_id
-
-    # Origin details
-    if !isnothing(origin_route)
-        route = routes[origin_route]
-        stop_idx = findfirst(seq -> seq == demand.origin.stop_sequence, route.stop_sequence)
-        if !isnothing(stop_idx)
-            details["origin_time"] = route.stop_times[stop_idx]
-            details["origin_location"] = route.locations[stop_idx]
-            details["origin_stop_name"] = route.stop_names[stop_idx]
-            details["origin_stop_id"] = route.stop_ids[stop_idx]
-        end
-    end
-
-    # Destination details
-    if !isnothing(dest_route)
-        route = routes[dest_route]
-        stop_idx = findfirst(seq -> seq == demand.destination.stop_sequence, route.stop_sequence)
-        if !isnothing(stop_idx)
-            details["dest_time"] = route.stop_times[stop_idx]
-            details["dest_location"] = route.locations[stop_idx]
-            details["dest_stop_name"] = route.stop_names[stop_idx]
-            details["dest_stop_id"] = route.stop_ids[stop_idx]
-        end
-    end
-
-    # Calculate travel time window if both times are available
-    if haskey(details, "origin_time") && haskey(details, "dest_time")
-        details["travel_time_window"] = details["dest_time"] - details["origin_time"]
-    end
-
-    return details
-end
-
 function log_demand_fulfillment_summary(solution::NetworkFlowSolution, parameters::ProblemParameters,
                                        break_patterns::Dict{String, String}=Dict{String, String}(),
                                        log_files::Union{NamedTuple, Nothing}=nothing)
@@ -486,245 +760,130 @@ function log_demand_fulfillment_summary(solution::NetworkFlowSolution, parameter
         return
     end
 
-    # Open demand analysis log file
     demand_file = nothing
     if !isnothing(log_files)
         demand_file = open(log_files.demand_analysis, "w")
-        println(demand_file, "DEMAND FULFILLMENT ANALYSIS LOG")
-        println(demand_file, "Generated: $(Dates.format(now(), "yyyy-mm-dd HH:MM:SS"))")
-        println(demand_file, "="^80)
+        write_log_header(demand_file, "DEMAND FULFILLMENT ANALYSIS LOG")
     end
 
     try
-        log_to_both("", demand_file)
-        log_to_both("="^80, demand_file)
-        log_to_both("DEMAND FULFILLMENT ANALYSIS", demand_file)
-        log_to_both("="^80, demand_file)
+        log_to_both_debug("", demand_file)
+        log_to_both_debug("="^80, demand_file)
+        log_to_both_debug("DEMAND FULFILLMENT ANALYSIS", demand_file)
+        log_to_both_debug("="^80, demand_file)
 
-    # Track which demands are served
-    served_demands = Set{Int}()
-    demand_service_details = Dict{Int, Vector{String}}()
+        # Track served demands
+        served_demands = Set{Int}()
+        demand_service_details = Dict{Int, Vector{String}}()
 
-    # Analyze each bus path for demand service
-    for (bus_id, bus_info) in solution.buses
-        for (i, arc) in enumerate(bus_info.path)
-            if arc.kind == "line-arc"
-                arc_demands = get_arc_demands(arc, parameters.passenger_demands)
-                for demand_info in arc_demands
-                    push!(served_demands, demand_info.id)
-                    if !haskey(demand_service_details, demand_info.id)
-                        demand_service_details[demand_info.id] = String[]
+        # Analyze each bus path for demand service
+        for (bus_id, bus_info) in solution.buses
+            for (i, arc) in enumerate(bus_info.path)
+                if arc.kind == "line-arc"
+                    arc_demands = get_arc_demands(arc, parameters.passenger_demands)
+                    for demand_info in arc_demands
+                        push!(served_demands, demand_info.id)
+                        if !haskey(demand_service_details, demand_info.id)
+                            demand_service_details[demand_info.id] = String[]
+                        end
+                        arc_time = bus_info.timestamps[i][2]
+                        push!(demand_service_details[demand_info.id],
+                              "Bus $(bus_id) at $(format_time(arc_time)): $(demand_info.passengers) passengers")
                     end
-                    arc_time = bus_info.timestamps[i][2]
-                    push!(demand_service_details[demand_info.id],
-                          "Bus $(bus_id) at $(format_time(arc_time)): $(demand_info.passengers) passengers")
                 end
             end
         end
-    end
 
-    # Summary statistics
-    total_demands = length(parameters.passenger_demands)
-    served_count = length(served_demands)
-    unserved_count = total_demands - served_count
+        # Summary statistics
+        total_demands = length(parameters.passenger_demands)
+        served_count = length(served_demands)
+        unserved_count = total_demands - served_count
 
-    log_to_both("Total Demands: $(total_demands)", demand_file)
-    log_to_both("Served Demands: $(served_count) ($(round((served_count/total_demands)*100, digits=1))%)", demand_file)
-    log_to_both("Unserved Demands: $(unserved_count) ($(round((unserved_count/total_demands)*100, digits=1))%)", demand_file)
+        log_to_both_debug("Total Demands: $(total_demands)", demand_file)
+        log_to_both_debug("Served Demands: $(served_count) ($(round((served_count/total_demands)*100, digits=1))%)", demand_file)
+        log_to_both_debug("Unserved Demands: $(unserved_count) ($(round((unserved_count/total_demands)*100, digits=1))%)", demand_file)
 
-    # Detailed served demands
-    if served_count > 0
-        log_to_both("", demand_file)
-        log_to_both("📋 SERVED DEMANDS:", demand_file)
-        for demand_id in sort(collect(served_demands))
-            demand = parameters.passenger_demands[findfirst(d -> d.demand_id == demand_id, parameters.passenger_demands)]
-            log_to_both("  Demand $(demand_id): $(demand.demand) passengers ($(demand.origin.id) → $(demand.destination.id))", demand_file)
-            for service_detail in demand_service_details[demand_id]
-                log_to_both("    $(service_detail)", demand_file)
-            end
-        end
-    end
-
-    # Enhanced unserved demands section with comprehensive details
-    if unserved_count > 0
-        log_to_both("", demand_file)
-        log_to_both("🚨 CRITICAL: UNSERVED DEMANDS ANALYSIS", demand_file)
-        log_to_both("="^50, demand_file)
-        log_to_both("⚠️  $(unserved_count) out of $(total_demands) demands could not be served ($(round((unserved_count/total_demands)*100, digits=1))%)", demand_file)
-        log_to_both("", demand_file)
-
-        # Group unserved demands by route patterns for better analysis
-        unserved_by_origin = Dict{Int, Vector{PassengerDemand}}()
-        unserved_by_dest = Dict{Int, Vector{PassengerDemand}}()
-        unserved_by_time = Dict{Int, Vector{PassengerDemand}}()  # Group by hour of day
-        unserved_by_depot = Dict{Int, Vector{PassengerDemand}}()
-        total_unserved_passengers = 0.0
-        unserved_details = []
-
-        for demand in parameters.passenger_demands
-            if !(demand.demand_id in served_demands)
-                total_unserved_passengers += demand.demand
-                details = get_demand_details(demand, parameters.routes)
-                push!(unserved_details, details)
-
-                # Group by origin
-                if !haskey(unserved_by_origin, demand.origin.id)
-                    unserved_by_origin[demand.origin.id] = []
+        # Served demands details
+        if served_count > 0
+            log_to_both_debug("", demand_file)
+            log_to_both_debug("SERVED DEMANDS:", demand_file)
+            for demand_id in sort(collect(served_demands))
+                demand = parameters.passenger_demands[findfirst(d -> d.demand_id == demand_id, parameters.passenger_demands)]
+                log_to_both_debug("  Demand $(demand_id): $(demand.demand) passengers ($(demand.origin.id) → $(demand.destination.id))", demand_file)
+                for service_detail in demand_service_details[demand_id]
+                    log_to_both_debug("    $(service_detail)", demand_file)
                 end
-                push!(unserved_by_origin[demand.origin.id], demand)
-
-                # Group by destination
-                if !haskey(unserved_by_dest, demand.destination.id)
-                    unserved_by_dest[demand.destination.id] = []
-                end
-                push!(unserved_by_dest[demand.destination.id], demand)
-
-                # Group by time (hour of day for origin time)
-                if haskey(details, "origin_time")
-                    hour = Int(floor(details["origin_time"] / 60)) % 24
-                    if !haskey(unserved_by_time, hour)
-                        unserved_by_time[hour] = []
-                    end
-                    push!(unserved_by_time[hour], demand)
-                end
-
-                # Group by depot
-                if !haskey(unserved_by_depot, demand.depot_id)
-                    unserved_by_depot[demand.depot_id] = []
-                end
-                push!(unserved_by_depot[demand.depot_id], demand)
             end
         end
 
-        log_to_both("📊 UNSERVED DEMAND STATISTICS:", demand_file)
-        log_to_both("  Total Unserved Passengers: $(round(total_unserved_passengers, digits=1))", demand_file)
-        log_to_both("  Average Demand per Unserved Request: $(round(total_unserved_passengers/unserved_count, digits=2))", demand_file)
-
-        # Time distribution analysis
-        if !isempty(unserved_by_time)
-            log_to_both("", demand_file)
-            log_to_both("🕐 UNSERVED DEMANDS BY TIME OF DAY:", demand_file)
-            sorted_times = sort(collect(unserved_by_time), by=x->x[1])
-            for (hour, demands) in sorted_times
-                passengers = sum(d.demand for d in demands)
-                log_to_both("  $(hour):00-$(hour):59: $(length(demands)) requests, $(round(passengers, digits=1)) passengers", demand_file)
-            end
+        # Unserved demands analysis
+        if unserved_count > 0
+            unserved_demands = [d for d in parameters.passenger_demands if !(d.demand_id in served_demands)]
+            analysis = analyze_unserved_demands(unserved_demands, parameters.routes)
+            log_unserved_demands(analysis, unserved_count, total_demands, demand_file)
         end
 
-        # Depot distribution analysis
-        if !isempty(unserved_by_depot)
-            log_to_both("", demand_file)
-            log_to_both("🏢 UNSERVED DEMANDS BY DEPOT:", demand_file)
-            sorted_depots = sort(collect(unserved_by_depot), by=x->(length(x[2]), x[1]), rev=true)
-            for (depot_id, demands) in sorted_depots
-                passengers = sum(d.demand for d in demands)
-                log_to_both("  Depot $(depot_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", demand_file)
-            end
-        end
-
-        # Show top unserved origins
-        log_to_both("", demand_file)
-        log_to_both("🔍 TOP UNSERVED ORIGINS:", demand_file)
-        sorted_origins = sort(collect(unserved_by_origin), by=x->(length(x[2]), x[1]), rev=true)
-        for (i, (origin_id, demands)) in enumerate(sorted_origins[1:min(10, end)])
-            passengers = sum(d.demand for d in demands)
-            log_to_both("  $(i). Stop $(origin_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", demand_file)
-        end
-
-        # Show top unserved destinations
-        log_to_both("", demand_file)
-        log_to_both("🔍 TOP UNSERVED DESTINATIONS:", demand_file)
-        sorted_dests = sort(collect(unserved_by_dest), by=x->(length(x[2]), x[1]), rev=true)
-        for (i, (dest_id, demands)) in enumerate(sorted_dests[1:min(10, end)])
-            passengers = sum(d.demand for d in demands)
-            log_to_both("  $(i). Stop $(dest_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", demand_file)
-        end
-
-        log_to_both("", demand_file)
-        log_to_both("📋 COMPREHENSIVE UNSERVED DEMANDS DETAILS:", demand_file)
-        log_to_both("="^60, demand_file)
-
-        # Sort unserved details by demand ID for consistent ordering
-        sorted_details = sort(unserved_details, by=x->x["demand_id"])
-
-        for details in sorted_details
-            log_to_both("", demand_file)
-            log_to_both("❌ DEMAND $(details["demand_id"]):", demand_file)
-            log_to_both("   👥 Passengers: $(details["passengers"])", demand_file)
-            log_to_both("   📅 Date: $(details["date"])", demand_file)
-            log_to_both("   🏢 Depot: $(details["depot_id"])", demand_file)
-
-            # Origin information
-            if haskey(details, "origin_stop_name")
-                log_to_both("   🚀 ORIGIN:", demand_file)
-                log_to_both("     Stop: $(details["origin_stop_name"]) (ID: $(details["origin_stop_id"]))", demand_file)
-                if haskey(details, "origin_time")
-                    log_to_both("     Time: $(format_time(details["origin_time"]))", demand_file)
-                end
-                if haskey(details, "origin_location")
-                    lat, lon = details["origin_location"]
-                    log_to_both("     Location: ($(round(lat, digits=6)), $(round(lon, digits=6)))", demand_file)
-                end
-            else
-                log_to_both("   🚀 ORIGIN: Station ID $(details["demand_id"]) (route/trip info not found)", demand_file)
-            end
-
-            # Destination information
-            if haskey(details, "dest_stop_name")
-                log_to_both("   🎯 DESTINATION:", demand_file)
-                log_to_both("     Stop: $(details["dest_stop_name"]) (ID: $(details["dest_stop_id"]))", demand_file)
-                if haskey(details, "dest_time")
-                    log_to_both("     Time: $(format_time(details["dest_time"]))", demand_file)
-                end
-                if haskey(details, "dest_location")
-                    lat, lon = details["dest_location"]
-                    log_to_both("     Location: ($(round(lat, digits=6)), $(round(lon, digits=6)))", demand_file)
-                end
-            else
-                log_to_both("   🎯 DESTINATION: Station ID $(details["demand_id"]) (route/trip info not found)", demand_file)
-            end
-
-            # Travel time window
-            if haskey(details, "travel_time_window")
-                window_minutes = details["travel_time_window"]
-                if window_minutes >= 0
-                    log_to_both("   ⏱️  Travel Time Window: $(round(window_minutes, digits=1)) minutes", demand_file)
-                else
-                    log_to_both("   ⚠️  Invalid Time Window: $(round(window_minutes, digits=1)) minutes (destination before origin)", demand_file)
-                end
-            end
-
-            # Distance calculation if both locations available
-            if haskey(details, "origin_location") && haskey(details, "dest_location")
-                orig_lat, orig_lon = details["origin_location"]
-                dest_lat, dest_lon = details["dest_location"]
-                # Approximate distance using Haversine formula (simplified)
-                Δlat = deg2rad(dest_lat - orig_lat)
-                Δlon = deg2rad(dest_lon - orig_lon)
-                a = sin(Δlat/2)^2 + cos(deg2rad(orig_lat)) * cos(deg2rad(dest_lat)) * sin(Δlon/2)^2
-                c = 2 * atan(sqrt(a), sqrt(1-a))
-                distance_km = 6371 * c  # Earth's radius in km
-                log_to_both("   📏 Direct Distance: $(round(distance_km, digits=2)) km", demand_file)
-            end
-        end
-
-        log_to_both("", demand_file)
-        log_to_both("="^60, demand_file)
-        log_to_both("💡 DEBUGGING SUGGESTIONS:", demand_file)
-        log_to_both("  • Check if routes exist connecting frequent unserved origin-destination pairs", demand_file)
-        log_to_both("  • Verify bus capacity constraints are not too restrictive", demand_file)
-        log_to_both("  • Review time windows - demands may fall outside service hours", demand_file)
-        log_to_both("  • Consider depot assignments - demands may be assigned to distant depots", demand_file)
-        log_to_both("  • Analyze geographical clustering - some areas may lack adequate coverage", demand_file)
-    end
-
-    log_to_both("="^80, demand_file)
+        log_to_both_debug("="^80, demand_file)
 
     finally
         if !isnothing(demand_file)
             close(demand_file)
-            @info "Demand analysis log saved to: $(log_files.demand_analysis)"
+            @debug "Demand analysis log saved to: $(log_files.demand_analysis)"
         end
+    end
+end
+
+"""
+Create system summary file with key metrics.
+"""
+function create_system_summary(solution::NetworkFlowSolution, parameters::ProblemParameters,
+                              log_files::NamedTuple)
+    try
+        open(log_files.summary, "w") do summary_file
+            write_log_header(summary_file, "SYSTEM SUMMARY LOG")
+            println(summary_file, "Depot: $(parameters.depot.depot_name) (ID: $(parameters.depot.depot_id))")
+            println(summary_file, "Date: $(parameters.day)")
+            println(summary_file, "Solution Status: $(solution.status)")
+            println(summary_file, "Objective Value: $(solution.objective_value)")
+            println(summary_file, "Total Demands: $(solution.num_demands)")
+
+            if !isnothing(solution.buses)
+                println(summary_file, "Buses Used: $(length(solution.buses))")
+
+                # Calculate served demands (use Set to avoid double-counting)
+                served_demands = Set{Int}()
+                for (bus_id, bus_info) in solution.buses
+                    for arc in bus_info.path
+                        if arc.kind == "line-arc"
+                            arc_demands = get_arc_demands(arc, parameters.passenger_demands)
+                            for demand_info in arc_demands
+                                push!(served_demands, demand_info.id)
+                            end
+                        end
+                    end
+                end
+                served_count = length(served_demands)
+
+                unserved_count = solution.num_demands - served_count
+                println(summary_file, "Served Demands: $(served_count) ($(round((served_count/solution.num_demands)*100, digits=1))%)")
+                println(summary_file, "Unserved Demands: $(unserved_count) ($(round((unserved_count/solution.num_demands)*100, digits=1))%)")
+
+                # Fleet utilization
+                total_operational_time = sum(bus_info.operational_duration for (_, bus_info) in solution.buses)
+                total_waiting_time = sum(bus_info.waiting_time for (_, bus_info) in solution.buses)
+                total_active_time = total_operational_time - total_waiting_time
+
+                println(summary_file, "Total Fleet Operational Time: $(format_duration(total_operational_time))")
+                println(summary_file, "Fleet Utilization: $(round((total_active_time / total_operational_time) * 100, digits=1))%")
+            else
+                println(summary_file, "Buses Used: 0")
+                println(summary_file, "No solution found or buses available")
+            end
+            println(summary_file, "="^80)
+        end
+        @debug "System summary log saved to: $(log_files.summary)"
+    catch e
+        @warn "Failed to create system summary file: $e"
     end
 end
 
@@ -741,60 +900,33 @@ function log_complete_solution_analysis(solution::NetworkFlowSolution, parameter
 
     # Setup log files
     log_files = setup_log_files(parameters)
-    @info "Log files will be saved to:"
-    @info "  Bus Operations: $(log_files.bus_operations)"
-    @info "  Demand Analysis: $(log_files.demand_analysis)"
-    @info "  System Summary: $(log_files.summary)"
+    @debug "Log files will be saved to:"
+    @debug "  Bus Operations: $(log_files.bus_operations)"
+    @debug "  Demand Analysis: $(log_files.demand_analysis)"
+    @debug "  System Summary: $(log_files.summary)"
 
-    # Bus operations summary
+    # Generate all logs
     log_bus_operations_summary(solution, parameters, phi_45, phi_15, phi_30, break_patterns, log_files)
-
-    # Demand fulfillment analysis
     log_demand_fulfillment_summary(solution, parameters, break_patterns, log_files)
+    create_system_summary(solution, parameters, log_files)
 
-    # Create system summary file
-    try
-        open(log_files.summary, "w") do summary_file
-            println(summary_file, "SYSTEM SUMMARY LOG")
-            println(summary_file, "Generated: $(Dates.format(now(), "yyyy-mm-dd HH:MM:SS"))")
-            println(summary_file, "="^80)
-            println(summary_file, "Depot: $(parameters.depot.depot_name) (ID: $(parameters.depot.depot_id))")
-            println(summary_file, "Date: $(parameters.day)")
-            println(summary_file, "Solution Status: $(solution.status)")
-            println(summary_file, "Objective Value: $(solution.objective_value)")
-            println(summary_file, "Total Demands: $(solution.num_demands)")
-
-            if !isnothing(solution.buses)
-                println(summary_file, "Buses Used: $(length(solution.buses))")
-                served_count = 0
-                for (bus_id, bus_info) in solution.buses
-                    for arc in bus_info.path
-                        if arc.kind == "line-arc"
-                            arc_demands = get_arc_demands(arc, parameters.passenger_demands)
-                            served_count += length(arc_demands)
-                        end
+    # Calculate demand statistics for summary
+    if !isnothing(solution.buses)
+        served_demands = Set{Int}()
+        for (bus_id, bus_info) in solution.buses
+            for arc in bus_info.path
+                if arc.kind == "line-arc"
+                    arc_demands = get_arc_demands(arc, parameters.passenger_demands)
+                    for demand_info in arc_demands
+                        push!(served_demands, demand_info.id)
                     end
                 end
-                unserved_count = solution.num_demands - served_count
-                println(summary_file, "Served Demands: $(served_count) ($(round((served_count/solution.num_demands)*100, digits=1))%)")
-                println(summary_file, "Unserved Demands: $(unserved_count) ($(round((unserved_count/solution.num_demands)*100, digits=1))%)")
-
-                total_operational_time = sum(bus_info.operational_duration for (_, bus_info) in solution.buses)
-                total_waiting_time = sum(bus_info.waiting_time for (_, bus_info) in solution.buses)
-                total_active_time = total_operational_time - total_waiting_time
-
-                println(summary_file, "Total Fleet Operational Time: $(format_duration(total_operational_time))")
-                println(summary_file, "Fleet Utilization: $(round((total_active_time / total_operational_time) * 100, digits=1))%")
-            else
-                println(summary_file, "Buses Used: 0")
-                println(summary_file, "No solution found or buses available")
             end
-            println(summary_file, "="^80)
         end
-        @info "System summary log saved to: $(log_files.summary)"
-    catch e
-        @warn "Failed to create system summary file: $e"
+        served_count = length(served_demands)
+        unserved_count = solution.num_demands - served_count
+        @info "Solution analysis complete. Summary: $(solution.status), Objective: $(solution.objective_value), Buses: $(length(solution.buses)), Demands: $(solution.num_demands) ($(served_count) served, $(unserved_count) unserved)"
+    else
+        @info "Solution analysis complete. Summary: $(solution.status), Objective: $(solution.objective_value), Buses: 0, Demands: $(solution.num_demands) (0 served, $(solution.num_demands) unserved)"
     end
-
-    @info "Solution analysis complete. All logs saved to 'logs/' directory."
 end

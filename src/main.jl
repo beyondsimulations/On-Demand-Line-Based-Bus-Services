@@ -49,12 +49,12 @@ non_interactive_plots = false
 # Set the depots to run the model for
 depots_to_process_names = [
     "VLP Boizenburg",
-    #"VLP Hagenow",
-    #"VLP Parchim",
-    #"VLP Schwerin",
-    #"VLP Ludwigslust",
-    #"VLP Sternberg",
-    #"VLP Zarrentin"
+    "VLP Hagenow",
+    "VLP Parchim",
+    "VLP Schwerin",
+    "VLP Ludwigslust",
+    "VLP Sternberg",
+    "VLP Zarrentin"
 ]
 
 # Read solver choice from environment variable, default to :gurobi
@@ -70,7 +70,7 @@ if !(solver_choice in valid_solvers)
 end
 
 # Read version from environment variable, default to "v2"
-version = get(ENV, "JULIA_SCRIPT_VERSION", "v2")
+version = get(ENV, "JULIA_SCRIPT_VERSION", "v4")
 @info "Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")"
 
 # Validate the version
@@ -93,19 +93,19 @@ if version == "v1"
     ]
 
     subsettings = [
-        #ALL_LINES,
-        #ALL_LINES_WITH_DEMAND,
+        ALL_LINES,
+        ALL_LINES_WITH_DEMAND,
         ONLY_DEMAND,
     ]
 elseif version == "v2"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = false
-    service_levels = 0.9:0.01:1.0
+    service_levels = 0.05:0.05:1.0
 
     # Define settings for solving
     settings = [
         CAPACITY_CONSTRAINT_DRIVER_BREAKS,
-        #CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
+        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
     ]
 
     subsettings = [
