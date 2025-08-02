@@ -24,6 +24,7 @@ include("utils/create_parameters.jl")
 include("models/model_setups.jl")
 include("models/network_flow.jl")
 include("models/solve_models.jl")
+include("models/solution_logger.jl")
 include("data/loader.jl")
 
 # Set the desired logging level. Options: Debug, Info, Warn, Error
@@ -32,14 +33,14 @@ include("data/loader.jl")
 # Warn: Shows warnings and errors.
 # Error: Shows only errors.
 
-logfile = open("output.log", "w")
-file_logger = SimpleLogger(logfile, Logging.Info)
+logfile = open("logs/output.log", "w")
+file_logger = SimpleLogger(logfile, Logging.Debug)
 console_logger = ConsoleLogger(stderr, Logging.Info)
 tee_logger = TeeLogger(file_logger, console_logger)
 global_logger(tee_logger)
 
 # Set the dates to process
-dates_to_process = [Date(2024, 8, 22)]
+dates_to_process = [Date(2025, 6, day) for day in 1:30]
 
 # Set the plots
 interactive_plots = false
@@ -130,7 +131,7 @@ elseif version == "v3"
 elseif version == "v4"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = true
-    service_levels = 0.025:0.025:1.0
+    service_levels = 0.05:0.05:1.0
 
     # Define settings for solving
     settings = [
@@ -194,23 +195,23 @@ end
 
 # Create a DataFrame to store results
 results_df = DataFrame(
-    depot_name = String[],
-    date = Date[],
-    problem_type = String[],
-    setting = String[],
-    subsetting = String[],
-    service_level = Float64[],
-    solver_status = Symbol[],
-    solve_time = Float64[],
-    num_buses = Int[],
-    num_potential_buses = Int[],
-    num_demands = Int[],
-    total_operational_duration = Float64[],
-    total_waiting_time = Float64[],
-    avg_capacity_utilization = Float64[],
-    optimality_gap = Union{Float64, Missing}[],
-    filter_demand = Bool[],
-    optimizer_constructor = String[]
+    depot_name=String[],
+    date=Date[],
+    problem_type=String[],
+    setting=String[],
+    subsetting=String[],
+    service_level=Float64[],
+    solver_status=Symbol[],
+    solve_time=Float64[],
+    num_buses=Int[],
+    num_potential_buses=Int[],
+    num_demands=Int[],
+    total_operational_duration=Float64[],
+    total_waiting_time=Float64[],
+    avg_capacity_utilization=Float64[],
+    optimality_gap=Union{Float64,Missing}[],
+    filter_demand=Bool[],
+    optimizer_constructor=String[]
 )
 
 optimizer_constructor = if solver_choice == :gurobi
@@ -243,15 +244,15 @@ for depot in depots_to_process
                     # Create parameters for current setting
                     @debug "Creating parameters..."
                     parameters = create_parameters(
-                            problem_type,
-                            setting,
-                            subsetting,
-                            service_level,
-                            depot,
-                            date,
-                            data,
-                            filter_demand,
-                            optimizer_constructor
+                        problem_type,
+                        setting,
+                        subsetting,
+                        service_level,
+                        depot,
+                        date,
+                        data,
+                        filter_demand,
+                        optimizer_constructor
                     )
                     @debug "Parameters created."
 
@@ -285,7 +286,7 @@ for depot in depots_to_process
                                 end
                             end
                         else
-                             @warn "Optimal solution reported, but no bus data found."
+                            @warn "Optimal solution reported, but no bus data found."
                         end
 
                         # Display solution visualization
@@ -326,9 +327,9 @@ for depot in depots_to_process
                             end
                         end
                     elseif result.status != :Infeasible
-                         @warn "No optimal solution found! Status: $(result.status)"
+                        @warn "No optimal solution found! Status: $(result.status)"
                     else
-                         @info "Model status: $(result.status)"
+                        @info "Model status: $(result.status)"
                     end
 
                     # Calculate metrics for logging

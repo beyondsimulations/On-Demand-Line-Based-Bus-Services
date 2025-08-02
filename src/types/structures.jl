@@ -17,22 +17,18 @@ struct Route
 end
 
 """
-Represents a bus vehicle with its capacity and operational constraints (shift, breaks).
+Represents a bus vehicle with its capacity and operational constraints (shift times).
 """
 mutable struct Bus
     bus_id::String              # Unique identifier for the bus
     capacity::Float64           # Passenger capacity of the bus
     shift_start::Float64        # Start time of the bus driver's shift (minutes from midnight)
-    break_start_1::Float64      # Start time of the first mandatory break
-    break_end_1::Float64        # End time of the first mandatory break
-    break_start_2::Float64      # Start time of the second mandatory break
-    break_end_2::Float64        # End time of the second mandatory break
     shift_end::Float64          # End time of the bus driver's shift
     depot_id::Int               # Identifier of the depot where the bus starts and ends its shift
 
     # Inner constructor to ensure types and potentially add validation
-    function Bus(id::String, capacity::Union{Int,Float64}, shift_start::Union{Int,Float64}, break_start_1::Union{Int,Float64}, break_end_1::Union{Int,Float64}, break_start_2::Union{Int,Float64}, break_end_2::Union{Int,Float64}, shift_end::Union{Int,Float64}, depot_id::Int)
-        new(string(id), Float64(capacity), Float64(shift_start), Float64(break_start_1), Float64(break_end_1), Float64(break_start_2), Float64(break_end_2), Float64(shift_end), depot_id)
+    function Bus(id::String, capacity::Union{Int,Float64}, shift_start::Union{Int,Float64}, shift_end::Union{Int,Float64}, depot_id::Int)
+        new(string(id), Float64(capacity), Float64(shift_start), Float64(shift_end), depot_id)
     end
 end
 
@@ -142,4 +138,4 @@ struct NetworkFlowSolution
         Tuple{String, Vector{Any}, Float64, Float64, Vector{Tuple{Any, Int}}, Vector{Tuple{Any, Float64}}}}}, Nothing}
     solve_time::Union{Float64, Nothing} # Time taken by the solver
     gap::Union{Float64, Nothing}        # Optimality gap (if applicable)
-end 
+end
