@@ -100,7 +100,7 @@ if version == "v1"
 elseif version == "v2"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = false
-    service_levels = 0.05:0.05:1.0
+    service_levels = 0.01:0.01:1.0
 
     # Define settings for solving
     settings = [
@@ -131,7 +131,7 @@ elseif version == "v3"
 elseif version == "v4"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = true
-    service_levels = 0.05:0.05:1.0
+    service_levels = 0.01:0.01:1.0
 
     # Define settings for solving
     settings = [

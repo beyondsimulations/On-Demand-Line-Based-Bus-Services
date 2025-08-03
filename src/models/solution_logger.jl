@@ -434,8 +434,8 @@ function log_system_statistics(solution::NetworkFlowSolution, phi_45::Dict{Strin
     log_to_both_debug("="^80, file_handle)
 
     # Fleet statistics
-    total_operational_time = sum(bus_info.operational_duration for (_, bus_info) in solution.buses)
-    total_waiting_time = sum(bus_info.waiting_time for (_, bus_info) in solution.buses)
+    total_operational_time = sum(bus_info.operational_duration for (_, bus_info) in solution.buses, init=0.0)
+    total_waiting_time = sum(bus_info.waiting_time for (_, bus_info) in solution.buses, init=0.0)
     total_active_time = total_operational_time - total_waiting_time
 
     log_to_both_debug("Total Fleet Operational Time: $(format_duration(total_operational_time))", file_handle)
@@ -444,11 +444,11 @@ function log_system_statistics(solution::NetworkFlowSolution, phi_45::Dict{Strin
     log_to_both_debug("Fleet Utilization: $(round((total_active_time / total_operational_time) * 100, digits=1))%", file_handle)
 
     # Break statistics
-    total_breaks = sum(sum(length(arcs) for arcs in values(phi)) for phi in [phi_45, phi_15, phi_30])
+    total_breaks = sum(sum(length(arcs) for arcs in values(phi), init=0) for phi in [phi_45, phi_15, phi_30], init=0)
     if total_breaks > 0
-        breaks_45 = sum(length(arcs) for arcs in values(phi_45))
-        breaks_15 = sum(length(arcs) for arcs in values(phi_15))
-        breaks_30 = sum(length(arcs) for arcs in values(phi_30))
+        breaks_45 = sum(length(arcs) for arcs in values(phi_45), init=0)
+        breaks_15 = sum(length(arcs) for arcs in values(phi_15), init=0)
+        breaks_30 = sum(length(arcs) for arcs in values(phi_30), init=0)
         log_to_both_debug("Break Opportunities Available: $(total_breaks) (45min: $(breaks_45), 15min: $(breaks_15), 30min: $(breaks_30))", file_handle)
     end
 
@@ -579,7 +579,7 @@ function log_unserved_demands(analysis::Dict{String, Any}, unserved_count::Int, 
         log_to_both_debug("UNSERVED DEMANDS BY TIME OF DAY:", file_handle)
         sorted_times = sort(collect(analysis["by_time"]), by=x->x[1])
         for (hour, demands) in sorted_times
-            passengers = sum(d.demand for d in demands)
+            passengers = sum(d.demand for d in demands, init=0.0)
             log_to_both_debug("  $(hour):00-$(hour):59: $(length(demands)) requests, $(round(passengers, digits=1)) passengers", file_handle)
         end
     end
@@ -590,7 +590,7 @@ function log_unserved_demands(analysis::Dict{String, Any}, unserved_count::Int, 
         log_to_both_debug("UNSERVED DEMANDS BY DEPOT:", file_handle)
         sorted_depots = sort(collect(analysis["by_depot"]), by=x->(length(x[2]), x[1]), rev=true)
         for (depot_id, demands) in sorted_depots
-            passengers = sum(d.demand for d in demands)
+            passengers = sum(d.demand for d in demands, init=0.0)
             log_to_both_debug("  Depot $(depot_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", file_handle)
         end
     end
@@ -613,7 +613,7 @@ function log_top_locations(location_dict::Dict{Int, Vector{PassengerDemand}}, ti
 
     sorted_locations = sort(collect(location_dict), by=x->(length(x[2]), x[1]), rev=true)
     for (i, (location_id, demands)) in enumerate(sorted_locations[1:min(10, end)])
-        passengers = sum(d.demand for d in demands)
+        passengers = sum(d.demand for d in demands, init=0.0)
         log_to_both_debug("  $(i). Stop $(location_id): $(length(demands)) requests, $(round(passengers, digits=1)) passengers", file_handle)
     end
 end
@@ -860,8 +860,8 @@ function create_system_summary(solution::NetworkFlowSolution, parameters::Proble
                 println(summary_file, "Unserved Demands: $(unserved_count) ($(round((unserved_count/solution.num_demands)*100, digits=1))%)")
 
                 # Fleet utilization
-                total_operational_time = sum(bus_info.operational_duration for (_, bus_info) in solution.buses)
-                total_waiting_time = sum(bus_info.waiting_time for (_, bus_info) in solution.buses)
+                total_operational_time = sum(bus_info.operational_duration for (_, bus_info) in solution.buses, init=0.0)
+                total_waiting_time = sum(bus_info.waiting_time for (_, bus_info) in solution.buses, init=0.0)
                 total_active_time = total_operational_time - total_waiting_time
 
                 println(summary_file, "Total Fleet Operational Time: $(format_duration(total_operational_time))")
