@@ -1,7 +1,7 @@
 module Config
 
 # Average speed for calculating travel times between routes and to/from depot (km/h)
-const AVERAGE_BUS_SPEED = 75 / 1.35 # Adjust as needed
+const AVERAGE_BUS_SPEED = 58 / 1.343 # Adjust as needed
 
 # Earth radius in kilometers for Haversine calculation
 const EARTH_RADIUS_KM = 6371.0
