@@ -28,8 +28,8 @@ set_theme!(fonts = (
 ))
 
 # --- Configuration ---
-aggregation_version = "v3" # Version identifier for the input data aggregation
-plot_version = "v4"      # Version identifier for the plot output
+aggregation_version = "v1" # Version identifier for the input data aggregation
+plot_version = "v2"        # Version identifier for the plot output
 solver = "gurobi"          # Solver used for the experiments
 
 # --- File Paths ---
