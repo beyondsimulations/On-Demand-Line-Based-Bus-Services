@@ -16,3 +16,5 @@ const DATA_PATHS = Dict(
 )
 
 end
+
+const BUSSES_BENCHMARK = 100

@@ -213,7 +213,7 @@ Create optimization model with appropriate solver options.
 function _create_model_with_solver_options(parameters::ProblemParameters, time_limit_hours::Float64)
     model = Model(parameters.optimizer_constructor)
 
-    time_limit_seconds = Int(600 * time_limit_hours)
+    time_limit_seconds = Int(3600 * time_limit_hours)
 
     if parameters.optimizer_constructor == Gurobi.Optimizer
         set_optimizer_attribute(model, "TimeLimit", time_limit_seconds)
