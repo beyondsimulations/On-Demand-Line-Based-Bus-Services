@@ -22,9 +22,9 @@ CairoMakie.activate!()
 MT = Makie.MathTeXEngine
 mt_fonts_dir = joinpath(dirname(pathof(MT)), "..", "assets", "fonts", "NewComputerModern")
 
-set_theme!(fonts = (
-    regular = joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
-    bold = joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
+set_theme!(fonts=(
+    regular=joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
+    bold=joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
 ))
 
 # --- Configuration ---
@@ -34,9 +34,9 @@ solver = "gurobi"          # Solver used for the experiments
 
 # --- File Paths ---
 results_file = "results/computational_study_$(plot_version)_$(solver).csv"
-combined_plot_save_path = "results/plot_buses_vs_service_drivers_combined_$(plot_version)_$(solver).pdf"
+combined_plot_save_path = "results/evaluation_plot_buses_vs_service_drivers_combined_$(plot_version)_$(solver).pdf"
 aggregation_input_file_path = "results/computational_study_$(aggregation_version)_$(solver).csv"
-aggregation_output_file_path = "results/aggregation_summary_by_setting_$(aggregation_version)_$(solver).csv"
+aggregation_output_file_path = "results/evaluation_summary_by_setting_$(aggregation_version)_$(solver).csv"
 
 # --- Plotting Constants ---
 padding_y = 1.05 # Vertical padding for y-axis limits
@@ -86,7 +86,7 @@ colors_base = range(0, 1, length=n_colors) # Generate points along the color sch
 distinct_colors = [RGBAf(get(colorschemes[:redblue], x), 1.0) for x in colors_base]
 
 # Define a list of markers for scatter plots.
-markers = [:star4, :pentagon,:circle, :rect, :utriangle, :dtriangle, :diamond, :xcross, :cross, :star5]
+markers = [:star4, :pentagon, :circle, :rect, :utriangle, :dtriangle, :diamond, :xcross, :cross, :star5]
 
 # Create dictionaries mapping each depot to a unique color and marker.
 # Use modulo arithmetic (`mod1`) to cycle through colors/markers if there are more depots than available styles.
@@ -116,20 +116,20 @@ function create_plot_elements!(ax, data, depots, depot_color_map, depot_marker_m
 
             # Plot lines connecting the points for each depot.
             line = lines!(ax, df_depot.service_level, df_depot.num_buses,
-                   color = :black, linewidth = 1.0) # Use black lines
+                color=:black, linewidth=1.0) # Use black lines
 
             # Plot scatter points for each data point, using unique markers.
             # White fill with black stroke makes markers stand out on the line.
             scatterpt = scatter!(ax, df_depot.service_level, df_depot.num_buses,
-                    color = (:white, 1.0), # White fill
-                    marker = marker,
-                    markersize = 10,
-                    strokecolor = :black, # Black outline
-                    strokewidth = 1.0)
+                color=(:white, 1.0), # White fill
+                marker=marker,
+                markersize=10,
+                strokecolor=:black, # Black outline
+                strokewidth=1.0)
 
             # Collect elements for the legend only once per depot.
             if !(d in plotted_depots)
-                 # Store the scatter plot style for the legend entry.
+                # Store the scatter plot style for the legend entry.
                 push!(plot_elements, scatterpt)
                 push!(labels, string(d)) # Depot name as label
                 push!(plotted_depots, d)
@@ -144,13 +144,13 @@ end
 
 # --- Create Combined Figure ---
 @info "Creating combined plot..."
-fig = Figure(size = (600, 350)) # Adjust figure size for two side-by-side plots plus legend space
+fig = Figure(size=(600, 350)) # Adjust figure size for two side-by-side plots plus legend space
 
 # --- Plot 1: Drivers From All Depots Available (Scenario 3) ---
 ax_all = Axis(fig[1, 1],
-              xlabel = "Service Level",
-              ylabel = "Number of Buses",
-              title = "Scope C, Scenario 3" # Title indicating the scenario
+    xlabel="Service Level",
+    ylabel="Number of Buses",
+    title="Scope C, Scenario 3" # Title indicating the scenario
 )
 create_plot_elements!(ax_all, df_drivers_all_depots, depots_all, depot_color_map, depot_marker_map)
 xlims!(ax_all, xlim) # Apply shared x-axis limits
@@ -158,9 +158,9 @@ ylims!(ax_all, ylim) # Apply shared y-axis limits
 
 # --- Plot 2: Drivers Only From Current Depot (Scenario 4) ---
 ax_current = Axis(fig[1, 2],
-                 xlabel = "Service Level",
-                 # ylabel = "Number of Buses", # Y-axis label is shared, commenting out avoids repetition
-                 title = "Scope C, Scenario 4" # Title indicating the scenario
+    xlabel="Service Level",
+    # ylabel = "Number of Buses", # Y-axis label is shared, commenting out avoids repetition
+    title="Scope C, Scenario 4" # Title indicating the scenario
 )
 create_plot_elements!(ax_current, df_drivers_current_depot, depots_current, depot_color_map, depot_marker_map)
 xlims!(ax_current, xlim) # Apply shared x-axis limits
@@ -181,12 +181,12 @@ end
 
 # Add the legend to the figure, positioned inside the top-left corner of the first plot's grid area.
 Legend(fig[1, 1], # Place legend relative to the grid cell of the first axis
-       legend_elements,
-       legend_labels,
-       tellheight = false, # Prevent legend from affecting row height
-       tellwidth = false,  # Prevent legend from affecting column width
-       halign = :left,     # Align legend to the left within the cell
-       valign = :top      # Align legend to the top within the cell
+    legend_elements,
+    legend_labels,
+    tellheight=false, # Prevent legend from affecting row height
+    tellwidth=false,  # Prevent legend from affecting column width
+    halign=:left,     # Align legend to the left within the cell
+    valign=:top      # Align legend to the top within the cell
 )
 
 # --- Save Combined Figure ---
@@ -206,23 +206,23 @@ try
     # --- Data Cleaning/Preparation for Aggregation ---
     # Handle 'optimality_gap' column: Convert potentially missing or string values to Float64 or NaN.
     if "optimality_gap" in names(df_agg)
-        if eltype(df_agg.optimality_gap) <: Union{Missing, String}
+        if eltype(df_agg.optimality_gap) <: Union{Missing,String}
             @debug "Converting 'optimality_gap' from String/Missing to Float64."
             df_agg.optimality_gap = map(x -> ismissing(x) || x == "" ? NaN : parse(Float64, x), df_agg.optimality_gap)
         elseif !(eltype(df_agg.optimality_gap) <: AbstractFloat)
-             @warn "'optimality_gap' column is not Float, String, or Missing. Attempting conversion to Float64."
-             try
-                 df_agg.optimality_gap = map(x -> ismissing(x) ? NaN : Float64(x), df_agg.optimality_gap)
-             catch e
-                 @error "Failed to convert 'optimality_gap' to Float64: $e. Filling with NaN."
-                 df_agg.optimality_gap = fill(NaN, nrow(df_agg))
-             end
+            @warn "'optimality_gap' column is not Float, String, or Missing. Attempting conversion to Float64."
+            try
+                df_agg.optimality_gap = map(x -> ismissing(x) ? NaN : Float64(x), df_agg.optimality_gap)
+            catch e
+                @error "Failed to convert 'optimality_gap' to Float64: $e. Filling with NaN."
+                df_agg.optimality_gap = fill(NaN, nrow(df_agg))
+            end
         else
             @debug "'optimality_gap' column is already numeric."
         end
     else
         @warn "'optimality_gap' column not found. Average gap will be NaN."
-         df_agg.optimality_gap = fill(NaN, nrow(df_agg)) # Add column filled with NaN if missing
+        df_agg.optimality_gap = fill(NaN, nrow(df_agg)) # Add column filled with NaN if missing
     end
 
     # Ensure 'num_potential_buses' column exists and is numeric.
@@ -230,26 +230,26 @@ try
         @error "'num_potential_buses' column not found. Cannot calculate average potential buses."
         error("'num_potential_buses' column is required but not found.") # Stop execution
     elseif !(eltype(df_agg.num_potential_buses) <: Number)
-         @warn "'num_potential_buses' column is not numeric. Attempting conversion to Int."
-         try
-             # Convert to Int, handling potential missing values.
-             df_agg.num_potential_buses = map(x -> ismissing(x) ? missing : parse(Int, string(x)), df_agg.num_potential_buses) # Ensure string conversion before parse
-             # Check if conversion resulted in missings that weren't originally there.
-             if any(ismissing, df_agg.num_potential_buses)
-                 @warn "Some 'num_potential_buses' values were missing or failed conversion to Int."
-             end
-             # Ensure the column type allows missing values for `mean(skipmissing(...))`
-             df_agg.num_potential_buses = collect(Union{Missing, Int}, df_agg.num_potential_buses)
-             @debug "'num_potential_buses' column converted successfully."
-         catch e
+        @warn "'num_potential_buses' column is not numeric. Attempting conversion to Int."
+        try
+            # Convert to Int, handling potential missing values.
+            df_agg.num_potential_buses = map(x -> ismissing(x) ? missing : parse(Int, string(x)), df_agg.num_potential_buses) # Ensure string conversion before parse
+            # Check if conversion resulted in missings that weren't originally there.
+            if any(ismissing, df_agg.num_potential_buses)
+                @warn "Some 'num_potential_buses' values were missing or failed conversion to Int."
+            end
+            # Ensure the column type allows missing values for `mean(skipmissing(...))`
+            df_agg.num_potential_buses = collect(Union{Missing,Int}, df_agg.num_potential_buses)
+            @debug "'num_potential_buses' column converted successfully."
+        catch e
             @error "Error converting 'num_potential_buses' to numeric: $e."
             error("Failed to convert 'num_potential_buses'.") # Stop execution
-         end
+        end
     else
         @debug "'num_potential_buses' column is already numeric."
         # Ensure it allows for missings if it might contain them
         if Missing <: eltype(df_agg.num_potential_buses)
-             df_agg.num_potential_buses = collect(Union{Missing, eltype(skipmissing(df_agg.num_potential_buses))}, df_agg.num_potential_buses)
+            df_agg.num_potential_buses = collect(Union{Missing,eltype(skipmissing(df_agg.num_potential_buses))}, df_agg.num_potential_buses)
         end
     end
 
@@ -287,7 +287,7 @@ try
         # Calculate the average optimality gap for instances that hit the time limit.
         avg_gap_timelimit = if num_timelimit > 0
             # Filter gaps belonging to TIME_LIMIT solves and exclude NaNs.
-            gaps = filter(!isnan, sub_df.optimality_gap[sub_df.solver_status .== "TIME_LIMIT"])
+            gaps = filter(!isnan, sub_df.optimality_gap[sub_df.solver_status.=="TIME_LIMIT"])
             if !isempty(gaps)
                 mean(gaps)
             else
@@ -299,12 +299,12 @@ try
 
         # Return a named tuple containing the calculated metrics, rounded for clarity.
         return (
-            avg_potential_buses = round(avg_potential_buses_val, digits=2),
-            avg_buses_optimal = round(avg_buses_optimal, digits=2),
-            num_infeasible_solves = num_infeasible,
-            num_timelimit_solves = num_timelimit,
-            avg_solve_time_seconds = round(avg_solve_time, digits=2),
-            avg_gap_timelimit_percent = round(avg_gap_timelimit * 100, digits=2) # Convert gap to percentage
+            avg_potential_buses=round(avg_potential_buses_val, digits=2),
+            avg_buses_optimal=round(avg_buses_optimal, digits=2),
+            num_infeasible_solves=num_infeasible,
+            num_timelimit_solves=num_timelimit,
+            avg_solve_time_seconds=round(avg_solve_time, digits=2),
+            avg_gap_timelimit_percent=round(avg_gap_timelimit * 100, digits=2) # Convert gap to percentage
         )
     end
 
