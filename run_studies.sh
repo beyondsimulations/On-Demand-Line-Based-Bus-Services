@@ -4,9 +4,9 @@ SESSION_NAME="julia_studies"
 SCRIPT_PATH="src/main.jl"
 VERSIONS=(
     "v1"
-    "v2"
+    #"v2"
     "v3"
-    "v4"
+    #"v4"
 )
 SOLVERS=(
     "gurobi"

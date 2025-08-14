@@ -15,6 +15,7 @@ const DATA_PATHS = Dict(
     :depots => "case_data_clean/depots.csv"
 )
 
-end
-
+# Benchmark number of buses to create for optimization scenarios
 const BUSSES_BENCHMARK = 100
+
+end
