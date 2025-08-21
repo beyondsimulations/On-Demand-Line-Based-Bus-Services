@@ -90,8 +90,8 @@ cb = Colorbar(fig[1, 2], hm,
 # Add value annotations for cells with significant demand
 for hour_idx in 1:24, depot_idx in 1:length(depots)
     value = heatmap_data[depot_idx, hour_idx]
-    if value >= 2.0  # Only show values ≥ 2 requests per day
-        text_color = value > maximum(heatmap_data) * 0.6 ? :white : :black
+    if value >= 0.0
+        text_color = value > maximum(heatmap_data) * 0.6 ? :black : :white
         text!(ax, hour_idx, depot_idx,
             text=string(round(value, digits=1)),
             align=(:center, :center),
@@ -173,7 +173,6 @@ println(top_5_text)
 source_text = """
 Data Source: 30-day demand dataset (June 2025) • Analysis Method: Hourly aggregation with daily averaging
 Color Scale: Purple (low demand) to Yellow (high demand) • Values shown for ≥2 requests/hour
-FINAL CORRECT: Hours on X-axis (left to right), Depots on Y-axis (bottom to top)
 """
 
 # Print source information to terminal
@@ -184,14 +183,11 @@ println("Data Source: 30-day demand dataset (June 2025)")
 println("Analysis Method: Hourly aggregation with daily averaging")
 println("Color Scale: Purple (low demand) to Yellow (high demand)")
 println("Values shown for ≥2 requests/hour")
-println("FINAL CORRECT: Hours on X-axis (left to right), Depots on Y-axis (bottom to top)")
-
-# Layout configuration removed since text is printed to terminal
 
 # Save the plots
 mkpath("plots")
-output_png = "plots/demand_heatmap_final_correct.png"
-output_pdf = "plots/demand_heatmap_final_correct.pdf"
+output_png = "plots/demand_heatmap.png"
+output_pdf = "plots/demand_heatmap.pdf"
 
 save(output_png, fig, px_per_unit=3)
 save(output_pdf, fig)
@@ -206,11 +202,3 @@ println("\nFINAL CORRECT ORIENTATION:")
 println("  • Hours on X-axis (horizontal) - time flows left to right")
 println("  • Depots on Y-axis (vertical) - easy to compare vertically")
 println("  • Matrix dimensions: $(size(heatmap_data)) (depots × hours)")
-
-# Verify the orientation is correct
-println("\nVerification:")
-println("  • Matrix shape: $(size(heatmap_data)) - $(length(depot_names)) depots × 24 hours")
-println("  • X-axis (hours): 24 time slots from 0:00 to 23:00")
-println("  • Y-axis (depots): $(length(depot_names)) depot locations")
-println("  • Peak hour: $(peak_hour):00 with $(round(peak_hour_demand, digits=1)) total requests")
-println("  • Time flows naturally left→right across the day")
