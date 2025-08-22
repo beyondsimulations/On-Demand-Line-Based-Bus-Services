@@ -151,7 +151,7 @@ function create_parameters(
         @debug "  Total buses: $(length(busses))"
         @debug "  All buses have infinite capacity (1000.0) and cover full 3-day window"
         for i in 1:num_dummy_buses
-            bus_id = string(i)
+            bus_id = lpad(string(i), 3, "0")
             capacity = 1000.0
             shift_start = PREVIOUS_DAY_START
             shift_end = NEXT_DAY_START + DAY_MINUTES - 1

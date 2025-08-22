@@ -5,18 +5,18 @@ using Logging # Import the logging module
 function expand_arc(arc::ModelArc, routes::Vector{Route})
 
     # If not on same route/trip/sequence, or involves a depot node (sequence 0), return original arc
-    if arc.arc_start.route_id != arc.arc_end.route_id || 
+    if arc.arc_start.route_id != arc.arc_end.route_id ||
         arc.arc_start.trip_id != arc.arc_end.trip_id ||
         arc.arc_start.trip_sequence != arc.arc_end.trip_sequence ||
         arc.arc_start.stop_sequence == 0 || # Depot start
         arc.arc_end.stop_sequence == 0    # Depot end
         return [arc]
     end
-    
+
     # Find the corresponding route to get the actual stop IDs
     route_idx = findfirst(r -> r.route_id == arc.arc_start.route_id &&
                                r.trip_id == arc.arc_start.trip_id &&
-                              r.trip_sequence == arc.arc_start.trip_sequence, 
+                              r.trip_sequence == arc.arc_start.trip_sequence,
                               routes)
     if isnothing(route_idx)
         @debug "(expand_arc): Could not find route for arc $arc. Returning original."
@@ -34,7 +34,7 @@ function expand_arc(arc::ModelArc, routes::Vector{Route})
             # Use stop IDs from the route data corresponding to the positions i and i+1
             from_stop_id = route.stop_ids[i]
             to_stop_id = route.stop_ids[i+1]
-            push!(expanded_arcs, 
+            push!(expanded_arcs,
                 ModelArc(
                     # Use actual stop ID, route/trip/seq, and the position 'i'
                     ModelStation(from_stop_id, arc.arc_start.route_id, arc.arc_start.trip_id, arc.arc_start.trip_sequence, i),
@@ -72,7 +72,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
     optimize!(model)
 
     routes = parameters.routes # Get routes for expansion
-    
+
     if termination_status(model) == MOI.OPTIMAL
         @info "Solver finished with status: Optimal."
         # Get the optimality gap, handle cases where it might not be available (e.g., pure LP)
@@ -86,7 +86,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
             @info "Info: Could not retrieve relative gap, likely an LP. Status: Optimal. Error: $e"
             # Keep default gap = 0.0
         end
-        
+
         x = model[:x]
         solved_arcs = [arc for arc in network.arcs if value(x[arc]) > 0.5] # Use 0.5 for binary/integer check
 
@@ -113,7 +113,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 end
 
                 bus_counter += 1
-                current_bus_id_str = string(bus_counter) # Assign sequential ID
+                current_bus_id_str = lpad(string(bus_counter), 3, "0") # Assign zero-padded sequential ID
                 path = ModelArc[]
                 current_arc = start_arc
 
@@ -130,7 +130,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                             break
                         end
                     end
-                    
+
                     # Stop if we reach a depot end or no next arc found
                     if !isnothing(next_arc) && next_arc.arc_end.stop_sequence == 0
                         push!(path, next_arc) # Add the final arc to depot
@@ -156,7 +156,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
 
         else  # CAPACITY_CONSTRAINT cases (iterate over buses defined in parameters)
             @info "Reconstructing paths for CAPACITY constraints..."
-            
+
             # Create a lookup for solved arcs for faster searching per bus
             solved_arcs_lookup = Dict{String, Vector{ModelArc}}()
             for arc in solved_arcs
@@ -171,12 +171,12 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                 bus_id_str = bus.bus_id # Use the actual bus ID
 
                 bus_specific_arcs = get(solved_arcs_lookup, bus_id_str, [])
-                
+
                 if isempty(bus_specific_arcs)
                     @debug "  No arcs found for bus $bus_id_str."
                     continue
                 end
-                
+
                 # Find the unique depot start arc for this bus
                 depot_start_arcs_for_bus = filter(a -> a.kind == "depot-start-arc", bus_specific_arcs)
 
@@ -483,7 +483,7 @@ function solve_and_return_results(model, network, parameters::ProblemParameters,
                     end
 
                     bus_counter += 1
-                    current_bus_id_str = string(bus_counter) # Assign sequential ID
+                    current_bus_id_str = lpad(string(bus_counter), 3, "0") # Assign zero-padded sequential ID
                     path = ModelArc[]
                     current_arc = start_arc
 
