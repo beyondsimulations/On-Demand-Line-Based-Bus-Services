@@ -108,7 +108,7 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
     depot_coords = depot.location
 
     # Initialize the plotting figure and axis.
-    fig = CairoMakie.Figure(size=(700, 350))
+    fig = CairoMakie.Figure(size=(700, 400))
     ax = CairoMakie.Axis(fig[1, 1],
     )
     CairoMakie.hidedecorations!(ax) # Hide default axes decorations.
@@ -333,31 +333,12 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
         y_limits = nothing
     end
 
-    # Initialize the 3D plotting figure with publication-ready dimensions
-    fig = CairoMakie.Figure(size=(700, 400), fontsize=12)
+    # Initialize the 3D plotting figure with minimal margins
+    fig = CairoMakie.Figure(size=(700, 500))
     ax = CairoMakie.Axis3(fig[1, 1],
         xlabel="Longitude", ylabel="Latitude", zlabel="Time",
         xlabelsize=14, ylabelsize=14, zlabelsize=14,
-        viewmode=:fit, # Adjust camera to fit the data.
-        limits=(x_limits, y_limits, (axis_min_time, axis_max_time)), # Set calculated tight limits for all axes
-        # Professional styling
-        xgridvisible=true, ygridvisible=true, zgridvisible=true,
-        xgridcolor=(:gray, 0.1), ygridcolor=(:gray, 0.1), zgridcolor=(:gray, 0.1),
-        xgridwidth=1, ygridwidth=1, zgridwidth=1,
-        # Axis3 spine styling (4 spines per axis in 3D)
-        xspinesvisible=true, yspinesvisible=true, zspinesvisible=true,
-        xspinewidth=1.5, yspinewidth=1.5, zspinewidth=1.5,
-        xspinecolor_1=:black, xspinecolor_2=:black, xspinecolor_3=:black, xspinecolor_4=:black,
-        yspinecolor_1=:black, yspinecolor_2=:black, yspinecolor_3=:black, yspinecolor_4=:black,
-        zspinecolor_1=:black, zspinecolor_2=:black, zspinecolor_3=:black, zspinecolor_4=:black,
-        # Professional tick styling
-        xticksize=5, yticksize=5, zticksize=5,
-        xtickwidth=1, ytickwidth=1, ztickwidth=1,
-        xtickcolor=:black, ytickcolor=:black, ztickcolor=:black,
-        xticklabelsize=10, yticklabelsize=10, zticklabelsize=10,
-        xticklabelcolor=:black, yticklabelcolor=:black, zticklabelcolor=:black,
-        # Clean background
-        backgroundcolor=:white
+        limits=(x_limits, y_limits, (axis_min_time, axis_max_time))
     )
 
     # Set up custom time formatting for Z-axis with round hour intervals
@@ -496,7 +477,7 @@ Each bus path is plotted with a unique color.
 function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::Date, result, all_travel_times::Vector{TravelTime};
                                base_alpha::Float64 = 1.0, # Base plot transparency (currently unused by base plot function).
                                base_plot_connections::Bool = false, # Option for base plot (unused).
-                               base_plot_trip_markers::Bool = false, # Option to show markers on base plot routes.
+                               base_plot_trip_markers::Bool = true, # Option to show markers on base plot routes.
                                base_plot_trip_lines::Bool = false) # Option to show lines on base plot routes.
 
     # Generate the underlying 3D network plot first.
@@ -504,7 +485,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
     # Set alpha low (e.g., 0.1 or 0.0) if only solution paths are desired.
     @info "Generating base 3D network plot..."
     fig = plot_network_3d_makie(all_routes, all_travel_times, depot, date,
-                               alpha=0.1, # Make base routes faint
+                               alpha=0.3, # Make base routes faint
                                plot_connections=base_plot_connections,
                                plot_trip_markers=base_plot_trip_markers,
                                plot_trip_lines=base_plot_trip_lines)
@@ -699,8 +680,8 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
         if !isempty(path_x) && !all(isnan, path_x) # Check if there's something to plot.
             # Plot the lines connecting the points with professional styling.
             CairoMakie.lines!(ax, path_x, path_y, path_z,
-                color=(bus_color, 0.9), # Higher opacity for solution paths
-                linewidth=3.0, # Prominent thickness for solution visibility
+                color=(bus_color, 1.0), # Higher opacity for solution paths
+                linewidth=1, # Prominent thickness for solution visibility
                 linestyle=:solid,
                 label=bus_info.name # Label for the legend.
             )
@@ -709,9 +690,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
             valid_points = .!isnan.(path_x) # Boolean mask for valid (non-NaN) points.
             CairoMakie.scatter!(ax, path_x[valid_points], path_y[valid_points], path_z[valid_points],
                 color=bus_color,
-                markersize=6, # Slightly larger for better visibility
-                strokecolor=:white, # White outline for better contrast
-                strokewidth=0.5,
+                markersize=4, # Slightly larger for better visibility
                 label=nothing # No separate label for scatter points in the legend.
             )
             @debug "  Plotted path for bus $(bus_info.name)."
