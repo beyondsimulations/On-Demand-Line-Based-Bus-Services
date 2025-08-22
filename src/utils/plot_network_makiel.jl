@@ -410,7 +410,7 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
                 line_color = get(color_map, line.route_id, :grey)
                 CairoMakie.lines!(ax, x_coords, y_coords, z_coords,
                     color=(line_color, alpha), # Use route color and specified transparency.
-                    linewidth=2.5, # Slightly thicker for better visibility
+                    linewidth=1.5, # Slightly thicker for better visibility
                     linestyle=:solid
                 )
 
@@ -467,7 +467,7 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
           [depot_coords[2], depot_coords[2]],
           [depot_z_start, depot_z_end],
         color=:black,
-        linewidth=3, # Thicker for prominence
+        linewidth=3.0, # Thicker for prominence
         linestyle=:solid
     )
 
@@ -481,7 +481,7 @@ Overlays the optimized bus paths from a solution (`result`) onto the 3D network 
 Each bus path is plotted with a unique color.
 """
 function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::Date, result, all_travel_times::Vector{TravelTime};
-                               base_alpha::Float64 = 1.0, # Base plot transparency (currently unused by base plot function).
+                               base_alpha::Float64 = 0.1, # Base plot transparency (currently unused by base plot function).
                                base_plot_connections::Bool = false, # Option for base plot (unused).
                                base_plot_trip_markers::Bool = true, # Option to show markers on base plot routes.
                                base_plot_trip_lines::Bool = false) # Option to show lines on base plot routes.
@@ -549,7 +549,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
         [RGB(0.0, 0.0, 1.0)] # Single bus gets blue color.
     else
         # Distribute colors across the rainbow spectrum.
-        [RGB(get(ColorSchemes.atlantic, i / max(1, num_buses)))
+        [RGB(get(ColorSchemes.Greys_3, i / max(1, num_buses)))
                 for i in 1:num_buses]
     end
     # Map bus IDs (sorted) to colors for consistent plotting.
@@ -687,7 +687,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
             # Plot the lines connecting the points with professional styling.
             CairoMakie.lines!(ax, path_x, path_y, path_z,
                 color=(bus_color, 1.0), # Higher opacity for solution paths
-                linewidth=1, # Prominent thickness for solution visibility
+                linewidth=1.5, # Prominent thickness for solution visibility
                 linestyle=:solid,
                 label=bus_info.name # Label for the legend.
             )
@@ -714,7 +714,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
          legend_elements = [plt for plt in ax.scene.plots if plt isa CairoMakie.Lines && haskey(plt.attributes, :label) && !isnothing(plt.label[])]
          if !isempty(legend_elements)
               legend_labels = [plt.label[] for plt in legend_elements]
-              CairoMakie.Legend(fig[1, 2], legend_elements, legend_labels, "Buses")
+              CairoMakie.axislegend(ax, legend_elements, legend_labels, "Buses", position=:rt)
          else
              @warn "No plottable elements with labels found for the legend."
          end
