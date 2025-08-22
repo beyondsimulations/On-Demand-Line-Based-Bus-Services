@@ -152,7 +152,7 @@ optimal_mask = df.solver_status .== "Optimal"
 avg_buses_overall = mean(df.num_buses[optimal_mask])
 avg_time_overall = mean(df.solve_time[optimal_mask])
 
-println("      \\item \\textit{Notes.} %d total instances across 6 depots × 30 days × 4 constraint settings × 3 service levels.")
+println("      \\item \\textit{Notes.} 2160 total instances across 6 depots × 30 days × 4 constraint settings × 3 service levels.")
 println("      \\item[a] Time limit reached but found at least one feasible solution")
 println("      \\item[b] Time limit reached without finding any feasible solution")
 println("      \\item[c] Average computation time for optimally solved instances only")
