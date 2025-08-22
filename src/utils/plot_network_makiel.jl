@@ -406,8 +406,10 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
 
             if !isempty(x_coords) # Proceed only if we have valid points.
                 # Plot the main route segment in 3D space-time with enhanced styling.
+                # Get color safely with fallback to prevent KeyError
+                line_color = get(color_map, line.route_id, :grey)
                 CairoMakie.lines!(ax, x_coords, y_coords, z_coords,
-                    color=(color_map[line.route_id], alpha), # Use route color and specified transparency.
+                    color=(line_color, alpha), # Use route color and specified transparency.
                     linewidth=2.5, # Slightly thicker for better visibility
                     linestyle=:solid
                 )
@@ -415,7 +417,7 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
                 # Plot markers at each stop time point if enabled.
                 if plot_trip_markers
                     CairoMakie.scatter!(ax, x_coords, y_coords, z_coords,
-                        color=color_map[line.route_id],
+                        color=line_color,
                         markersize=4,
                         alpha=alpha
                     )
@@ -431,21 +433,25 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
                                                          tt.is_depot_travel, all_travel_times)
 
                     if !isnothing(depot_start_travel_idx) && !isnothing(depot_end_travel_idx)
-                        # Plot connection from depot to the first stop.
-                        start_time = z_coords[1] - all_travel_times[depot_start_travel_idx].time
+                        depot_start_travel_time = all_travel_times[depot_start_travel_idx].time
+                        depot_end_travel_time = all_travel_times[depot_end_travel_idx].time
+                        # Calculate effective depot times
+                        start_depot_time = z_coords[1] - depot_start_travel_time
+                        end_depot_time = z_coords[end] + depot_end_travel_time
+
+                        # Plot dashed line from depot (at start_depot_time) to first stop
                         CairoMakie.lines!(ax, [depot_coords[1], x_coords[1]],
                               [depot_coords[2], y_coords[1]],
-                              [start_time, z_coords[1]], # Z coordinates represent time.
-                            color=(color_map[line.route_id], alpha * 0.5), # Dimmer color.
+                              [start_depot_time, z_coords[1]], # Z coordinates represent time.
+                            color=(line_color, alpha * 0.5), # Dimmer color.
                             linestyle=:dash
                         )
 
-                        # Plot connection from the last stop back to the depot.
-                        end_time = z_coords[end] + all_travel_times[depot_end_travel_idx].time
+                        # Plot dashed line from last stop to depot (at end_depot_time)
                         CairoMakie.lines!(ax, [x_coords[end], depot_coords[1]],
                               [y_coords[end], depot_coords[2]],
-                              [z_coords[end], end_time], # Z coordinates represent time.
-                            color=(color_map[line.route_id], alpha * 0.5), # Dimmer color.
+                              [z_coords[end], end_depot_time], # Z coordinates represent time.
+                            color=(line_color, alpha * 0.5), # Dimmer color.
                             linestyle=:dash
                         )
                     end
@@ -543,7 +549,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
         [RGB(0.0, 0.0, 1.0)] # Single bus gets blue color.
     else
         # Distribute colors across the rainbow spectrum.
-        [RGB(get(ColorSchemes.thermometer, i / max(1, num_buses)))
+        [RGB(get(ColorSchemes.atlantic, i / max(1, num_buses)))
                 for i in 1:num_buses]
     end
     # Map bus IDs (sorted) to colors for consistent plotting.
