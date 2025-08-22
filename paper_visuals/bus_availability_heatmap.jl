@@ -3,6 +3,18 @@ Pkg.activate("on-demand-busses")
 
 using CSV, DataFrames, CairoMakie, Dates
 
+CairoMakie.activate!()
+
+# --- Font Setup ---
+# Set up LaTeX-style fonts for plots using Makie's MathTeXEngine.
+MT = Makie.MathTeXEngine
+mt_fonts_dir = joinpath(dirname(pathof(MT)), "..", "assets", "fonts", "NewComputerModern")
+
+set_theme!(fonts=(
+    regular=joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
+    bold=joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
+))
+
 # Load and clean data
 println("Loading shift data...")
 shifts_df = CSV.read("case_data_clean/shifts.csv", DataFrame)
@@ -72,11 +84,10 @@ for depot_idx in 1:length(depots)
 end
 
 # Create the visualization for average bus availability
-fig_avg = Figure(size=(1400, 600))
+fig_avg = Figure(size=(700, 200))
 
 # Create axis with proper orientation
 ax_avg = Axis(fig_avg[1, 1],
-    title="Average Bus Availability by Hour and Depot",
     xlabel="Hour of Day",
     ylabel="Depot Location",
     xticks=([1, 5, 9, 13, 17, 21], ["0:00", "4:00", "8:00", "12:00", "16:00", "20:00"]),
@@ -98,7 +109,7 @@ hm_avg = heatmap!(ax_avg, transpose(average_heatmap_data),
 
 # Create colorbar
 cb_avg = Colorbar(fig_avg[1, 2], hm_avg,
-    label="Average Number of Available Buses",
+    label="Average Number \n of Available Buses",
     vertical=true,
     labelsize=12)
 
@@ -110,7 +121,7 @@ for hour_idx in 1:24, depot_idx in 1:length(depots)
         text!(ax_avg, hour_idx, depot_idx,
             text=string(round(value, digits=1)),
             align=(:center, :center),
-            fontsize=12,
+            fontsize=9,
             color=text_color)
     end
 end

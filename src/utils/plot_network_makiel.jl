@@ -1,12 +1,59 @@
 using CairoMakie
+using Printf
 using ColorSchemes
-using ColorTypes 
+using ColorTypes
 using Dates
 using Logging
 using ..Config
 include("../types/structures.jl")
 
+# Helper function to convert minutes to HH:MM format for the extended 3-day time system
+function minutes_to_time_string(minutes)::String
+    minutes = Float64(minutes)
+    # Handle the extended 3-day time system
+    if minutes < 0
+        # Previous day: -1440 to -1 minutes
+        day_minutes = minutes + 1440
+        prefix = "P"  # Previous day prefix
+    elseif minutes < 1440
+        # Target day: 0 to 1439 minutes
+        day_minutes = minutes
+        prefix = ""   # No prefix for target day
+    else
+        # Next day: 1440 to 2879 minutes
+        day_minutes = minutes - 1440
+        prefix = "N"  # Next day prefix
+    end
+
+    # Handle minute rounding that might result in 60 minutes
+    total_minutes = Int(round(day_minutes))
+    hours = div(total_minutes, 60)
+    mins = total_minutes % 60
+
+    # Handle edge case where rounding creates 60 minutes
+    if mins == 60
+        hours += 1
+        mins = 0
+    end
+
+    # Handle hour overflow (24:xx becomes 00:xx of next day)
+    hours = hours % 24
+
+    time_str = Printf.@sprintf("%02d:%02d", hours, mins)
+    return prefix * time_str
+end
+
 CairoMakie.activate!()
+
+# --- Font Setup ---
+# Set up LaTeX-style fonts for plots using Makie's MathTeXEngine.
+MT = Makie.MathTeXEngine
+mt_fonts_dir = joinpath(dirname(pathof(MT)), "..", "assets", "fonts", "NewComputerModern")
+
+set_theme!(fonts=(
+    regular=joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
+    bold=joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
+))
 
 # Structure to hold simplified bus line data for 2D plotting.
 struct PlottingBusLine
@@ -61,8 +108,8 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
     depot_coords = depot.location
 
     # Initialize the plotting figure and axis.
-    fig = CairoMakie.Figure(size=(1200, 1200))
-    ax = CairoMakie.Axis(fig[1, 1], 
+    fig = CairoMakie.Figure(size=(700, 700))
+    ax = CairoMakie.Axis(fig[1, 1],
         title="Depot: $(depot.depot_name) on $date ($day_name)",
         aspect=DataAspect() # Maintain correct aspect ratio for geographic data.
     )
@@ -72,7 +119,7 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
     # Assign a unique color to each unique bus line ID.
     unique_bus_line_ids = unique([line.bus_line_id for line in bus_lines])
     num_unique_lines = length(unique_bus_line_ids)
-    colors = [RGB(get(ColorSchemes.seaborn_colorblind, i / max(1, num_unique_lines))) for i in 1:num_unique_lines]
+    colors = [RGB(ColorSchemes.Set1_9[(i-1) % 9 + 1]) for i in 1:num_unique_lines]
     color_map = Dict(id => color for (id, color) in zip(unique_bus_line_ids, colors))
 
     # Plot dashed lines indicating potential transfers between the end of one route and the start of another.
@@ -163,19 +210,19 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
 end
 
 """
-    plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vector{TravelTime}, 
+    plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vector{TravelTime},
                          depot::Depot, date::Date; ...)
 
 Generates a 3D plot visualizing bus routes in space-time for a specific depot and date.
 The X and Y axes represent geographic coordinates, and the Z axis represents time (minutes since midnight).
 """
-function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vector{TravelTime}, 
+function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vector{TravelTime},
                              depot::Depot, date::Date;
                              alpha::Float64=0.5, # Transparency level for plotted elements.
                              plot_connections::Bool=true, # Option to plot connections (currently unused in 3D).
                              plot_trip_markers::Bool=true, # Option to plot markers at each stop time point.
                              plot_trip_lines::Bool=true) # Option to plot the lines connecting stop time points.
-    
+
     day_name = lowercase(Dates.dayname(date))
     # Filter routes for the specified depot and day.
     lines = filter(r -> r.depot_id == depot.depot_id && r.day == day_name, all_routes)
@@ -232,7 +279,7 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
                 push!(y_coords_all, loc[2])
             end
         end
-        
+
         # Add stop times and update min/max time range.
         if !isempty(line.stop_times)
             append!(z_coords_all, line.stop_times)
@@ -244,12 +291,12 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
             # Include depot travel times in the min/max calculation.
             if !isempty(line.stop_ids)
                 # Find travel time from depot to first stop.
-                depot_start_travel_idx = findfirst(tt -> tt.start_stop == depot_id_for_lookup && 
-                                                       tt.end_stop == line.stop_ids[1] && 
+                depot_start_travel_idx = findfirst(tt -> tt.start_stop == depot_id_for_lookup &&
+                                                       tt.end_stop == line.stop_ids[1] &&
                                                        tt.is_depot_travel, all_travel_times)
                 # Find travel time from last stop to depot.
-                depot_end_travel_idx = findfirst(tt -> tt.start_stop == line.stop_ids[end] && 
-                                                     tt.end_stop == depot_id_for_lookup && 
+                depot_end_travel_idx = findfirst(tt -> tt.start_stop == line.stop_ids[end] &&
+                                                     tt.end_stop == depot_id_for_lookup &&
                                                      tt.is_depot_travel, all_travel_times)
 
                 if !isnothing(depot_start_travel_idx) && !isnothing(depot_end_travel_idx)
@@ -280,20 +327,74 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
         max_time = isfinite(max_time) ? max_time : maximum(valid_times)
     end
 
-    # Add padding to the time axis for better visualization.
-    time_padding = 60.0 # e.g., 60 minutes padding
-    axis_min_time = min_time - time_padding
-    axis_max_time = max_time + time_padding 
-    @debug "Calculated time range: [$(min_time), $(max_time)]. Axis limits: [$(axis_min_time), $(axis_max_time)]"
+    # Round axis bounds to the nearest hour for cleaner visualization
+    # Round min_time down to the nearest hour, max_time up to the nearest hour
+    axis_min_time = floor(min_time / 60.0) * 60.0
+    axis_max_time = ceil(max_time / 60.0) * 60.0
+    @debug "Calculated time range: [$(min_time), $(max_time)]. Rounded axis limits: [$(axis_min_time), $(axis_max_time)]"
 
-    # Initialize the 3D plotting figure and axis.
-    fig = CairoMakie.Figure(size=(1200, 1200))
+    # Initialize the 3D plotting figure with publication-ready dimensions
+    fig = CairoMakie.Figure(size=(800, 800), fontsize=12)
     ax = CairoMakie.Axis3(fig[1, 1],
-        title="Depot: $(depot.depot_name) on $date ($day_name) (3D)",
-        xlabel="X", ylabel="Y", zlabel="Time (minutes since midnight)",
+        title="$(depot.depot_name) Routes - $date",
+        titlesize=16,
+        xlabel="Longitude", ylabel="Latitude", zlabel="Time",
+        xlabelsize=14, ylabelsize=14, zlabelsize=14,
         viewmode=:fit, # Adjust camera to fit the data.
-        limits=(nothing, nothing, (axis_min_time, axis_max_time)) # Set calculated limits for Z (time) axis.
+        limits=(nothing, nothing, (axis_min_time, axis_max_time)), # Set calculated limits for Z (time) axis.
+        # Professional styling
+        xgridvisible=true, ygridvisible=true, zgridvisible=true,
+        xgridcolor=(:gray, 0.3), ygridcolor=(:gray, 0.3), zgridcolor=(:gray, 0.3),
+        xgridwidth=1, ygridwidth=1, zgridwidth=1,
+        # Axis3 spine styling (4 spines per axis in 3D)
+        xspinesvisible=true, yspinesvisible=true, zspinesvisible=true,
+        xspinewidth=1.5, yspinewidth=1.5, zspinewidth=1.5,
+        xspinecolor_1=:black, xspinecolor_2=:black, xspinecolor_3=:black, xspinecolor_4=:black,
+        yspinecolor_1=:black, yspinecolor_2=:black, yspinecolor_3=:black, yspinecolor_4=:black,
+        zspinecolor_1=:black, zspinecolor_2=:black, zspinecolor_3=:black, zspinecolor_4=:black,
+        # Professional tick styling
+        xticksize=5, yticksize=5, zticksize=5,
+        xtickwidth=1, ytickwidth=1, ztickwidth=1,
+        xtickcolor=:black, ytickcolor=:black, ztickcolor=:black,
+        xticklabelsize=10, yticklabelsize=10, zticklabelsize=10,
+        xticklabelcolor=:black, yticklabelcolor=:black, zticklabelcolor=:black,
+        # Clean background
+        backgroundcolor=:white
     )
+
+    # Set up custom time formatting for Z-axis with round hour intervals
+    # Calculate appropriate hour intervals based on time range
+    time_range_hours = (axis_max_time - axis_min_time) / 60
+    hour_interval = if time_range_hours <= 12
+        1  # 1-hour intervals for short ranges
+    elseif time_range_hours <= 24
+        2  # 2-hour intervals for medium ranges
+    elseif time_range_hours <= 48
+        4  # 4-hour intervals for longer ranges
+    else
+        6  # 6-hour intervals for very long ranges
+    end
+
+    # Generate ticks at round hour boundaries
+    start_hour = Int(ceil(axis_min_time / 60)) * 60
+    end_hour = Int(floor(axis_max_time / 60)) * 60
+    time_ticks = Float64.(collect(start_hour:60*hour_interval:end_hour))
+
+    # Ensure we have at least the axis limits
+    if !isempty(time_ticks)
+        if time_ticks[1] > axis_min_time
+            pushfirst!(time_ticks, Float64(axis_min_time))
+        end
+        if time_ticks[end] < axis_max_time
+            push!(time_ticks, Float64(axis_max_time))
+        end
+    else
+        # Fallback if no round hours in range
+        time_ticks = Float64[axis_min_time, axis_max_time]
+    end
+
+    time_labels = [minutes_to_time_string(t) for t in time_ticks]
+    ax.zticks = (time_ticks, time_labels)
 
     # Assign unique colors to each route using a color scheme.
     unique_route_ids = unique([line.route_id for line in lines])
@@ -312,7 +413,7 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
             x_coords = Float64[]
             y_coords = Float64[]
             z_coords = Float64[] # Time coordinates.
-            
+
             # Collect coordinates and times for the main part of the route.
             for (i, stop_id) in enumerate(line.stop_ids)
                 # Ensure location exists and time index is valid.
@@ -325,10 +426,11 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
             end
 
             if !isempty(x_coords) # Proceed only if we have valid points.
-                # Plot the main route segment in 3D space-time.
+                # Plot the main route segment in 3D space-time with enhanced styling.
                 CairoMakie.lines!(ax, x_coords, y_coords, z_coords,
                     color=(color_map[line.route_id], alpha), # Use route color and specified transparency.
-                    linewidth=2
+                    linewidth=2.5, # Slightly thicker for better visibility
+                    linestyle=:solid
                 )
 
                 # Plot markers at each stop time point if enabled.
@@ -342,18 +444,18 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
 
                 # Plot dashed lines representing travel to/from the depot.
                 if !isempty(line.stop_ids)
-                    depot_start_travel_idx = findfirst(tt -> tt.start_stop == depot_id_for_lookup && 
-                                                           tt.end_stop == line.stop_ids[1] && 
+                    depot_start_travel_idx = findfirst(tt -> tt.start_stop == depot_id_for_lookup &&
+                                                           tt.end_stop == line.stop_ids[1] &&
                                                            tt.is_depot_travel, all_travel_times)
-                    depot_end_travel_idx = findfirst(tt -> tt.start_stop == line.stop_ids[end] && 
-                                                         tt.end_stop == depot_id_for_lookup && 
+                    depot_end_travel_idx = findfirst(tt -> tt.start_stop == line.stop_ids[end] &&
+                                                         tt.end_stop == depot_id_for_lookup &&
                                                          tt.is_depot_travel, all_travel_times)
 
                     if !isnothing(depot_start_travel_idx) && !isnothing(depot_end_travel_idx)
                         # Plot connection from depot to the first stop.
                         start_time = z_coords[1] - all_travel_times[depot_start_travel_idx].time
-                        CairoMakie.lines!(ax, [depot_coords[1], x_coords[1]], 
-                              [depot_coords[2], y_coords[1]], 
+                        CairoMakie.lines!(ax, [depot_coords[1], x_coords[1]],
+                              [depot_coords[2], y_coords[1]],
                               [start_time, z_coords[1]], # Z coordinates represent time.
                             color=(color_map[line.route_id], alpha * 0.5), # Dimmer color.
                             linestyle=:dash
@@ -361,8 +463,8 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
 
                         # Plot connection from the last stop back to the depot.
                         end_time = z_coords[end] + all_travel_times[depot_end_travel_idx].time
-                        CairoMakie.lines!(ax, [x_coords[end], depot_coords[1]], 
-                              [y_coords[end], depot_coords[2]], 
+                        CairoMakie.lines!(ax, [x_coords[end], depot_coords[1]],
+                              [y_coords[end], depot_coords[2]],
                               [z_coords[end], end_time], # Z coordinates represent time.
                             color=(color_map[line.route_id], alpha * 0.5), # Dimmer color.
                             linestyle=:dash
@@ -373,36 +475,27 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
         end
     end
 
-    # Plot a vertical line at the depot's location spanning the entire time axis.
+    # Plot a professional depot timeline with enhanced styling.
     depot_z_start = axis_min_time # Use padded axis limits.
     depot_z_end = axis_max_time
-    CairoMakie.lines!(ax, [depot_coords[1], depot_coords[1]], 
-          [depot_coords[2], depot_coords[2]], 
+    CairoMakie.lines!(ax, [depot_coords[1], depot_coords[1]],
+          [depot_coords[2], depot_coords[2]],
           [depot_z_start, depot_z_end],
         color=:black,
-        linewidth=2
-    )
-
-    # Plot markers at the top and bottom of the depot's vertical time line.
-    CairoMakie.scatter!(ax, [depot_coords[1]], [depot_coords[2]], [depot_z_start],
-        color=:white,
-        markersize=10,
-        strokecolor=:black,
-        strokewidth=1
-    )
-    CairoMakie.scatter!(ax, [depot_coords[1]], [depot_coords[2]], [depot_z_end],
-        color=:white,
-        markersize=10,
-        strokecolor=:black,
-        strokewidth=1
+        linewidth=3, # Thicker for prominence
+        linestyle=:solid
     )
 
     # Enable interactive data inspection.
     CairoMakie.DataInspector(fig)
 
-    # Set up the 3D camera perspective. Apply to the scene containing the axis.
+    # Set up professional 3D camera perspective with better viewing angles
     CairoMakie.cam3d!(fig.scene)
-    CairoMakie.rotate_cam!(fig.scene, 45, 30, 0) # Example rotation values (degrees).
+    # Professional viewing angle: 30° elevation, 45° azimuth for optimal depth perception
+    CairoMakie.rotate_cam!(fig.scene, 20, 45, 0)
+
+    # Enhance visual depth with better camera settings
+    CairoMakie.zoom!(fig.scene, 0.7) # Slight zoom for better framing
 
     return fig
 end
@@ -425,7 +518,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
     @info "Generating base 3D network plot..."
     fig = plot_network_3d_makie(all_routes, all_travel_times, depot, date,
                                alpha=0.1, # Make base routes faint
-                               plot_connections=base_plot_connections, 
+                               plot_connections=base_plot_connections,
                                plot_trip_markers=base_plot_trip_markers,
                                plot_trip_lines=base_plot_trip_lines)
 
@@ -477,7 +570,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
         return fig # Should not happen due to earlier check, but good practice.
     end
 
-    # Use a rainbow color scheme for multiple buses, or blue for a single bus.
+    # Use a professional color scheme for multiple buses, or blue for a single bus.
     bus_colors = if num_buses == 1
         [RGB(0.0, 0.0, 1.0)] # Single bus gets blue color.
     else
@@ -512,38 +605,38 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
         hover_texts = String[] # Store hover text for DataInspector (currently not directly usable with lines).
 
         @debug "  Processing path for bus $(bus_info.name) (ID: $bus_id)..."
-        
+
         # Process each arc (segment) in the bus's path.
         for (i, arc) in enumerate(bus_info.path)
             from_node = arc.arc_start
             to_node = arc.arc_end
-            
+
             # Check if the start time for this arc exists in the timestamp dictionary.
             if !haskey(timestamp_dict, arc)
                 @warn "  Timestamp missing for arc $arc in path of bus $(bus_info.name). Skipping segment."
                 continue
             end
-            
+
             from_time = timestamp_dict[arc] # Start time of the arc traversal.
-            
+
             # Determine if the start/end nodes are the depot.
             is_from_depot = from_node.stop_sequence == 0
             is_to_depot = to_node.stop_sequence == 0
-            
+
             # Get geographic coordinates for the start node.
             from_x, from_y = if is_from_depot
                 depot_coords
             else
                 get(stop_location_lookup, from_node.id, (NaN, NaN)) # Use NaN if stop not found.
             end
-            
+
             # Get geographic coordinates for the end node.
             to_x, to_y = if is_to_depot
                 depot_coords
             else
                 get(stop_location_lookup, to_node.id, (NaN, NaN)) # Use NaN if stop not found.
             end
-            
+
             # Skip this arc segment if coordinates are invalid (NaN).
             if any(isnan, [from_x, from_y, to_x, to_y])
                 @warn "  Invalid coordinates for arc $arc (from: $(from_node.id), to: $(to_node.id)). Skipping segment."
@@ -552,7 +645,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
 
             # Calculate the end time for the current arc segment.
             # This requires looking up the travel time based on the arc type.
-            is_backward_intra_line = arc.kind == "intra-line-arc" && 
+            is_backward_intra_line = arc.kind == "intra-line-arc" &&
                                    to_node.stop_sequence < from_node.stop_sequence
 
             segment_end_time = try # Wrap in try-catch for potential errors.
@@ -600,22 +693,11 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
             push!(path_x, from_x, to_x)
             push!(path_y, from_y, to_y)
             push!(path_z, from_time, segment_end_time)
-            
+
             # Create hover text (useful for debugging, less so for final plot interaction with lines).
             from_name = is_from_depot ? "Depot" : get(stop_name_lookup, from_node.id, "Stop $(from_node.id)")
             to_name = is_to_depot ? "Depot" : get(stop_name_lookup, to_node.id, "Stop $(to_node.id)")
             capacity_usage = get(Dict(bus_info.capacity_usage), arc, 0) # Convert capacity usage tuple list to dict for lookup.
-            
-            hover_text = """
-            Bus: $(bus_info.name) (ID: $bus_id)
-            Arc: $i ($(arc.kind))
-            From: $from_name (Node: $(from_node.id), Seq: $(from_node.stop_sequence)) at $(round(from_time, digits=1))
-            To: $to_name (Node: $(to_node.id), Seq: $(to_node.stop_sequence)) at $(round(segment_end_time, digits=1))
-            Route ID: $(from_node.route_id) 
-            Capacity Used: $capacity_usage
-            """
-            # Push hover text twice, once for the start and once for the end point of the segment.
-            push!(hover_texts, hover_text, hover_text) 
 
             # Add NaN separators after each segment to create discontinuous lines in the plot.
             # This prevents lines being drawn between logically disconnected path segments (e.g., across waits or different routes).
@@ -627,18 +709,21 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
 
         # Plot the collected path segments for the current bus if any valid points exist.
         if !isempty(path_x) && !all(isnan, path_x) # Check if there's something to plot.
-            # Plot the lines connecting the points. NaNs will create breaks.
+            # Plot the lines connecting the points with professional styling.
             CairoMakie.lines!(ax, path_x, path_y, path_z,
-                color=(bus_color, 0.8), # Use bus-specific color, slightly transparent.
-                linewidth=2.5, # Make solution lines slightly thicker.
+                color=(bus_color, 0.9), # Higher opacity for solution paths
+                linewidth=3.0, # Prominent thickness for solution visibility
+                linestyle=:solid,
                 label=bus_info.name # Label for the legend.
             )
 
-            # Plot markers at the start/end of each segment (where coordinates are not NaN).
+            # Plot professional markers at segment points.
             valid_points = .!isnan.(path_x) # Boolean mask for valid (non-NaN) points.
             CairoMakie.scatter!(ax, path_x[valid_points], path_y[valid_points], path_z[valid_points],
                 color=bus_color,
-                markersize=5, # Smaller markers for solution path points.
+                markersize=6, # Slightly larger for better visibility
+                strokecolor=:white, # White outline for better contrast
+                strokewidth=0.5,
                 label=nothing # No separate label for scatter points in the legend.
             )
             @debug "  Plotted path for bus $(bus_info.name)."
@@ -662,9 +747,10 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
          end
     end
 
-    # Re-apply camera settings to ensure the view includes the newly plotted solution paths.
+    # Re-apply professional camera settings to ensure optimal view of solution paths.
     CairoMakie.cam3d!(fig.scene)
-    CairoMakie.rotate_cam!(fig.scene, 45, 30, 0) # Re-apply initial rotation.
+    CairoMakie.rotate_cam!(fig.scene, 20, 45, 0) # Professional viewing angle
+    CairoMakie.zoom!(fig.scene, 0.7) # Consistent framing
     # Consider calling update_cam!(fig.scene, ax.limits[]) or similar if limits might change drastically.
 
     return fig

@@ -3,6 +3,18 @@ Pkg.activate("on-demand-busses")
 
 using CSV, DataFrames, CairoMakie, Statistics
 
+CairoMakie.activate!()
+
+# --- Font Setup ---
+# Set up LaTeX-style fonts for plots using Makie's MathTeXEngine.
+MT = Makie.MathTeXEngine
+mt_fonts_dir = joinpath(dirname(pathof(MT)), "..", "assets", "fonts", "NewComputerModern")
+
+set_theme!(fonts=(
+    regular=joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
+    bold=joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
+))
+
 # Load and clean data
 println("Loading demand data...")
 demand_df = CSV.read("case_data_clean/demand.csv", DataFrame)
@@ -53,14 +65,13 @@ end
 heatmap_data = raw_data
 
 # Create the visualization
-fig = Figure(size=(1400, 600))
+fig = Figure(size=(700, 200))
 
 # Short depot names for cleaner display
 depot_names = [replace(depot, "VLP " => "") for depot in depots]
 
 # Create axis with proper orientation
 ax = Axis(fig[1, 1],
-    title="Customer Trip Request Patterns by Hour and Depot\n30-Day Average (June 2025)",
     xlabel="Hour of Day",
     ylabel="Depot Location",
     xticks=([1, 5, 9, 13, 17, 21], ["0:00", "4:00", "8:00", "12:00", "16:00", "20:00"]),
@@ -83,7 +94,7 @@ hm = heatmap!(ax, transpose(heatmap_data),
 
 # Create colorbar
 cb = Colorbar(fig[1, 2], hm,
-    label="Average Daily Requests per Hour",
+    label="Average Daily \n Requests per Hour",
     vertical=true,
     labelsize=12)
 
@@ -95,7 +106,7 @@ for hour_idx in 1:24, depot_idx in 1:length(depots)
         text!(ax, hour_idx, depot_idx,
             text=string(round(value, digits=1)),
             align=(:center, :center),
-            fontsize=12,
+            fontsize=9,
             color=text_color)
     end
 end
@@ -193,8 +204,6 @@ save(output_png, fig, px_per_unit=3)
 save(output_pdf, fig)
 
 println("\n" * "="^70)
-println("FINAL CORRECT HEATMAP COMPLETE!")
-println("="^70)
 println("Properly oriented heatmap saved to:")
 println("  • PNG: $output_png")
 println("  • PDF: $output_pdf")
