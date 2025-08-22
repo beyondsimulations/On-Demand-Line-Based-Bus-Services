@@ -308,8 +308,10 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
 
     # Round axis bounds to the nearest hour for cleaner visualization
     # Round min_time down to the nearest hour, max_time up to the nearest hour
-    axis_min_time = floor(min_time / 60.0) * 60.0
-    axis_max_time = ceil(max_time / 60.0) * 60.0
+    #axis_min_time = floor(min_time / 60.0) * 60.0
+    axis_min_time = 0
+    #axis_max_time = ceil(max_time / 60.0) * 60.0
+    axis_max_time = 1439
     @debug "Calculated time range: [$(min_time), $(max_time)]. Rounded axis limits: [$(axis_min_time), $(axis_max_time)]"
 
     # Calculate tight axis limits for X and Y coordinates to zoom in on actual data
@@ -340,6 +342,9 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
         xlabelsize=14, ylabelsize=14, zlabelsize=14,
         limits=(x_limits, y_limits, (axis_min_time, axis_max_time))
     )
+
+    # Restrict Z-axis (time) to target day only: 00:00 to 23:59 (minutes 0 to 1439)
+    CairoMakie.zlims!(ax, 0, 1439)
 
     # Set up custom time formatting for Z-axis with round hour intervals
     # Calculate appropriate hour intervals based on time range
@@ -491,7 +496,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
     # Set alpha low (e.g., 0.1 or 0.0) if only solution paths are desired.
     @info "Generating base 3D network plot..."
     fig = plot_network_3d_makie(all_routes, all_travel_times, depot, date,
-                               alpha=0.3, # Make base routes faint
+                               alpha=0.0, # Make base routes faint
                                plot_connections=base_plot_connections,
                                plot_trip_markers=base_plot_trip_markers,
                                plot_trip_lines=base_plot_trip_lines)
@@ -504,6 +509,9 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
 
     # Get the 3D axis object from the figure created by plot_network_3d_makie.
     ax = fig.content[1] # Assumes the Axis3 is the first element in the figure layout.
+
+    # Restrict Z-axis (time) to target day only: 00:00 to 23:59 (minutes 0 to 1439)
+    CairoMakie.zlims!(ax, 0, 1439)
 
     # Filter routes and set up depot info, similar to the base plot function.
     day_name = lowercase(Dates.dayname(date))
@@ -549,7 +557,7 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
         [RGB(0.0, 0.0, 1.0)] # Single bus gets blue color.
     else
         # Distribute colors across the rainbow spectrum.
-        [RGB(get(ColorSchemes.Greys_3, i / max(1, num_buses)))
+        [RGB(get(ColorSchemes.twelvebitrainbow, i / max(1, num_buses)))
                 for i in 1:num_buses]
     end
     # Map bus IDs (sorted) to colors for consistent plotting.
