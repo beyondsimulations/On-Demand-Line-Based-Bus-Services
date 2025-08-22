@@ -95,7 +95,7 @@ for hour_idx in 1:24, depot_idx in 1:length(depots)
         text!(ax, hour_idx, depot_idx,
             text=string(round(value, digits=1)),
             align=(:center, :center),
-            fontsize=9,
+            fontsize=12,
             color=text_color)
     end
 end
