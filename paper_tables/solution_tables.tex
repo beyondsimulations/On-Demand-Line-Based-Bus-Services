@@ -1,0 +1,46 @@
+Loading computational study data...
+Dataset overview:
+Total instances: 2160
+Columns: ["depot_name", "date", "problem_type", "setting", "subsetting", "service_level", "solver_status", "solve_time", "num_buses", "num_potential_buses", "num_demands", "total_operational_duration", "total_waiting_time", "avg_capacity_utilization", "optimality_gap", "filter_demand", "optimizer_constructor"]
+
+=== SOLUTION TABLES FOR PAPER ===
+
+\begin{table}[ht]
+\centering
+\caption{Computational Results by Operational Scenario}
+\label{tab:computational_results}
+\begin{threeparttable}
+\begin{tabular}{lcccccc}
+\toprule
+Operational Scenario & Infeasible & Time Limits & Gaps & Optimal & Avg Buses & Avg Time (s) \\
+\midrule
+O1 / S1 & 0 & 0 & 0 & 180 & 22.5 & 0.122 \\
+O1 / S2 & 0 & 0 & 0 & 180 & 8.7 & 0.008 \\
+O1 / S3 & 0 & 0 & 0 & 180 & 6.7 & 0.008 \\
+O2 / S1 & 0 & 180 & 1 & 0 & NaN & -- \\
+O2 / S2 & 0 & 159 & 90 & 21 & 6.0 & 275.625 \\
+O2 / S3 & 0 & 52 & 49 & 128 & 6.4 & 143.639 \\
+O3.1 / S1 & 153 & 27 & 0 & 0 & NaN & -- \\
+O3.1 / S2 & 25 & 77 & 75 & 78 & 17.4 & 135.865 \\
+O3.1 / S3 & 10 & 2 & 2 & 168 & 15.8 & 38.686 \\
+O3.2 / S1 & 180 & 0 & 0 & 0 & NaN & -- \\
+O3.2 / S2 & 180 & 0 & 0 & 0 & NaN & -- \\
+O3.2 / S3 & 176 & 0 & 0 & 4 & 13.2 & 1.933 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+      \smaller
+      \item \textit{Notes.} 2160 total instances across 6 depots × 30 days × 4 constraint settings × 3 service levels. Average buses for optimal solutions: 12.6. Average computation time for optimal solutions: 43.986 seconds.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+
+=== OVERALL SUMMARY ===
+Total instances: 2160
+Infeasible solutions: 724 (33.5%)
+Time limit reached: 497 (23.0%)
+Solutions with gaps: 217 (10.0%)
+Optimal solutions: 939 (43.5%)
+Average buses (optimal): 12.6
+Average time (optimal): 43.986 seconds
