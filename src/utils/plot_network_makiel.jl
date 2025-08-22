@@ -108,10 +108,8 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
     depot_coords = depot.location
 
     # Initialize the plotting figure and axis.
-    fig = CairoMakie.Figure(size=(700, 700))
+    fig = CairoMakie.Figure(size=(700, 350))
     ax = CairoMakie.Axis(fig[1, 1],
-        title="Depot: $(depot.depot_name) on $date ($day_name)",
-        aspect=DataAspect() # Maintain correct aspect ratio for geographic data.
     )
     CairoMakie.hidedecorations!(ax) # Hide default axes decorations.
     CairoMakie.hidespines!(ax)     # Hide default axes spines.
@@ -119,7 +117,8 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
     # Assign a unique color to each unique bus line ID.
     unique_bus_line_ids = unique([line.bus_line_id for line in bus_lines])
     num_unique_lines = length(unique_bus_line_ids)
-    colors = [RGB(ColorSchemes.Set1_9[(i-1) % 9 + 1]) for i in 1:num_unique_lines]
+    colors = [RGB(get(ColorSchemes.twelvebitrainbow, i / max(1, num_unique_lines)))
+             for i in 1:num_unique_lines]
     color_map = Dict(id => color for (id, color) in zip(unique_bus_line_ids, colors))
 
     # Plot dashed lines indicating potential transfers between the end of one route and the start of another.
@@ -136,7 +135,7 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
                 CairoMakie.lines!(ax, [end_x, start_x], [end_y, start_y],
                     linestyle=:dash,
                     color=(:grey, 0.3),
-                    linewidth=0.3
+                    linewidth=1.5
                 )
             end
         end
@@ -156,12 +155,12 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
         CairoMakie.lines!(ax, [depot_coords[1], x_coords[1]], [depot_coords[2], y_coords[1]],
             color=(line_color, 0.5),
             linestyle=:dash,
-            linewidth=1
+            linewidth=1.5
         )
         CairoMakie.lines!(ax, [depot_coords[1], x_coords[end]], [depot_coords[2], y_coords[end]],
             color=(line_color, 0.5),
             linestyle=:dash,
-            linewidth=1
+            linewidth=1.5
         )
 
         # Plot the actual route path.
@@ -173,38 +172,18 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
         # Plot markers for each stop on the route.
         CairoMakie.scatter!(ax, x_coords, y_coords,
             color=line_color,
-            markersize=5
+            markersize=8
         )
 
-        # Prepare invisible text annotations for stops, used by DataInspector.
-        for (i, stop_id) in enumerate(line.stop_ids)
-            if i <= length(x_coords) # Ensure index is valid
-                stop_name = get(stop_name_lookup, stop_id, "ID: $stop_id (Name N/A)")
-                CairoMakie.text!(ax, x_coords[i], y_coords[i],
-                    text="Route: $(line.bus_line_id)\nStop: $stop_name",
-                    visible=false, # Initially hidden
-                    align=(:center, :bottom)
-                )
-            end
-        end
     end
 
     # Plot the depot location.
     CairoMakie.scatter!(ax, [depot_coords[1]], [depot_coords[2]],
         color=:white,
-        markersize=15,
+        markersize=25,
         strokecolor=:black,
-        strokewidth=1
+        strokewidth=1.5
     )
-    CairoMakie.text!(ax, depot_coords[1], depot_coords[2],
-        text="D", # Label for Depot
-        align=(:center, :center),
-        color=:black,
-        fontsize=10
-    )
-
-    # Enable interactive tooltips for plotted elements.
-    CairoMakie.DataInspector(fig)
 
     return fig
 end
@@ -220,7 +199,7 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
                              depot::Depot, date::Date;
                              alpha::Float64=0.5, # Transparency level for plotted elements.
                              plot_connections::Bool=true, # Option to plot connections (currently unused in 3D).
-                             plot_trip_markers::Bool=true, # Option to plot markers at each stop time point.
+                             plot_trip_markers::Bool=false, # Option to plot markers at each stop time point.
                              plot_trip_lines::Bool=true) # Option to plot the lines connecting stop time points.
 
     day_name = lowercase(Dates.dayname(date))
@@ -333,18 +312,37 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
     axis_max_time = ceil(max_time / 60.0) * 60.0
     @debug "Calculated time range: [$(min_time), $(max_time)]. Rounded axis limits: [$(axis_min_time), $(axis_max_time)]"
 
+    # Calculate tight axis limits for X and Y coordinates to zoom in on actual data
+    if !isempty(x_coords_all) && !isempty(y_coords_all)
+        x_min, x_max = extrema(x_coords_all)
+        y_min, y_max = extrema(y_coords_all)
+
+        # Add small padding (2% of range) to avoid data points touching edges
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+        x_padding = max(x_range * 0.02, 0.001)  # Minimum padding for very small ranges
+        y_padding = max(y_range * 0.02, 0.001)
+
+        x_limits = (x_min - x_padding, x_max + x_padding)
+        y_limits = (y_min - y_padding, y_max + y_padding)
+
+        @debug "Calculated X limits: $x_limits, Y limits: $y_limits"
+    else
+        # Fallback to automatic limits if no coordinates available
+        x_limits = nothing
+        y_limits = nothing
+    end
+
     # Initialize the 3D plotting figure with publication-ready dimensions
-    fig = CairoMakie.Figure(size=(800, 800), fontsize=12)
+    fig = CairoMakie.Figure(size=(700, 400), fontsize=12)
     ax = CairoMakie.Axis3(fig[1, 1],
-        title="$(depot.depot_name) Routes - $date",
-        titlesize=16,
         xlabel="Longitude", ylabel="Latitude", zlabel="Time",
         xlabelsize=14, ylabelsize=14, zlabelsize=14,
         viewmode=:fit, # Adjust camera to fit the data.
-        limits=(nothing, nothing, (axis_min_time, axis_max_time)), # Set calculated limits for Z (time) axis.
+        limits=(x_limits, y_limits, (axis_min_time, axis_max_time)), # Set calculated tight limits for all axes
         # Professional styling
         xgridvisible=true, ygridvisible=true, zgridvisible=true,
-        xgridcolor=(:gray, 0.3), ygridcolor=(:gray, 0.3), zgridcolor=(:gray, 0.3),
+        xgridcolor=(:gray, 0.1), ygridcolor=(:gray, 0.1), zgridcolor=(:gray, 0.1),
         xgridwidth=1, ygridwidth=1, zgridwidth=1,
         # Axis3 spine styling (4 spines per axis in 3D)
         xspinesvisible=true, yspinesvisible=true, zspinesvisible=true,
@@ -399,8 +397,8 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
     # Assign unique colors to each route using a color scheme.
     unique_route_ids = unique([line.route_id for line in lines])
     num_unique_routes = length(unique_route_ids)
-    colors = [RGB(get(ColorSchemes.seaborn_colorblind, i / max(1, num_unique_routes))) 
-             for i in 1:num_unique_routes]
+    colors = [RGB(get(ColorSchemes.twelvebitrainbow, i / max(1, num_unique_routes)))
+            for i in 1:num_unique_routes]
     color_map = Dict(id => color for (id, color) in zip(unique_route_ids, colors))
 
     # Plot the spatio-temporal path for each trip (route instance).
@@ -476,7 +474,7 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
     end
 
     # Plot a professional depot timeline with enhanced styling.
-    depot_z_start = axis_min_time # Use padded axis limits.
+    depot_z_start = axis_min_time
     depot_z_end = axis_max_time
     CairoMakie.lines!(ax, [depot_coords[1], depot_coords[1]],
           [depot_coords[2], depot_coords[2]],
@@ -485,17 +483,6 @@ function plot_network_3d_makie(all_routes::Vector{Route}, all_travel_times::Vect
         linewidth=3, # Thicker for prominence
         linestyle=:solid
     )
-
-    # Enable interactive data inspection.
-    CairoMakie.DataInspector(fig)
-
-    # Set up professional 3D camera perspective with better viewing angles
-    CairoMakie.cam3d!(fig.scene)
-    # Professional viewing angle: 30° elevation, 45° azimuth for optimal depth perception
-    CairoMakie.rotate_cam!(fig.scene, 20, 45, 0)
-
-    # Enhance visual depth with better camera settings
-    CairoMakie.zoom!(fig.scene, 0.7) # Slight zoom for better framing
 
     return fig
 end
@@ -575,7 +562,8 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
         [RGB(0.0, 0.0, 1.0)] # Single bus gets blue color.
     else
         # Distribute colors across the rainbow spectrum.
-        [RGB(get(ColorSchemes.rainbow, (i-1)/max(1, num_buses-1))) for i in 1:num_buses]
+        [RGB(get(ColorSchemes.thermometer, i / max(1, num_buses)))
+                for i in 1:num_buses]
     end
     # Map bus IDs (sorted) to colors for consistent plotting.
     bus_ids = sort(collect(keys(result.buses)))
@@ -746,12 +734,6 @@ function plot_solution_3d_makie(all_routes::Vector{Route}, depot::Depot, date::D
              @warn "No plottable elements with labels found for the legend."
          end
     end
-
-    # Re-apply professional camera settings to ensure optimal view of solution paths.
-    CairoMakie.cam3d!(fig.scene)
-    CairoMakie.rotate_cam!(fig.scene, 20, 45, 0) # Professional viewing angle
-    CairoMakie.zoom!(fig.scene, 0.7) # Consistent framing
-    # Consider calling update_cam!(fig.scene, ax.limits[]) or similar if limits might change drastically.
 
     return fig
 end
