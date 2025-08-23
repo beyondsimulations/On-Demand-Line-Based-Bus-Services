@@ -107,12 +107,12 @@ end
 
 # Print each metric row
 metrics = [
-    ("Infeasible", :infeasible_count, "d"),
-    ("Limit (w/ sol)\\tnote{a}", :gap_count, "d"),
-    ("Limit (no sol)\\tnote{b}", :time_limit_no_solution, "d"),
-    ("Optimal", :optimal_count, "d"),
-    ("Avg Buses", :avg_buses, "f"),
-    ("Avg Time (s)\\tnote{c}", :avg_optimal_time, "f")
+    ("Infeas", :infeasible_count, "d"),
+    ("TLimit\\tnote{a}", :time_limit_no_solution, "d"),
+    ("Gap\\tnote{b}", :gap_count, "d"),
+    ("Opt", :optimal_count, "d"),
+    ("Buses", :avg_buses, "f"),
+    ("Time\\tnote{c}", :avg_optimal_time, "f")
 ]
 
 for (metric_name, metric_col, format_type) in metrics
@@ -153,8 +153,8 @@ avg_buses_overall = mean(df.num_buses[optimal_mask])
 avg_time_overall = mean(df.solve_time[optimal_mask])
 
 println("      \\item \\textit{Notes.} 2160 total instances across 6 depots × 30 days × 4 constraint settings × 3 service levels.")
-println("      \\item[a] Time limit reached but found at least one feasible solution")
-println("      \\item[b] Time limit reached without finding any feasible solution")
+println("      \\item[a] Time limit reached without finding any feasible solution")
+println("      \\item[b] Time limit reached but found at least one feasible solution")
 println("      \\item[c] Average computation time for optimally solved instances only")
 println("\\end{tablenotes}")
 println("\\end{threeparttable}")
