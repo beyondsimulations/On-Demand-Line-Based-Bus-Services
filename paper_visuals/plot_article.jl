@@ -28,8 +28,7 @@ set_theme!(fonts=(
 ))
 
 # --- Configuration ---
-aggregation_version = "v1" # Version identifier for the input data aggregation
-plot_version = "v2"        # Version identifier for the plot output
+plot_version = "v4"        # Version identifier for the plot output
 solver = "gurobi"          # Solver used for the experiments
 
 # --- File Paths ---
@@ -52,7 +51,12 @@ df_solved = filter(row -> row.solver_status == "Optimal", df)
 df_aggregated = combine(groupby(df_solved, [:depot_name, :service_level, :setting]),
     :num_buses => mean => :avg_buses,
     :num_buses => std => :std_buses,
-    nrow => :count_solved
+    nrow => :count_solved_optimal
+)
+
+df_solved_wTimelimit = filter(row -> row.solver_status == "TIME_LIMIT", df)
+df_aggregated_wTimeLimit = combine(groupby(df_solved_wTimelimit, [:depot_name, :service_level, :setting]),
+    nrow => :count_solved_wTimeLimit
 )
 
 # Filter to only include depot/service_level/setting combinations where ALL instances were solved optimally
@@ -61,9 +65,10 @@ df_total_counts = combine(groupby(df, [:depot_name, :service_level, :setting]), 
 
 # Merge with aggregated data
 df_aggregated = leftjoin(df_aggregated, df_total_counts, on=[:depot_name, :service_level, :setting])
+df_aggregated = leftjoin(df_aggregated, df_aggregated_wTimeLimit, on=[:depot_name, :service_level, :setting])
 
 # Only keep rows where count_solved == total_instances (all instances optimal)
-df_aggregated = filter(row -> row.count_solved == row.total_instances, df_aggregated)
+df_aggregated = filter(row -> coalesce(row.count_solved_wTimeLimit, 0) + row.count_solved_optimal  == row.total_instances, df_aggregated)
 
 # Filter to only include service levels in 2.5% intervals (0.025, 0.050, 0.075, ..., 1.000)
 # Use range to avoid floating point precision issues
@@ -77,8 +82,8 @@ df_aggregated = filter(row -> any(abs(row.service_level - v) < 1e-10 for v in va
 df_success = combine(groupby(df, [:depot_name, :service_level, :setting])) do group_df
     optimal_count = sum(group_df.solver_status .== "Optimal")
     total_count = nrow(group_df)
-    return (optimal_count = optimal_count, 
-            total_count = total_count, 
+    return (optimal_count = optimal_count,
+            total_count = total_count,
             success_rate = optimal_count / total_count)
 end
 
@@ -164,18 +169,6 @@ function create_plot_elements!(ax, data, depots, depot_color_map, depot_marker_m
                 strokecolor=:black, # Black outline
                 strokewidth=1.5)
 
-            # Add error bars if standard deviation data is available
-            if :std_buses in names(df_depot) && any(.!ismissing.(df_depot.std_buses))
-                valid_std = .!ismissing.(df_depot.std_buses) .& (df_depot.std_buses .> 0)
-                if any(valid_std)
-                    errorbars!(ax, 
-                        df_depot.service_level[valid_std], 
-                        df_depot.avg_buses[valid_std],
-                        df_depot.std_buses[valid_std],
-                        color=:gray, linewidth=1.0, whiskerwidth=5)
-                end
-            end
-
             # Collect elements for the legend only once per depot
             if !(d in plotted_depots)
                 push!(plot_elements, scatterpt)
@@ -197,7 +190,7 @@ function create_success_plot!(ax, success_data, depots, depot_color_map)
         total_instances = sum(group_df.total_count)
         return (overall_success_rate = total_optimal / total_instances,)
     end
-    
+
     if nrow(df_agg_success) > 0
         sort!(df_agg_success, :service_level)
         # Create bars showing overall optimal solution rate
@@ -244,9 +237,9 @@ create_success_plot!(ax_success_all, df_success_all, depots_all, depot_color_map
 xlims!(ax_success_all, xlim)
 ylims!(ax_success_all, (0, 1.05))
 
-# Optimal solution rate plot for O3.2  
+# Optimal solution rate plot for O3.2
 ax_success_current = Axis(fig[2, 2],
-    xlabel="Service Level", 
+    xlabel="Service Level",
     ylabel="",  # Remove y-label to avoid repetition
     title=""
 )
@@ -264,7 +257,9 @@ for d in sorted_all_depots
     marker = depot_marker_map[d]
     # Create a MarkerElement reflecting the style used in the scatter plots (white fill, black stroke).
     push!(legend_elements, MarkerElement(marker=marker, color=(:white, 1.0), strokecolor=:black, strokewidth=1.0, markersize=9))
-    push!(legend_labels, string(d))
+    # Remove "VLP " prefix from depot name for cleaner legend labels
+    clean_depot_name = replace(string(d), "VLP " => "")
+    push!(legend_labels, clean_depot_name)
 end
 
 # Add the legend inside the first plot (top-left)
@@ -278,7 +273,7 @@ Legend(fig[1, 1], # Place legend within the first plot
     margin=(10, 10, 10, 10)  # Add some padding
 )
 
-# Set column widths and row heights after creating all elements  
+# Set column widths and row heights after creating all elements
 colsize!(fig.layout, 1, Relative(0.5))  # First plot column (larger now)
 colsize!(fig.layout, 2, Relative(0.5))  # Second plot column (larger now)
 
