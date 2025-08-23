@@ -28,10 +28,10 @@ setting_map = Dict(
 
 filtered_df.scenario = map(x -> setting_map[x], filtered_df.setting)
 
-# Define exact service levels we want (0.1 to 1.0 in 0.1 steps)
+# Define exact service levels we want (0.05 to 1.0 in 0.05 steps)
 target_service_levels = [
-    0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5,
-    0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0
+    0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50,
+    0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00
 ]
 
 # Calculate metrics for each exact service level and scenario
@@ -120,7 +120,7 @@ for scenario in ["O3.1", "O3.2"]
             # Print scenario name only for first row of each scenario
             scenario_label = i == 1 ? scenario * " / S3" : ""
 
-            print(scenario_label, " & ", @sprintf("%.1f", service_level))
+            print(scenario_label, " & ", @sprintf("%.2f", service_level))
             print(" & ", infeas, " & ", tlimit, " & ", gap, " & ", opt, " & ", buses, " & ", time_val)
         else
             scenario_label = i == 1 ? scenario * " / S3" : ""
@@ -141,7 +141,7 @@ println("\\end{tabular}")
 println("\\begin{tablenotes}")
 println("      \\smaller")
 println("      \\item \\textit{Notes.} Analysis of service level trade-offs for capacity-constrained scenarios with driver breaks.")
-println("      \\item Service levels represent exact demand coverage from 10\\% to 100\\% in 10\\% increments")
+println("      \\item Service levels represent exact demand coverage from 5\\% to 100\\% in 5\\% increments")
 println("      \\item Infeas: Infeasible solutions; TLimit: Time limit without solution; Gap: Time limit with solution; Opt: Optimal solutions")
 println("      \\item Buses: Average number of buses per day; Time: Average computation time for optimal solutions (seconds)")
 println("      \\item O3.1: Driver breaks required; O3.2: Driver breaks available; S3: Demand-only service coverage")
