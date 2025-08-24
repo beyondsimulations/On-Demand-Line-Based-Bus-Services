@@ -1,213 +1,294 @@
 using Pkg
 Pkg.activate("on-demand-busses")
 
-using CSV, DataFrames, CairoMakie, Statistics
+using CSV, DataFrames, CairoMakie, Statistics, Dates
 
-CairoMakie.activate!()
+# -----------------------------------------------------------------------------
+# Demand Heatmap
+# -----------------------------------------------------------------------------
+# Generates an average hourly customer trip request (demand) heatmap across depots
+# using a multi-day demand dataset, and prints summary statistics.
+#
+# Data expectations (CSV: case_data_clean/demand.csv):
+#   Columns (at minimum):
+#     depot                :: String
+#     abfahrt_minutes      :: Int / Number (minutes from 0–1439)
+#     Abfahrt-Datum        :: Date or parseable string (used for day counting)
+#
+# Processing steps:
+#   1. Clean rows (remove header artifacts, missing values, invalid minute ranges).
+#   2. Derive hour (0–23) from abfahrt_minutes.
+#   3. For each depot-hour cell, count requests and divide by number of unique days
+#      to obtain "average requests per day per hour".
+#
+# Output:
+#   - Heatmap PNG/PDF saved under plots/.
+#   - Printed statistical summary detailing:
+#       * Total average requests (sum over depots and hours)
+#       * Peak hour (global)
+#       * Busiest depot
+#       * Max single cell
+#       * Depot ranking
+#       * Time period aggregates
+#       * Top 5 peak hours
+# -----------------------------------------------------------------------------
 
-# --- Font Setup ---
-# Set up LaTeX-style fonts for plots using Makie's MathTeXEngine.
+# -- Configuration ----------------------------------------------------------------
+DEMAND_CSV_PATH = "case_data_clean/demand.csv"
+DATE_COLUMN = Symbol("Abfahrt-Datum")
+OUTPUT_PNG = "plots/demand_heatmap.png"
+OUTPUT_PDF = "plots/demand_heatmap.pdf"
+ANNOTATION_THRESHOLD = 0.0    # Minimum value to annotate in heatmap cells
+TOP_HOURS_COUNT = 5
+TIME_PERIODS = [
+    ("Early Morning (05-08)", 5:8),
+    ("Morning Peak (09-11)", 9:11),
+    ("Afternoon (12-16)", 12:16),
+    ("Evening Peak (17-21)", 17:21),
+    ("Night (22-04)", vcat(22:23, 0:4))
+]
+
+# -- Theme / Fonts ----------------------------------------------------------------
 MT = Makie.MathTeXEngine
 mt_fonts_dir = joinpath(dirname(pathof(MT)), "..", "assets", "fonts", "NewComputerModern")
-
 set_theme!(fonts=(
-    regular=joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
-    bold=joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
+    regular = joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
+    bold    = joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
 ))
 
-# Load and clean data
-println("Loading demand data...")
-demand_df = CSV.read("case_data_clean/demand.csv", DataFrame)
+# -- Data Loading -----------------------------------------------------------------
+"""
+    load_demand_data(path::AbstractString, date_col::Symbol) -> DataFrame, Vector{Date}
 
-# Remove any header duplicates and filter valid data
-demand_df = demand_df[demand_df.depot.!="depot", :]
-demand_df = demand_df[.!ismissing.(demand_df.depot).&.!ismissing.(demand_df.abfahrt_minutes), :]
+Load and clean demand data:
+- Removes header artifact rows (where depot == "depot") and missing critical fields.
+- Keeps rows with 0 ≤ abfahrt_minutes < 1440.
+- Derives integer hour (0–23).
+Returns:
+  cleaned DataFrame
+  vector of unique dates (sorted)
+"""
+function load_demand_data(path::AbstractString, date_col::Symbol)
+    df = CSV.read(path, DataFrame)
 
-# Convert minutes to integers and validate (0-1439 minutes in a day)
-demand_df.abfahrt_minutes = Int.(demand_df.abfahrt_minutes)
-demand_df = demand_df[(demand_df.abfahrt_minutes.>=0).&(demand_df.abfahrt_minutes.<1440), :]
+    # Remove bogus header rows and rows with missing key fields
+    filter!(row -> row.depot != "depot" &&
+                  !ismissing(row.depot) &&
+                  !ismissing(row.abfahrt_minutes), df)
 
-# Convert to hours (0-23)
-demand_df.hour = floor.(Int, demand_df.abfahrt_minutes ./ 60)
-demand_df = demand_df[(demand_df.hour.>=0).&(demand_df.hour.<=23), :]
+    # Coerce minutes to Int and filter valid daily range
+    df.abfahrt_minutes = Int.(df.abfahrt_minutes)
+    filter!(row -> 0 <= row.abfahrt_minutes < 1440, df)
 
-println("Cleaned data: $(nrow(demand_df)) rows")
-
-# Get depots and dates
-depots = sort(unique(demand_df.depot))
-dates = sort(unique(demand_df[!, Symbol("Abfahrt-Datum")]))
-n_days = length(dates)
-
-println("Found $(length(depots)) depots: $(join([replace(d, "VLP " => "") for d in depots], ", "))")
-println("Analyzing $(n_days) days from $(dates[1]) to $(dates[end])")
-
-# Create heatmap matrix: depots (rows) × hours (columns)
-# This matrix will be: 6 depots × 24 hours
-raw_data = zeros(Float64, length(depots), 24)
-
-# Fill the matrix: rows = depots, columns = hours
-println("\nProcessing demand by depot and hour...")
-for (depot_idx, depot) in enumerate(depots)
-    depot_data = filter(row -> row.depot == depot, demand_df)
-
-    for hour in 0:23
-        hour_count = sum(depot_data.hour .== hour)
-        raw_data[depot_idx, hour+1] = hour_count / n_days
+    # Ensure date column parseable; convert if necessary
+    if !(eltype(df[!, date_col]) <: Date)
+        try
+            df[!, date_col] = Date.(df[!, date_col])
+        catch
+            error("Failed to parse date column $(date_col). Ensure ISO-8601 or provide parsing logic.")
+        end
     end
 
-    total_demands = nrow(depot_data)
-    peak_hour = argmax(raw_data[depot_idx, :]) - 1
-    peak_value = maximum(raw_data[depot_idx, :])
-    println("$(replace(depot, "VLP " => "")): $(total_demands) total demands, peak at $(peak_hour):00 ($(round(peak_value, digits=1))/day)")
+    # Derive hour
+    df.hour = floor.(Int, df.abfahrt_minutes ./ 60)
+    filter!(row -> 0 <= row.hour <= 23, df)
+
+    dates = sort(unique(df[!, date_col]))
+    return df, dates
 end
 
-# The heatmap data is ready: depots (rows) × hours (columns)
-heatmap_data = raw_data
+# -- Core Aggregation -------------------------------------------------------------
+"""
+    build_hourly_matrix(df::DataFrame, date_col::Symbol)
+        -> (matrix::Matrix{Float64}, depots::Vector{String}, depot_names::Vector{String}, n_days::Int)
 
-# Create the visualization
-fig = Figure(size=(700, 250))
+Compute depot x 24 matrix:
+  cell (i, h+1) = average daily requests for depot i at hour h (count / number_of_days).
 
-# Short depot names for cleaner display
-depot_names = [replace(depot, "VLP " => "") for depot in depots]
+Returns matrix, original depot identifiers, display-cleaned depot names, and day count.
+"""
+function build_hourly_matrix(df::DataFrame, date_col::Symbol)
+    depots = sort(unique(df.depot))
+    n_days = length(unique(df[!, date_col]))
+    matrix = zeros(Float64, length(depots), 24)
 
-# Create axis with proper orientation
-ax = Axis(fig[1, 1],
-    xlabel="Hour of Day",
-    ylabel="Depot Location",
-    xticks=([1, 5, 9, 13, 17, 21], ["0:00", "4:00", "8:00", "12:00", "16:00", "20:00"]),
-    yticks=(1:length(depots), depot_names),
-    yreversed=false,
-    aspect=DataAspect()
-)
-
-# Print title to terminal
-println("\n" * "="^80)
-println("Customer Trip Request Patterns by Hour and Depot")
-println("30-Day Average (June 2025)")
-println("="^80)
-
-# Create heatmap with transposed data for proper orientation
-hm = heatmap!(ax, transpose(heatmap_data),
-    colormap=:plasma,
-    interpolate=false,
-    lowclip=:transparent)
-
-# Create colorbar
-cb = Colorbar(fig[1, 2], hm,
-    label="Average Daily \n Requests per Hour",
-    vertical=true,
-    labelsize=12)
-
-# Add value annotations for cells with significant demand
-for hour_idx in 1:24, depot_idx in 1:length(depots)
-    value = heatmap_data[depot_idx, hour_idx]
-    if value >= 0.0
-        text_color = value > maximum(heatmap_data) * 0.6 ? :black : :white
-        text!(ax, hour_idx, depot_idx,
-            text=string(round(value, digits=1)),
-            align=(:center, :center),
-            fontsize=9,
-            color=text_color)
+    @inbounds for (di, depot) in enumerate(depots)
+        depot_rows = @view df[df.depot .== depot, :]
+        # Count by hour
+        counts = zeros(Int, 24)
+        for h in depot_rows.hour
+            counts[h + 1] += 1
+        end
+        # Average per day
+        for h in 1:24
+            matrix[di, h] = counts[h] / n_days
+        end
     end
+
+    depot_names = [replace(d, "VLP " => "") for d in depots]
+    return matrix, depots, depot_names, n_days
 end
 
-# Calculate key statistics
-total_daily_requests = sum(heatmap_data)
-hourly_totals = vec(sum(heatmap_data, dims=1))  # Sum across depots for each hour
-peak_hour_idx = argmax(hourly_totals)
-peak_hour = peak_hour_idx - 1
-peak_hour_demand = maximum(hourly_totals)
-
-depot_totals = vec(sum(heatmap_data, dims=2))  # Sum across hours for each depot
-busiest_depot_idx = argmax(depot_totals)
-busiest_depot = depot_names[busiest_depot_idx]
-max_single_cell = maximum(heatmap_data)
-
-# Create statistics text
-top_5_hours = sortperm(hourly_totals, rev=true)[1:5]
-top_5_text = join(["$(h-1):00 → $(round(hourly_totals[h], digits=1)) requests/day" for h in top_5_hours], "\n")
-
-depot_ranking_text = join(["$i. $(depot_names[idx]): $(round(depot_totals[idx], digits=1)) requests/day"
-                           for (i, idx) in enumerate(sortperm(depot_totals, rev=true))], "\n")
-
-stats_text = """
-DEMAND ANALYSIS SUMMARY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Total Daily Average: $(round(total_daily_requests, digits=1)) requests
-Peak Hour (Global): $(peak_hour):00 ($(round(peak_hour_demand, digits=1)) requests)
-Busiest Depot: $(busiest_depot) ($(round(depot_totals[busiest_depot_idx], digits=1)) requests/day)
-Maximum Single Hour-Depot: $(round(max_single_cell, digits=1)) requests/day
-
-DEPOT RANKING BY DAILY DEMAND
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-$(depot_ranking_text)
-
-TIME PERIOD ANALYSIS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Early Morning (5:00-8:59): $(round(sum(hourly_totals[6:9]), digits=1)) requests/day
-Morning Peak (9:00-11:59): $(round(sum(hourly_totals[10:12]), digits=1)) requests/day
-Afternoon (12:00-16:59): $(round(sum(hourly_totals[13:17]), digits=1)) requests/day
-Evening Peak (17:00-21:59): $(round(sum(hourly_totals[18:22]), digits=1)) requests/day
-Night Period (22:00-4:59): $(round(sum(hourly_totals[vcat(23:24, 1:5)]), digits=1)) requests/day
-
-TOP 5 PEAK HOURS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-$(top_5_text)
+# -- Statistics -------------------------------------------------------------------
 """
+    compute_statistics(matrix::Matrix{Float64}, depot_names::Vector{String})
 
-# Print statistics to terminal
-println("\n" * "="^80)
-println("DEMAND ANALYSIS SUMMARY")
-println("="^80)
-println("Total Daily Average: $(round(total_daily_requests, digits=1)) requests")
-println("Peak Hour (Global): $(peak_hour):00 ($(round(peak_hour_demand, digits=1)) requests)")
-println("Busiest Depot: $(busiest_depot) ($(round(depot_totals[busiest_depot_idx], digits=1)) requests/day)")
-println("Maximum Single Hour-Depot: $(round(max_single_cell, digits=1)) requests/day")
-
-println("\nDEPOT RANKING BY DAILY DEMAND")
-println("="^80)
-println(depot_ranking_text)
-
-println("\nTIME PERIOD ANALYSIS")
-println("="^80)
-println("Early Morning (5:00-8:59): $(round(sum(hourly_totals[6:9]), digits=1)) requests/day")
-println("Morning Peak (9:00-11:59): $(round(sum(hourly_totals[10:12]), digits=1)) requests/day")
-println("Afternoon (12:00-16:59): $(round(sum(hourly_totals[13:17]), digits=1)) requests/day")
-println("Evening Peak (17:00-21:59): $(round(sum(hourly_totals[18:22]), digits=1)) requests/day")
-println("Night Period (22:00-4:59): $(round(sum(hourly_totals[vcat(23:24, 1:5)]), digits=1)) requests/day")
-
-println("\nTOP 5 PEAK HOURS")
-println("="^80)
-println(top_5_text)
-
-# Add source and methodology note at bottom
-source_text = """
-Data Source: 30-day demand dataset (June 2025) • Analysis Method: Hourly aggregation with daily averaging
-Color Scale: Purple (low demand) to Yellow (high demand) • Values shown for ≥2 requests/hour
+Return NamedTuple with:
+  total_daily
+  hourly_totals
+  peak_hour
+  peak_hour_value
+  depot_totals
+  busiest_depot
+  busiest_depot_value
+  max_cell
+  top_hours :: Vector{Tuple{Int,Float64}}
 """
+function compute_statistics(matrix::Matrix{Float64}, depot_names::Vector{String})
+    hourly_totals = vec(sum(matrix, dims = 1))
+    depot_totals  = vec(sum(matrix, dims = 2))
 
-# Print source information to terminal
-println("\n" * "="^80)
-println("SOURCE AND METHODOLOGY")
-println("="^80)
-println("Data Source: 30-day demand dataset (June 2025)")
-println("Analysis Method: Hourly aggregation with daily averaging")
-println("Color Scale: Purple (low demand) to Yellow (high demand)")
-println("Values shown for ≥2 requests/hour")
+    peak_idx = argmax(hourly_totals)
+    peak_hour = peak_idx - 1
+    peak_val = hourly_totals[peak_idx]
 
-# Save the plots
-mkpath("plots")
-output_png = "plots/demand_heatmap.png"
-output_pdf = "plots/demand_heatmap.pdf"
+    busiest_idx = argmax(depot_totals)
+    busiest_name = depot_names[busiest_idx]
+    busiest_val  = depot_totals[busiest_idx]
 
-save(output_png, fig, px_per_unit=3)
-save(output_pdf, fig)
+    max_cell = maximum(matrix)
 
-println("\n" * "="^70)
-println("Properly oriented heatmap saved to:")
-println("  • PNG: $output_png")
-println("  • PDF: $output_pdf")
-println("\nFINAL CORRECT ORIENTATION:")
-println("  • Hours on X-axis (horizontal) - time flows left to right")
-println("  • Depots on Y-axis (vertical) - easy to compare vertically")
-println("  • Matrix dimensions: $(size(heatmap_data)) (depots × hours)")
+    k = min(TOP_HOURS_COUNT, length(hourly_totals))
+    top_order = sortperm(hourly_totals, rev = true)[1:k]
+    top_hours = [(h - 1, hourly_totals[h]) for h in top_order]
+
+    return (
+        total_daily = sum(matrix),
+        hourly_totals = hourly_totals,
+        peak_hour = peak_hour,
+        peak_hour_value = peak_val,
+        depot_totals = depot_totals,
+        busiest_depot = busiest_name,
+        busiest_depot_value = busiest_val,
+        max_cell = max_cell,
+        top_hours = top_hours
+    )
+end
+
+# -- Plotting ---------------------------------------------------------------------
+"""
+    plot_heatmap(matrix::Matrix{Float64}, depot_names::Vector{String};
+                 output_png, output_pdf, annotation_threshold)
+
+Generate and save the depot x hour heatmap (PNG & PDF).
+Annotations shown for cells >= annotation_threshold.
+"""
+function plot_heatmap(matrix::Matrix{Float64}, depot_names::Vector{String};
+                      output_png::AbstractString,
+                      output_pdf::AbstractString,
+                      annotation_threshold::Real = ANNOTATION_THRESHOLD)
+    mkpath(dirname(output_png))
+
+    fig = Figure(size = (700, 250))
+    ax = Axis(fig[1, 1],
+        xlabel = "Hour of Day",
+        ylabel = "Depot Location",
+        xticks = ([1, 5, 9, 13, 17, 21], ["0:00", "4:00", "8:00", "12:00", "16:00", "20:00"]),
+        yticks = (1:length(depot_names), depot_names),
+        yreversed = false
+    )
+
+    hm = heatmap!(ax, transpose(matrix), colormap = :plasma, interpolate = false, lowclip = :transparent)
+
+    Colorbar(fig[1, 2], hm,
+        vertical = true,
+        label = "Avg Daily\nRequests per Hour",
+        labelsize = 12
+    )
+
+    max_val = maximum(matrix)
+    for hour_idx in 1:24, depot_idx in 1:length(depot_names)
+        value = matrix[depot_idx, hour_idx]
+        if value >= annotation_threshold
+            text_color = value > max_val * 0.6 ? :black : :white
+            text!(ax, hour_idx, depot_idx;
+                text = string(round(value, digits = 1)),
+                align = (:center, :center),
+                fontsize = 9,
+                color = text_color
+            )
+        end
+    end
+
+    save(output_png, fig, px_per_unit = 3)
+    save(output_pdf, fig)
+    return nothing
+end
+
+# -- Summary Printing -------------------------------------------------------------
+"""
+    print_summary(stats, depot_names::Vector{String})
+
+Print aggregated statistics and time-of-day segment sums.
+"""
+function print_summary(stats, depot_names::Vector{String})
+    hourly = stats.hourly_totals
+    depot_totals = stats.depot_totals
+
+    # Convert hour -> matrix index (hour 0 maps to 1)
+    hour_index(h) = h + 1
+
+    period_lines = String[]
+    for (label, hrs) in TIME_PERIODS
+        idxs = hour_index.(hrs)
+        push!(period_lines, rpad(label, 23) * ": " * string(round(sum(hourly[idxs]), digits = 1)))
+    end
+
+    depot_rank_text = join(["$i. $(depot_names[idx]): $(round(depot_totals[idx], digits=1))"
+                            for (i, idx) in enumerate(sortperm(depot_totals, rev = true))], "\n")
+    top_hours_text = join(["$(h):00 -> $(round(v, digits=1))"
+                           for (h, v) in stats.top_hours], "\n")
+
+    println("================================================================")
+    println("DEMAND ANALYSIS SUMMARY")
+    println("================================================================")
+    println("Total Daily Average (sum of hourly depot means): $(round(stats.total_daily, digits=1))")
+    println("Peak Hour: $(stats.peak_hour):00  (≈ $(round(stats.peak_hour_value, digits=1)) requests)")
+    println("Busiest Depot: $(stats.busiest_depot) (≈ $(round(stats.busiest_depot_value, digits=1)) requests)")
+    println("Max Single Hour-Depot Cell: $(round(stats.max_cell, digits=1))")
+    println()
+    println("DEPOT RANKING (Average Requests Across Hours)")
+    println("----------------------------------------------------------------")
+    println(depot_rank_text)
+    println()
+    println("TIME PERIOD AGGREGATES")
+    println("----------------------------------------------------------------")
+    println(join(period_lines, "\n"))
+    println()
+    println("TOP $(length(stats.top_hours)) HOURS")
+    println("----------------------------------------------------------------")
+    println(top_hours_text)
+    println()
+    println("SOURCE & METHOD: Multi-day demand dataset; per-hour counts averaged over distinct service days.")
+end
+
+# -- Main -------------------------------------------------------------------------
+function main()
+    demand_df, dates = load_demand_data(DEMAND_CSV_PATH, DATE_COLUMN)
+    matrix, depots, depot_names, n_days = build_hourly_matrix(demand_df, DATE_COLUMN)
+    stats = compute_statistics(matrix, depot_names)
+    print_summary(stats, depot_names)
+    plot_heatmap(matrix, depot_names;
+        output_png = OUTPUT_PNG,
+        output_pdf = OUTPUT_PDF,
+        annotation_threshold = ANNOTATION_THRESHOLD
+    )
+    println("Saved heatmap:")
+    println("  PNG: $(OUTPUT_PNG)")
+    println("  PDF: $(OUTPUT_PDF)")
+    println("Covered date range: $(first(dates)) → $(last(dates))  (Days = $(length(dates)))")
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end
