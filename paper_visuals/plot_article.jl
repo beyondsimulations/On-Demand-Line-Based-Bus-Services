@@ -203,7 +203,7 @@ end
 
 # --- Create Combined Figure ---
 @info "Creating combined plot..."
-fig = Figure(size=(800, 500)) # 2x2 layout without separate legend column
+fig = Figure(size=(700, 500)) # 2x2 layout without separate legend column
 
 # --- Main Plots (Top Row): Average Buses vs Service Level ---
 # Plot 1: Drivers From All Depots (O3.1)

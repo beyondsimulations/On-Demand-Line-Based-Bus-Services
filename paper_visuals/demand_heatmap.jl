@@ -65,7 +65,7 @@ end
 heatmap_data = raw_data
 
 # Create the visualization
-fig = Figure(size=(700, 200))
+fig = Figure(size=(700, 250))
 
 # Short depot names for cleaner display
 depot_names = [replace(depot, "VLP " => "") for depot in depots]

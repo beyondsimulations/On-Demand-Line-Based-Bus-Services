@@ -108,7 +108,7 @@ function plot_network_makie(all_routes::Vector{Route}, depot::Depot, date::Date)
     depot_coords = depot.location
 
     # Initialize the plotting figure and axis.
-    fig = CairoMakie.Figure(size=(700, 400))
+    fig = CairoMakie.Figure(size=(700, 500))
     ax = CairoMakie.Axis(fig[1, 1],
     )
     CairoMakie.hidedecorations!(ax) # Hide default axes decorations.

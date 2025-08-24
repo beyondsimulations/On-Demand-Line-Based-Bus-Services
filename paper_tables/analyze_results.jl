@@ -57,91 +57,136 @@ subsetting_mapped = replace.(scenarios.subsetting,
 # Combine them
 scenarios.scenario = setting_mapped .* " / " .* subsetting_mapped
 
+# --- Configuration ---
+table_save_path = "paper_tables/computational_results_table.tex"
+
 # Generate transposed LaTeX table
-println("\\begin{table}[ht]")
-println("\\centering")
-println("\\caption{Computational Results by Operational Scenario}")
-println("\\label{tab:computational_results}")
-println("\\begin{threeparttable}")
+function generate_latex_table(scenarios, df)
+    # Calculate overall statistics first
+    total_instances = nrow(df)
+    total_infeasible = sum(df.solver_status .== "INFEASIBLE_OR_UNBOUNDED")
+    total_timeout = sum(df.solver_status .== "TIME_LIMIT")
+    total_optimal = sum(df.solver_status .== "Optimal")
+    total_gaps = sum(x -> !ismissing(x) && x > 0 && x < 1e50, df.optimality_gap)
+    
+    optimal_mask = df.solver_status .== "Optimal"
+    avg_buses_overall = mean(df.num_buses[optimal_mask])
+    avg_time_overall = mean(df.solve_time[optimal_mask])
 
-# Create column specification - 1 for metrics + 4 operational scenarios * 3 service levels = 13 columns
-println("\\begin{tabular}{l" * "c"^12 * "}")
-println("\\toprule")
+    latex_content = """
+\\begin{table}[ht]
+\\centering
+\\caption{Computational Results by Operational Scenario}
+\\label{tab:computational_results}
+\\begin{threeparttable}
+\\begin{tabular}{l""" * "c"^12 * """}
+\\toprule
+"""
 
-# First header row: Operational scenarios (with multicolumn spanning 3 columns each)
-print("Metric")
-for op_scenario in ["O1", "O2", "O3.1", "O3.2"]
-    print(" & \\multicolumn{3}{c}{", op_scenario, "}")
-end
-println(" \\\\")
+    # First header row: Operational scenarios (with multicolumn spanning 3 columns each)
+    latex_content *= "Metric"
+    for op_scenario in ["O1", "O2", "O3.1", "O3.2"]
+        latex_content *= " & \\multicolumn{3}{c}{$op_scenario}"
+    end
+    latex_content *= " \\\\\n"
 
-# Add a line between header rows
-println("\\cmidrule(lr){2-4} \\cmidrule(lr){5-7} \\cmidrule(lr){8-10} \\cmidrule(lr){11-13}")
+    # Add a line between header rows
+    latex_content *= "\\cmidrule(lr){2-4} \\cmidrule(lr){5-7} \\cmidrule(lr){8-10} \\cmidrule(lr){11-13}\n"
 
-# Second header row: Service levels
-print(" ")  # Empty cell under "Metric"
-for op_scenario in ["O1", "O2", "O3.1", "O3.2"]
-    print(" & S1 & S2 & S3")
-end
-println(" \\\\")
-println("\\midrule")
+    # Second header row: Service levels
+    latex_content *= " "  # Empty cell under "Metric"
+    for op_scenario in ["O1", "O2", "O3.1", "O3.2"]
+        latex_content *= " & S1 & S2 & S3"
+    end
+    latex_content *= " \\\\\n"
+    latex_content *= "\\midrule\n"
 
-# Create data matrix organized by operational scenario and service level
-op_scenarios = ["O1", "O2", "O3.1", "O3.2"]
-service_levels = ["S1", "S2", "S3"]
+    # Create data matrix organized by operational scenario and service level
+    op_scenarios = ["O1", "O2", "O3.1", "O3.2"]
+    service_levels = ["S1", "S2", "S3"]
 
-# Extract data for each combination and calculate time limits without solution
-data_matrix = Dict()
-for row in eachrow(scenarios)
-    # Parse the scenario name "O1 / S1" into operational and service parts
-    parts = split(row.scenario, " / ")
-    op = parts[1]
-    service = parts[2]
+    # Extract data for each combination and calculate time limits without solution
+    data_matrix = Dict()
+    for row in eachrow(scenarios)
+        # Parse the scenario name "O1 / S1" into operational and service parts
+        parts = split(row.scenario, " / ")
+        op = parts[1]
+        service = parts[2]
 
-    # Add computed field for time limits without solution
-    row_dict = Dict(pairs(row))
-    row_dict[:time_limit_no_solution] = row.time_limit_count - row.gap_count
+        # Add computed field for time limits without solution
+        row_dict = Dict(pairs(row))
+        row_dict[:time_limit_no_solution] = row.time_limit_count - row.gap_count
 
-    data_matrix[(op, service)] = row_dict
-end
+        data_matrix[(op, service)] = row_dict
+    end
 
-# Print each metric row
-metrics = [
-    ("Infeas", :infeasible_count, "d"),
-    ("TLimit\\tnote{a}", :time_limit_no_solution, "d"),
-    ("Gap\\tnote{b}", :gap_count, "d"),
-    ("Opt", :optimal_count, "d"),
-    ("Buses", :avg_buses, "f"),
-    ("Time\\tnote{c}", :avg_optimal_time, "f")
-]
+    # Print each metric row
+    metrics = [
+        ("Infeas", :infeasible_count, "d"),
+        ("TLimit\\tnote{a}", :time_limit_no_solution, "d"),
+        ("Gap\\tnote{b}", :gap_count, "d"),
+        ("Opt", :optimal_count, "d"),
+        ("Buses", :avg_buses, "f"),
+        ("Time\\tnote{c}", :avg_optimal_time, "f")
+    ]
 
-for (metric_name, metric_col, format_type) in metrics
-    print(metric_name)
-    for op in op_scenarios
-        for service in service_levels
-            if haskey(data_matrix, (op, service))
-                row_data = data_matrix[(op, service)]
-                if metric_col == :avg_buses
-                    value_str = (ismissing(row_data[metric_col]) || isnan(row_data[metric_col])) ? "--" : @sprintf("%.1f", row_data[metric_col])
-                elseif metric_col == :avg_optimal_time
-                    value_str = row_data[metric_col] == 0.0 ? "--" : @sprintf("%.0f", row_data[metric_col])
+    for (metric_name, metric_col, format_type) in metrics
+        latex_content *= metric_name
+        for op in op_scenarios
+            for service in service_levels
+                if haskey(data_matrix, (op, service))
+                    row_data = data_matrix[(op, service)]
+                    if metric_col == :avg_buses
+                        value_str = (ismissing(row_data[metric_col]) || isnan(row_data[metric_col])) ? "--" : @sprintf("%.1f", row_data[metric_col])
+                    elseif metric_col == :avg_optimal_time
+                        value_str = row_data[metric_col] == 0.0 ? "--" : @sprintf("%.0f", row_data[metric_col])
+                    else
+                        value_str = string(row_data[metric_col])
+                    end
+                    latex_content *= " & $value_str"
                 else
-                    value_str = string(row_data[metric_col])
+                    latex_content *= " & --"
                 end
-                print(" & ", value_str)
-            else
-                print(" & --")
             end
         end
+        latex_content *= " \\\\\n"
     end
-    println(" \\\\")
+
+    latex_content *= """
+\\bottomrule
+\\end{tabular}
+\\begin{tablenotes}
+      \\smaller
+      \\item \\textit{Notes.} 2160 total instances across 6 depots × 30 days × 4 constraint settings × 3 service levels.
+      \\item[a] Time limit reached without finding any feasible solution
+      \\item[b] Time limit reached but found at least one feasible solution
+      \\item[c] Average computation time for optimally solved instances only
+\\end{tablenotes}
+\\end{threeparttable}
+\\end{table}
+"""
+    return latex_content
 end
 
-println("\\bottomrule")
-println("\\end{tabular}")
-println("\\begin{tablenotes}")
-println("      \\smaller")
+latex_table = generate_latex_table(scenarios, df)
 
+# Save LaTeX table to file
+mkpath(dirname(table_save_path))
+open(table_save_path, "w") do io
+    write(io, latex_table)
+end
+
+println("LaTeX table saved to: $table_save_path")
+
+# Print LaTeX table to console as well
+print(latex_table)
+
+
+# Print summary statistics to console
+println()
+println("=== OVERALL SUMMARY ===")
+
+# Recalculate summary statistics for console output
 total_instances = nrow(df)
 total_infeasible = sum(df.solver_status .== "INFEASIBLE_OR_UNBOUNDED")
 total_timeout = sum(df.solver_status .== "TIME_LIMIT")
@@ -152,19 +197,6 @@ optimal_mask = df.solver_status .== "Optimal"
 avg_buses_overall = mean(df.num_buses[optimal_mask])
 avg_time_overall = mean(df.solve_time[optimal_mask])
 
-println("      \\item \\textit{Notes.} 2160 total instances across 6 depots × 30 days × 4 constraint settings × 3 service levels.")
-println("      \\item[a] Time limit reached without finding any feasible solution")
-println("      \\item[b] Time limit reached but found at least one feasible solution")
-println("      \\item[c] Average computation time for optimally solved instances only")
-println("\\end{tablenotes}")
-println("\\end{threeparttable}")
-println("\\end{table}")
-println()
-
-
-# Print summary statistics to console
-println()
-println("=== OVERALL SUMMARY ===")
 println("Total instances: ", total_instances)
 println("Infeasible solutions: ", total_infeasible, " (", round(100*total_infeasible/total_instances, digits=1), "%)")
 println("Time limit reached: ", total_timeout, " (", round(100*total_timeout/total_instances, digits=1), "%)")

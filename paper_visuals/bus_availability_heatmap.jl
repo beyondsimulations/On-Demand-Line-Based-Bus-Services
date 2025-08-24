@@ -84,7 +84,7 @@ for depot_idx in 1:length(depots)
 end
 
 # Create the visualization for average bus availability
-fig_avg = Figure(size=(700, 200))
+fig_avg = Figure(size=(700, 250))
 
 # Create axis with proper orientation
 ax_avg = Axis(fig_avg[1, 1],

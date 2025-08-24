@@ -78,77 +78,91 @@ for scenario in ["O3.1", "O3.2"]
     end
 end
 
+# --- Configuration ---
+table_save_path = "paper_tables/service_level_analysis_table.tex"
+
 # Generate LaTeX table (transposed)
-println("\\begin{table}[ht]")
-println("\\centering")
-println("\\caption{Service Level Analysis: Trade-offs between Service Quality and Fleet Size (O3.1, O3.2 / S3)}")
-println("\\label{tab:service_level_analysis}")
-println("\\begin{threeparttable}")
+function generate_latex_table(results, target_service_levels)
+    latex_content = """
+\\begin{table}[ht]
+\\centering
+\\caption{Service Level Analysis: Trade-offs between Service Quality and Fleet Size (O3.1, O3.2 / S3)}
+\\label{tab:service_level_analysis}
+\\begin{threeparttable}
+\\begin{tabular}{llcccccc}
+\\toprule
+Scenario & Service & Infeas & TLimit & Gap & Opt & Buses & Time \\\\
+\\midrule
+"""
 
-# Create column specification: Scenario + Service Level + 6 metrics = 8 columns
-println("\\begin{tabular}{llcccccc}")
-println("\\toprule")
+    for scenario in ["O3.1", "O3.2"]
+        for (i, service_level) in enumerate(target_service_levels)
+            # Find matching row
+            matching_rows = results[
+                (results.scenario .== scenario) .&
+                (results.service_level .== service_level),
+                :
+            ]
 
-# Header row
-println("Scenario & Service & Infeas & TLimit & Gap & Opt & Buses & Time \\\\")
-println("\\midrule")
+            if nrow(matching_rows) > 0
+                row = matching_rows[1, :]
 
-# Print data rows (transposed)
-for scenario in ["O3.1", "O3.2"]
-    for (i, service_level) in enumerate(target_service_levels)
-        # Find matching row
-        matching_rows = results[
-            (results.scenario .== scenario) .&
-            (results.service_level .== service_level),
-            :
-        ]
+                # Calculate time limits without solution
+                time_limit_no_solution = row.time_limit_count - row.gap_count
 
-        if nrow(matching_rows) > 0
-            row = matching_rows[1, :]
+                # Format values
+                infeas = string(row.infeasible_count)
+                tlimit = string(time_limit_no_solution)
+                gap = string(row.gap_count)
+                opt = string(row.optimal_count)
+                buses = (ismissing(row.avg_buses) || isnan(row.avg_buses)) ? "--" : @sprintf("%.1f", row.avg_buses)
+                time_val = row.avg_optimal_time == 0.0 ? "--" : @sprintf("%.0f", row.avg_optimal_time)
 
-            # Calculate time limits without solution
-            time_limit_no_solution = row.time_limit_count - row.gap_count
+                # Print scenario name only for first row of each scenario
+                scenario_label = i == 1 ? scenario * " / S3" : ""
 
-            # Format values
-            infeas = string(row.infeasible_count)
-            tlimit = string(time_limit_no_solution)
-            gap = string(row.gap_count)
-            opt = string(row.optimal_count)
-            buses = (ismissing(row.avg_buses) || isnan(row.avg_buses)) ? "--" : @sprintf("%.1f", row.avg_buses)
-            time_val = row.avg_optimal_time == 0.0 ? "--" : @sprintf("%.0f", row.avg_optimal_time)
-
-            # Print scenario name only for first row of each scenario
-            scenario_label = i == 1 ? scenario * " / S3" : ""
-
-            print(scenario_label, " & ", @sprintf("%.2f", service_level))
-            print(" & ", infeas, " & ", tlimit, " & ", gap, " & ", opt, " & ", buses, " & ", time_val)
-        else
-            scenario_label = i == 1 ? scenario * " / S3" : ""
-            print(scenario_label, " & ", @sprintf("%.1f", service_level))
-            print(" & -- & -- & -- & -- & -- & --")
+                latex_content *= "$scenario_label & $(@sprintf("%.2f", service_level)) & $infeas & $tlimit & $gap & $opt & $buses & $time_val \\\\\n"
+            else
+                scenario_label = i == 1 ? scenario * " / S3" : ""
+                latex_content *= "$scenario_label & $(@sprintf("%.1f", service_level)) & -- & -- & -- & -- & -- & -- \\\\\n"
+            end
         end
-        println(" \\\\")
+
+        # Add midrule between scenarios (except after the last one)
+        if scenario != "O3.2"
+            latex_content *= "\\midrule\n"
+        end
     end
 
-    # Add midrule between scenarios (except after the last one)
-    if scenario != "O3.2"
-        println("\\midrule")
-    end
+    latex_content *= """
+\\bottomrule
+\\end{tabular}
+\\begin{tablenotes}
+      \\smaller
+      \\item \\textit{Notes.} Analysis of service level trade-offs for capacity-constrained scenarios with driver breaks.
+      \\item Service levels represent exact demand coverage from 5\\% to 100\\% in 5\\% increments
+      \\item Infeas: Infeasible solutions; TLimit: Time limit without solution; Gap: Time limit with solution; Opt: Optimal solutions
+      \\item Buses: Average number of buses per day; Time: Average computation time for optimal solutions (seconds)
+      \\item O3.1: Driver breaks required; O3.2: Driver breaks available; S3: Demand-only service coverage
+\\end{tablenotes}
+\\end{threeparttable}
+\\end{table}
+"""
+    return latex_content
 end
 
-println("\\bottomrule")
-println("\\end{tabular}")
-println("\\begin{tablenotes}")
-println("      \\smaller")
-println("      \\item \\textit{Notes.} Analysis of service level trade-offs for capacity-constrained scenarios with driver breaks.")
-println("      \\item Service levels represent exact demand coverage from 5\\% to 100\\% in 5\\% increments")
-println("      \\item Infeas: Infeasible solutions; TLimit: Time limit without solution; Gap: Time limit with solution; Opt: Optimal solutions")
-println("      \\item Buses: Average number of buses per day; Time: Average computation time for optimal solutions (seconds)")
-println("      \\item O3.1: Driver breaks required; O3.2: Driver breaks available; S3: Demand-only service coverage")
-println("\\end{tablenotes}")
-println("\\end{threeparttable}")
-println("\\end{table}")
-println()
+latex_table = generate_latex_table(results, target_service_levels)
+
+# Save LaTeX table to file
+mkpath(dirname(table_save_path))
+open(table_save_path, "w") do io
+    write(io, latex_table)
+end
+
+println("LaTeX table saved to: $table_save_path")
+
+# Print LaTeX table to console as well
+print(latex_table)
 
 # Print summary analysis
 println("=== TRADE-OFF ANALYSIS ===")
