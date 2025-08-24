@@ -210,7 +210,7 @@ fig = Figure(size=(800, 500)) # 2x2 layout without separate legend column
 ax_all = Axis(fig[1, 1],
     xlabel="",  # Remove x-label from top plots
     ylabel="Average Number of Buses",
-    title="O3.1: Driver Breaks Required"
+    title="O3.1 S3"
 )
 create_plot_elements!(ax_all, df_drivers_all_depots, depots_all, depot_color_map, depot_marker_map)
 xlims!(ax_all, xlim)
@@ -220,7 +220,7 @@ ylims!(ax_all, ylim)
 ax_current = Axis(fig[1, 2],
     xlabel="",  # Remove x-label from top plots
     ylabel="",  # Remove y-label to avoid repetition
-    title="O3.2: Driver Breaks Available"
+    title="O3.2: S3"
 )
 create_plot_elements!(ax_current, df_drivers_current_depot, depots_current, depot_color_map, depot_marker_map)
 xlims!(ax_current, xlim)
