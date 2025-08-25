@@ -63,6 +63,10 @@ const PLOT_PATH = "plots/service_vs_fulfillment_comparison_$(RESULTS_VERSION)_$(
 # Random seed for jitter reproducibility (set to `nothing` for non-deterministic)
 const JITTER_SEED = 42
 
+# Axis padding (aligned with plot_article.jl)
+const PADDING_X = 0.05
+const PADDING_Y = 0.05
+
 # Logging level (override via ENV["JULIA_LOG_LEVEL"])
 function configure_logger()
     level_map = Dict(
@@ -369,14 +373,13 @@ function build_plot(comparison_df::DataFrame,
         Random.seed!(seed)
     end
 
-    # Figure + axis
-    fig = Figure(size=(800, 520))
+    # Figure + axis (aligned with plot_article.jl size)
+    fig = Figure(size=(700, 500))
     ax = Axis(fig[1, 1];
         xlabel="Depot",
         ylabel="Rate",
         xticks=(1:n, depots),
-        xticklabelrotation=π / 4,
-        #title = "Actual Fulfillment vs. Achieved Service ($scenario_label)"
+        xticklabelrotation=π / 4
     )
 
     x_positions = 1:n
@@ -387,33 +390,28 @@ function build_plot(comparison_df::DataFrame,
     actual_vals = df.actual_fulfillment_rate
     service_vals = df.max_achievable_service_level
 
-    # Use twelvebitrainbow colors
-    actual_color = RGB(get(ColorSchemes.twelvebitrainbow, 0.2))
-    service_color = RGB(get(ColorSchemes.twelvebitrainbow, 0.7))
+    # Use professional color scheme aligned with plot_article.jl
+    # Light gray for actual, light green for service (similar to plot_article.jl success bars)
+    actual_color = :gray
+    service_color = :lightgreen
 
     barplot!(ax, x_positions .- 0.2, actual_vals;
         width=bar_width,
-        color=(actual_color, 0.65),
-        strokecolor=actual_color,
-        strokewidth=1.25,
+        color=(:gray, 0.6),
+        strokecolor=:darkgray,
+        strokewidth=1.0,
         label="Actual Fulfillment"
     )
 
     barplot!(ax, x_positions .+ 0.2, service_vals;
         width=bar_width,
-        color=(service_color, 0.60),
-        strokecolor=service_color,
-        strokewidth=1.25,
+        color=(:lightgreen, 0.6),
+        strokecolor=:darkgreen,
+        strokewidth=1.0,
         label="$(scenario_label) Max Service"
     )
 
-    # Error bars
-    #errorbars!(ax, x_positions .- 0.2, actual_vals, df.actual_fulfillment_std;
-    #    color=actual_color, linewidth=1.4)
-    #errorbars!(ax, x_positions .+ 0.2, service_vals, df.achievable_service_std;
-    #    color=service_color, linewidth=1.4)
-
-    # Jittered daily points (actual vs achieved)
+    # Jittered daily points (actual vs achieved) - using consistent styling
     jitter_width = 0.18
     for (i, depot_disp) in enumerate(depots)
         raw_depot_name = first(df[df.depot_display.==depot_disp, :]).depot  # original with possible prefix
@@ -422,10 +420,10 @@ function build_plot(comparison_df::DataFrame,
         if nrow(actual_daily) > 0
             xj = (i - 0.2) .+ (rand(nrow(actual_daily)) .- 0.5) .* jitter_width
             scatter!(ax, xj, actual_daily.fulfillment_rate;
-                color=(actual_color, 0.35),
-                strokecolor=(actual_color, 0.5),
-                strokewidth=0.6,
-                markersize=7
+                color=(:white, 1.0),
+                strokecolor=:darkgray,
+                strokewidth=1.0,
+                markersize=8
             )
         end
         # Daily achieved service
@@ -433,18 +431,22 @@ function build_plot(comparison_df::DataFrame,
         if nrow(daily_service) > 0
             xj = (i + 0.2) .+ (rand(nrow(daily_service)) .- 0.5) .* jitter_width
             scatter!(ax, xj, daily_service.achieved_service_level;
-                color=(service_color, 0.35),
-                strokecolor=(service_color, 0.5),
-                strokewidth=0.6,
-                markersize=7
+                color=(:white, 1.0),
+                strokecolor=:darkgreen,
+                strokewidth=1.0,
+                markersize=8
             )
         end
     end
 
-    # Legend
+    # Set axis limits with padding (aligned with plot_article.jl approach)
+    xlims!(ax, (0.5 - PADDING_X, n + 0.5 + PADDING_X))
+    ylims!(ax, (0 - PADDING_Y, 1.0 + PADDING_Y))
+
+    # Legend aligned with plot_article.jl style
     legend_elems = [
-        PolyElement(color=(actual_color, 0.65), strokecolor=actual_color, strokewidth=1.2),
-        PolyElement(color=(service_color, 0.60), strokecolor=service_color, strokewidth=1.2)
+        PolyElement(color=(:gray, 0.6), strokecolor=:darkgray, strokewidth=1.0),
+        PolyElement(color=(:lightgreen, 0.6), strokecolor=:darkgreen, strokewidth=1.0)
     ]
     legend_labels = ["Actual Fulfillment", "$(scenario_label) Max Service"]
     Legend(fig[2, 1], legend_elems, legend_labels;
@@ -454,6 +456,10 @@ function build_plot(comparison_df::DataFrame,
         framevisible=false,
         halign=:center
     )
+
+    # Layout sizing (aligned with plot_article.jl proportional approach)
+    rowsize!(fig.layout, 1, Relative(0.85))
+    rowsize!(fig.layout, 2, Relative(0.15))
 
     mkpath(dirname(output_path))
     @info "Saving plot: $output_path"
