@@ -6,6 +6,8 @@ using DataFrames
 using Dates
 using Statistics
 using CairoMakie
+using ColorSchemes
+using ColorTypes
 using Logging
 using Printf
 using Random
@@ -14,9 +16,9 @@ using Random
 CairoMakie.activate!()
 MT = Makie.MathTeXEngine
 mt_fonts_dir = joinpath(dirname(pathof(MT)), "..", "assets", "fonts", "NewComputerModern")
-set_theme!(fonts = (
-    regular = joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
-    bold    = joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
+set_theme!(fonts=(
+    regular=joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
+    bold=joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
 ))
 
 # ==============================================================================
@@ -65,8 +67,8 @@ const JITTER_SEED = 42
 function configure_logger()
     level_map = Dict(
         "debug" => Logging.Debug,
-        "info"  => Logging.Info,
-        "warn"  => Logging.Warn,
+        "info" => Logging.Info,
+        "warn" => Logging.Warn,
         "error" => Logging.Error
     )
     level = get(level_map, lowercase(get(ENV, "JULIA_LOG_LEVEL", "info")), Logging.Info)
@@ -142,18 +144,18 @@ function compute_depot_fulfillment(demand_df::DataFrame)
         total_requests = nrow(g)
         fulfilled = sum(g.Status .== "DU")
         rate = total_requests == 0 ? 0.0 : fulfilled / total_requests
-        (; total_requests, fulfilled_requests = fulfilled, fulfillment_rate = rate)
+        (; total_requests, fulfilled_requests=fulfilled, fulfillment_rate=rate)
     end
 
     @info "Aggregating fulfillment statistics by depot..."
     depot_summary = combine(groupby(fulfillment_stats, :depot)) do g
         rates = g.fulfillment_rate
         DataFrame(
-            avg_fulfillment_rate = mean(rates),
-            std_fulfillment_rate = std(rates),
-            min_fulfillment_rate = minimum(rates),
-            max_fulfillment_rate = maximum(rates),
-            n_days = length(rates)
+            avg_fulfillment_rate=mean(rates),
+            std_fulfillment_rate=std(rates),
+            min_fulfillment_rate=minimum(rates),
+            max_fulfillment_rate=maximum(rates),
+            n_days=length(rates)
         )
     end
 
@@ -171,12 +173,12 @@ If no optimal rows exist, tries any non-infeasible rows.
 Returns DataFrame with columns: depot_name, date, achieved_service_level
 """
 function compute_daily_achieved_service(results_df::DataFrame; setting::String)
-    df_setting = results_df[results_df.setting .== setting, :]
+    df_setting = results_df[results_df.setting.==setting, :]
     isempty(df_setting) && @warn "No rows found for setting=$setting"
 
     grouped = groupby(df_setting, [:depot_name, :date])
     daily = combine(grouped) do g
-        optimal = g[g.solver_status .== "Optimal", :]
+        optimal = g[g.solver_status.=="Optimal", :]
         achieved = if nrow(optimal) > 0
             maximum(optimal.service_level)
         else
@@ -184,7 +186,7 @@ function compute_daily_achieved_service(results_df::DataFrame; setting::String)
             nrow(feasible) > 0 ? maximum(feasible.service_level) : 0.0
         end
         achieved = min(achieved, 1.0)
-        (; achieved_service_level = achieved)
+        (; achieved_service_level=achieved)
     end
     return daily
 end
@@ -204,11 +206,11 @@ function summarize_achieved_service(daily_df::DataFrame; scenario_label::String)
     stats = combine(grouped) do g
         levels = g.achieved_service_level
         DataFrame(
-            avg_achieved_service_level = mean(levels),
-            std_achieved_service_level = std(levels),
-            min_achieved_service_level = minimum(levels),
-            max_achieved_service_level = maximum(levels),
-            n_days = length(levels)
+            avg_achieved_service_level=mean(levels),
+            std_achieved_service_level=std(levels),
+            min_achieved_service_level=minimum(levels),
+            max_achieved_service_level=maximum(levels),
+            n_days=length(levels)
         )
     end
     rename!(stats, :avg_achieved_service_level => :max_achievable_service_level)
@@ -231,8 +233,8 @@ Adds:
   - depot_display (cleaned name)
 """
 function build_comparison_dataset(depot_fulfillment::DataFrame,
-                                  service_stats::DataFrame,
-                                  scenario_label::String)
+    service_stats::DataFrame,
+    scenario_label::String)
     # Harmonize depot name columns
     depot_fulfillment.depot_clean = String.(depot_fulfillment.depot)
     service_stats.depot_clean = String.(service_stats.depot_name)
@@ -241,14 +243,13 @@ function build_comparison_dataset(depot_fulfillment::DataFrame,
     rows = Vector{NamedTuple}()
 
     for d in depots
-        f_row = depot_fulfillment[depot_fulfillment.depot_clean .== d, :]
+        f_row = depot_fulfillment[depot_fulfillment.depot_clean.==d, :]
         isempty(f_row) && continue
 
         fulfillment_rate = f_row[1, :avg_fulfillment_rate]
-        fulfillment_std  = f_row[1, :std_fulfillment_rate]
+        fulfillment_std = f_row[1, :std_fulfillment_rate]
 
-        s_row = service_stats[(service_stats.depot_clean .== d) .&
-                              (service_stats.scenario .== scenario_label), :]
+        s_row = service_stats[(service_stats.depot_clean.==d).&(service_stats.scenario.==scenario_label), :]
         if nrow(s_row) > 0
             max_service = s_row[1, :max_achievable_service_level]
             service_std = s_row[1, :std_achieved_service_level]
@@ -258,14 +259,14 @@ function build_comparison_dataset(depot_fulfillment::DataFrame,
         end
 
         push!(rows, (
-            depot = d,
-            scenario = scenario_label,
-            actual_fulfillment_rate = fulfillment_rate,
-            actual_fulfillment_std = fulfillment_std,
-            max_achievable_service_level = max_service,
-            achievable_service_std = service_std,
-            service_gap = ismissing(max_service) ? missing : max_service - fulfillment_rate,
-            depot_display = replace(d, "VLP " => "")
+            depot=d,
+            scenario=scenario_label,
+            actual_fulfillment_rate=fulfillment_rate,
+            actual_fulfillment_std=fulfillment_std,
+            max_achievable_service_level=max_service,
+            achievable_service_std=service_std,
+            service_gap=ismissing(max_service) ? missing : max_service - fulfillment_rate,
+            depot_display=replace(d, "VLP " => "")
         ))
     end
 
@@ -282,11 +283,13 @@ Per depot: show mean (std) for both metrics and the service gap.
 """
 function generate_latex_table(comparison_df::DataFrame, scenario_label::String)
     # Keep only depots with scenario_label
-    df = comparison_df[comparison_df.scenario .== scenario_label, :]
+    df = comparison_df[comparison_df.scenario.==scenario_label, :]
     sort!(df, :depot_display)
 
     buf = IOBuffer()
-    write(buf, """
+    write(
+        buf,
+        """
 \\begin{table}[ht]
 \\centering
 \\caption{Service Level vs. Actual Demand Fulfillment by Depot ($scenario_label)}
@@ -297,7 +300,8 @@ function generate_latex_table(comparison_df::DataFrame, scenario_label::String)
 Depot & Actual & $scenario_label Max & Service \\\\
 & Fulfillment & Service & Gap \\\\
 \\midrule
-""")
+"""
+    )
 
     for row in eachrow(df)
         actual = @sprintf("%.3f (%.3f)", row.actual_fulfillment_rate, row.actual_fulfillment_std)
@@ -313,7 +317,9 @@ Depot & Actual & $scenario_label Max & Service \\\\
         write(buf, "$(row.depot_display) & $actual & $service_str & $gap_str \\\\\n")
     end
 
-    write(buf, """
+    write(
+        buf,
+        """
 \\bottomrule
 \\end{tabular}
 \\begin{tablenotes}
@@ -325,7 +331,8 @@ Depot & Actual & $scenario_label Max & Service \\\\
 \\end{tablenotes}
 \\end{threeparttable}
 \\end{table}
-""")
+"""
+    )
     return String(take!(buf))
 end
 
@@ -344,13 +351,13 @@ Creates a comparison plot:
 Saves figure to output_path.
 """
 function build_plot(comparison_df::DataFrame,
-                    fulfillment_stats::DataFrame,
-                    daily_service_levels::DataFrame;
-                    output_path::AbstractString,
-                    scenario_label::String,
-                    seed::Union{Int,Nothing}=nothing)
+    fulfillment_stats::DataFrame,
+    daily_service_levels::DataFrame;
+    output_path::AbstractString,
+    scenario_label::String,
+    seed::Union{Int,Nothing}=nothing)
 
-    df = comparison_df[comparison_df.scenario .== scenario_label, :]
+    df = comparison_df[comparison_df.scenario.==scenario_label, :]
     df = df[.!ismissing.(df.max_achievable_service_level), :]
     sort!(df, :depot_display)
 
@@ -363,12 +370,12 @@ function build_plot(comparison_df::DataFrame,
     end
 
     # Figure + axis
-    fig = Figure(size = (800, 520))
+    fig = Figure(size=(800, 520))
     ax = Axis(fig[1, 1];
-        xlabel = "Depot",
-        ylabel = "Rate",
-        xticks = (1:n, depots),
-        xticklabelrotation = π/4,
+        xlabel="Depot",
+        ylabel="Rate",
+        xticks=(1:n, depots),
+        xticklabelrotation=π / 4,
         #title = "Actual Fulfillment vs. Achieved Service ($scenario_label)"
     )
 
@@ -380,68 +387,72 @@ function build_plot(comparison_df::DataFrame,
     actual_vals = df.actual_fulfillment_rate
     service_vals = df.max_achievable_service_level
 
+    # Use twelvebitrainbow colors
+    actual_color = RGB(get(ColorSchemes.twelvebitrainbow, 0.2))
+    service_color = RGB(get(ColorSchemes.twelvebitrainbow, 0.7))
+
     barplot!(ax, x_positions .- 0.2, actual_vals;
-        width = bar_width,
-        color = (:lightblue, 0.65),
-        strokecolor = :navy,
-        strokewidth = 1.25,
-        label = "Actual Fulfillment"
+        width=bar_width,
+        color=(actual_color, 0.65),
+        strokecolor=actual_color,
+        strokewidth=1.25,
+        label="Actual Fulfillment"
     )
 
     barplot!(ax, x_positions .+ 0.2, service_vals;
-        width = bar_width,
-        color = (:orange, 0.60),
-        strokecolor = :darkorange,
-        strokewidth = 1.25,
-        label = "$(scenario_label) Max Service"
+        width=bar_width,
+        color=(service_color, 0.60),
+        strokecolor=service_color,
+        strokewidth=1.25,
+        label="$(scenario_label) Max Service"
     )
 
     # Error bars
-    errorbars!(ax, x_positions .- 0.2, actual_vals, df.actual_fulfillment_std;
-        color = :navy, linewidth = 1.4)
-    errorbars!(ax, x_positions .+ 0.2, service_vals, df.achievable_service_std;
-        color = :darkorange, linewidth = 1.4)
+    #errorbars!(ax, x_positions .- 0.2, actual_vals, df.actual_fulfillment_std;
+    #    color=actual_color, linewidth=1.4)
+    #errorbars!(ax, x_positions .+ 0.2, service_vals, df.achievable_service_std;
+    #    color=service_color, linewidth=1.4)
 
     # Jittered daily points (actual vs achieved)
     jitter_width = 0.18
     for (i, depot_disp) in enumerate(depots)
-        raw_depot_name = first(df[df.depot_display .== depot_disp, :]).depot  # original with possible prefix
+        raw_depot_name = first(df[df.depot_display.==depot_disp, :]).depot  # original with possible prefix
         # Actual daily fulfillment
-        actual_daily = fulfillment_stats[fulfillment_stats.depot .== raw_depot_name, :]
+        actual_daily = fulfillment_stats[fulfillment_stats.depot.==raw_depot_name, :]
         if nrow(actual_daily) > 0
             xj = (i - 0.2) .+ (rand(nrow(actual_daily)) .- 0.5) .* jitter_width
             scatter!(ax, xj, actual_daily.fulfillment_rate;
-                color = (:lightblue, 0.35),
-                strokecolor = (:navy, 0.5),
-                strokewidth = 0.6,
-                markersize = 7
+                color=(actual_color, 0.35),
+                strokecolor=(actual_color, 0.5),
+                strokewidth=0.6,
+                markersize=7
             )
         end
         # Daily achieved service
-        daily_service = daily_service_levels[daily_service_levels.depot_name .== raw_depot_name, :]
+        daily_service = daily_service_levels[daily_service_levels.depot_name.==raw_depot_name, :]
         if nrow(daily_service) > 0
             xj = (i + 0.2) .+ (rand(nrow(daily_service)) .- 0.5) .* jitter_width
             scatter!(ax, xj, daily_service.achieved_service_level;
-                color = (:orange, 0.35),
-                strokecolor = (:darkorange, 0.5),
-                strokewidth = 0.6,
-                markersize = 7
+                color=(service_color, 0.35),
+                strokecolor=(service_color, 0.5),
+                strokewidth=0.6,
+                markersize=7
             )
         end
     end
 
     # Legend
     legend_elems = [
-        PolyElement(color = (:lightblue, 0.65), strokecolor = :navy, strokewidth = 1.2),
-        PolyElement(color = (:orange, 0.60), strokecolor = :darkorange, strokewidth = 1.2)
+        PolyElement(color=(actual_color, 0.65), strokecolor=actual_color, strokewidth=1.2),
+        PolyElement(color=(service_color, 0.60), strokecolor=service_color, strokewidth=1.2)
     ]
     legend_labels = ["Actual Fulfillment", "$(scenario_label) Max Service"]
     Legend(fig[2, 1], legend_elems, legend_labels;
-        orientation = :horizontal,
-        tellheight = true,
-        tellwidth = false,
-        framevisible = false,
-        halign = :center
+        orientation=:horizontal,
+        tellheight=true,
+        tellwidth=false,
+        framevisible=false,
+        halign=:center
     )
 
     mkpath(dirname(output_path))
@@ -460,7 +471,7 @@ function print_summary(comparison_df::DataFrame, scenario_label::String)
     println("SERVICE VS FULFILLMENT SUMMARY ($scenario_label)")
     println("="^78)
 
-    df = comparison_df[comparison_df.scenario .== scenario_label, :]
+    df = comparison_df[comparison_df.scenario.==scenario_label, :]
     sort!(df, :depot_display)
 
     for row in eachrow(df)
@@ -482,7 +493,7 @@ function print_summary(comparison_df::DataFrame, scenario_label::String)
     overall = combine(df) do g
         actual_mean = mean(g.actual_fulfillment_rate)
         service_mean = mean(skipmissing(g.max_achievable_service_level))
-        DataFrame(actual_mean = actual_mean, service_mean = service_mean)
+        DataFrame(actual_mean=actual_mean, service_mean=service_mean)
     end
     gap_overall = overall.service_mean[1] - overall.actual_mean[1]
 
@@ -517,8 +528,8 @@ function main()
     @info "Fulfillment stats computed for $(nrow(depot_fulfillment)) depots."
 
     # Achieved service
-    daily_service_levels = compute_daily_achieved_service(results_df; setting = O32_SETTING)
-    service_stats = summarize_achieved_service(daily_service_levels; scenario_label = O32_SCENARIO_LABEL)
+    daily_service_levels = compute_daily_achieved_service(results_df; setting=O32_SETTING)
+    service_stats = summarize_achieved_service(daily_service_levels; scenario_label=O32_SCENARIO_LABEL)
     @info "Achieved service stats computed for $(nrow(service_stats)) depots."
 
     # Build comparison
@@ -535,9 +546,9 @@ function main()
 
     # Plot
     build_plot(comparison_df, fulfillment_stats, daily_service_levels;
-        output_path = PLOT_PATH,
-        scenario_label = O32_SCENARIO_LABEL,
-        seed = JITTER_SEED
+        output_path=PLOT_PATH,
+        scenario_label=O32_SCENARIO_LABEL,
+        seed=JITTER_SEED
     )
 
     # Summary
