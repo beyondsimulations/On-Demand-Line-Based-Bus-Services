@@ -44,7 +44,7 @@ dates_to_process = [Date(2025, 6, day) for day in 1:30]
 
 # Set the plots
 interactive_plots = false
-non_interactive_plots = false
+non_interactive_plots = true
 
 # Set the depots to run the model for
 depots_to_process_names = [
@@ -69,18 +69,30 @@ if !(solver_choice in valid_solvers)
     error("Invalid solver specified: '$solver_choice'. Choose from: $valid_solvers")
 end
 
-# Read version from environment variable, default to "v2"
-version = get(ENV, "JULIA_SCRIPT_VERSION", "v1")
+# Read version from environment variable, default to "v0"
+version = get(ENV, "JULIA_SCRIPT_VERSION", "v0")
 @info "Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")"
 
 # Validate the version
-valid_versions = ["v1", "v2", "v3", "v4"]
+valid_versions = ["v0", "v1", "v2", "v3", "v4"]
 if !(version in valid_versions)
     @error "Invalid version specified: '$version'. Choose from: $valid_versions"
     error("Invalid version specified: '$version'. Choose from: $valid_versions")
 end
 
-if version == "v1"
+if version == "v0"
+    problem_type = "Minimize_Busses"
+    filter_demand = false
+    service_levels = 1.0
+
+    settings = [
+        NO_CAPACITY_CONSTRAINT,
+    ]
+
+    subsettings = [
+        ONLY_DEMAND,
+    ]
+elseif version == "v1"
     problem_type = "Minimize_Busses"
     filter_demand = false
     service_levels = 1.0
