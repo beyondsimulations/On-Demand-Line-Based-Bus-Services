@@ -41,17 +41,17 @@ const PADDING_Y = 1.05
 # Makie font theme (Computer Modern)
 MT = Makie.MathTeXEngine
 mt_fonts_dir = joinpath(dirname(pathof(MT)), "..", "assets", "fonts", "NewComputerModern")
-set_theme!(fonts = (
-    regular = joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
-    bold    = joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
+set_theme!(fonts=(
+    regular=joinpath(mt_fonts_dir, "NewCM10-Regular.otf"),
+    bold=joinpath(mt_fonts_dir, "NewCM10-Bold.otf")
 ))
 
 # Configure logging (info by default). Adjust via JULIA_LOG_LEVEL if needed.
 function configure_logger()
     level_str = get(ENV, "JULIA_LOG_LEVEL", "info") |> lowercase
-    level = level_str == "debug"  ? Logging.Debug  :
-            level_str == "warn"   ? Logging.Warn   :
-            level_str == "error"  ? Logging.Error  : Logging.Info
+    level = level_str == "debug" ? Logging.Debug :
+            level_str == "warn" ? Logging.Warn :
+            level_str == "error" ? Logging.Error : Logging.Info
     global_logger(ConsoleLogger(stderr, level))
 end
 configure_logger()
@@ -96,8 +96,8 @@ function aggregate_results(df::DataFrame)
     # Aggregated stats for optimal rows
     df_agg = combine(groupby(df_opt, [:depot_name, :service_level, :setting]),
         :num_buses => mean => :avg_buses,
-        :num_buses => std  => :std_buses,
-        nrow       => :count_optimal
+        :num_buses => std => :std_buses,
+        nrow => :count_optimal
     )
 
     # TIME_LIMIT subset (tracked but not averaged)
@@ -112,8 +112,8 @@ function aggregate_results(df::DataFrame)
     )
 
     # Join counts
-    df_agg = leftjoin(df_agg, df_counts, on = [:depot_name, :service_level, :setting])
-    df_agg = leftjoin(df_agg, df_time_agg, on = [:depot_name, :service_level, :setting])
+    df_agg = leftjoin(df_agg, df_counts, on=[:depot_name, :service_level, :setting])
+    df_agg = leftjoin(df_agg, df_time_agg, on=[:depot_name, :service_level, :setting])
 
     # Keep only full instance sets (optimal + time_limit = total)
     filter!(r -> coalesce(r.count_time_limit, 0) + r.count_optimal == r.total_instances, df_agg)
@@ -126,27 +126,27 @@ function aggregate_results(df::DataFrame)
     df_success = combine(groupby(df, [:depot_name, :service_level, :setting])) do g
         opt = sum(g.solver_status .== "Optimal")
         tot = nrow(g)
-        (optimal_count = opt, total_count = tot, success_rate = opt / tot)
+        (optimal_count=opt, total_count=tot, success_rate=opt / tot)
     end
     filter!(r -> any(abs(r.service_level - v) < 1e-10 for v in VALID_SERVICE_LEVELS), df_success)
 
     # Split by settings
-    set_all   = "CAPACITY_CONSTRAINT_DRIVER_BREAKS"
-    set_curr  = "CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE"
+    set_all = "CAPACITY_CONSTRAINT_DRIVER_BREAKS"
+    set_curr = "CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE"
 
-    df_setting_all  = filter(r -> r.setting == set_all, df_agg)
+    df_setting_all = filter(r -> r.setting == set_all, df_agg)
     df_setting_curr = filter(r -> r.setting == set_curr, df_agg)
 
-    df_success_all  = filter(r -> r.setting == set_all, df_success)
+    df_success_all = filter(r -> r.setting == set_all, df_success)
     df_success_curr = filter(r -> r.setting == set_curr, df_success)
 
     return (
-        df_all_opt      = df_agg,
-        df_success      = df_success,
-        df_setting_all  = df_setting_all,
-        df_setting_curr = df_setting_curr,
-        df_success_all  = df_success_all,
-        df_success_curr = df_success_curr
+        df_all_opt=df_agg,
+        df_success=df_success,
+        df_setting_all=df_setting_all,
+        df_setting_curr=df_setting_curr,
+        df_success_all=df_success_all,
+        df_success_curr=df_success_curr
     )
 end
 
@@ -158,7 +158,7 @@ end
 
 Derive axis limits with padding. Falls back to defaults when df_agg empty.
 """
-function compute_axis_limits(df_agg::DataFrame; pad_x = PADDING_X, pad_y = PADDING_Y)
+function compute_axis_limits(df_agg::DataFrame; pad_x=PADDING_X, pad_y=PADDING_Y)
     if nrow(df_agg) == 0
         return ((0.0 - pad_x, 1.0 + pad_x), (0 - pad_y, 1 + pad_y))
     end
@@ -196,13 +196,13 @@ function plot_avg_buses!(ax, data::DataFrame, depot_markers::AbstractDict{<:Abst
         df_d = filter(r -> String(r.depot_name) == d, data)
         isempty(df_d) && continue
         sort!(df_d, :service_level)
-        lines!(ax, df_d.service_level, df_d.avg_buses; color = :black, linewidth = 1.5)
+        lines!(ax, df_d.service_level, df_d.avg_buses; color=:black, linewidth=1.5)
         scatter!(ax, df_d.service_level, df_d.avg_buses;
-            marker = depot_markers[d],
-            color = (:white, 1.0),
-            strokecolor = :black,
-            strokewidth = 1.5,
-            markersize = 12
+            marker=depot_markers[d],
+            color=(:white, 1.0),
+            strokecolor=:black,
+            strokewidth=1.5,
+            markersize=12
         )
     end
 end
@@ -213,17 +213,19 @@ end
 Aggregates success_rate across depots per service_level and bar plots overall optimal rate.
 """
 function plot_success_rate!(ax, success_df::DataFrame)
-    if isempty(success_df); return; end
+    if isempty(success_df)
+        return
+    end
     df_agg = combine(groupby(success_df, :service_level)) do g
         total_opt = sum(g.optimal_count)
         total_all = sum(g.total_count)
-        (overall_success_rate = total_opt / total_all,)
+        (overall_success_rate=total_opt / total_all,)
     end
     sort!(df_agg, :service_level)
     barplot!(ax, df_agg.service_level, df_agg.overall_success_rate;
-        color = (:lightgreen, 0.6),
-        strokecolor = :darkgreen,
-        strokewidth = 1.0
+        color=(:lightgreen, 0.6),
+        strokecolor=:darkgreen,
+        strokewidth=1.0
     )
 end
 
@@ -234,23 +236,23 @@ Adds shape-based legend (markers only) to top-left plot cell.
 """
 function add_legend!(fig, all_depots, depot_markers::AbstractDict{<:AbstractString,Symbol})
     elements = MarkerElement[]
-    labels   = String[]
+    labels = String[]
     for d in sort(String.(collect(all_depots)))
         push!(elements, MarkerElement(
-            marker = depot_markers[d],
-            color = (:white, 1.0),
-            strokecolor = :black,
-            strokewidth = 1.0,
-            markersize = 9
+            marker=depot_markers[d],
+            color=(:white, 1.0),
+            strokecolor=:black,
+            strokewidth=1.0,
+            markersize=9
         ))
         push!(labels, replace(d, "VLP " => ""))  # Clean label
     end
     Legend(fig[1, 1], elements, labels;
-        tellheight = false,
-        tellwidth = false,
-        halign = :left,
-        valign = :top,
-        margin = (10, 10, 10, 10)
+        tellheight=false,
+        tellwidth=false,
+        halign=:left,
+        valign=:top,
+        margin=(10, 10, 10, 10)
     )
 end
 
@@ -266,48 +268,52 @@ function build_and_save_plot(data_nt::NamedTuple, output_path::AbstractString)
 
     xlim, ylim = compute_axis_limits(df_all_opt)
 
-    depots_all_raw  = unique(df_setting_all.depot_name)
+    depots_all_raw = unique(df_setting_all.depot_name)
     depots_curr_raw = unique(df_setting_curr.depot_name)
-    depots_all  = String.(collect(depots_all_raw))
+    depots_all = String.(collect(depots_all_raw))
     depots_curr = String.(collect(depots_curr_raw))
     all_depots = unique(vcat(depots_all, depots_curr))
     depot_markers = create_depot_styles(all_depots)
 
-    fig = Figure(size = (700, 500))
+    fig = Figure(size=(700, 500))
 
     # Top row (average buses)
     ax_all = Axis(fig[1, 1],
-        xlabel = "",
-        ylabel = "Average Number of Buses",
-        title  = "O3.1 S3"
+        xlabel="",
+        ylabel="Average Number of Buses",
+        title="O3.1 S3"
     )
     plot_avg_buses!(ax_all, df_setting_all, depot_markers)
-    xlims!(ax_all, xlim); ylims!(ax_all, ylim)
+    xlims!(ax_all, xlim)
+    ylims!(ax_all, ylim)
 
     ax_curr = Axis(fig[1, 2],
-        xlabel = "",
-        ylabel = "",
-        title  = "O3.2 S3"
+        xlabel="",
+        ylabel="",
+        title="O3.2 S3"
     )
     plot_avg_buses!(ax_curr, df_setting_curr, depot_markers)
-    xlims!(ax_curr, xlim); ylims!(ax_curr, ylim)
+    xlims!(ax_curr, xlim)
+    ylims!(ax_curr, ylim)
 
     # Bottom row (success rates)
     ax_s_all = Axis(fig[2, 1],
-        xlabel = "Service Level",
-        ylabel = "Optimal Rate",
-        title  = ""
+        xlabel="Service Level",
+        ylabel="Optimal Rate",
+        title=""
     )
     plot_success_rate!(ax_s_all, df_success_all)
-    xlims!(ax_s_all, xlim); ylims!(ax_s_all, (0, 1.05))
+    xlims!(ax_s_all, xlim)
+    ylims!(ax_s_all, (0, 1.05))
 
     ax_s_curr = Axis(fig[2, 2],
-        xlabel = "Service Level",
-        ylabel = "",
-        title  = ""
+        xlabel="Service Level",
+        ylabel="",
+        title=""
     )
     plot_success_rate!(ax_s_curr, df_success_curr)
-    xlims!(ax_s_curr, xlim); ylims!(ax_s_curr, (0, 1.05))
+    xlims!(ax_s_curr, xlim)
+    ylims!(ax_s_curr, (0, 1.05))
 
     # Legend
     add_legend!(fig, all_depots, depot_markers)
@@ -321,6 +327,7 @@ function build_and_save_plot(data_nt::NamedTuple, output_path::AbstractString)
     mkpath(dirname(output_path))
     @info "Saving plot: $output_path"
     save(output_path, fig)
+    save(replace(output_path, r"\.pdf$" => ".png"), fig)  # also save PNG version
 end
 
 

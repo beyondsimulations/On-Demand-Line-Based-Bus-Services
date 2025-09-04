@@ -59,6 +59,7 @@ const O32_SCENARIO_LABEL = "O3.2"
 
 const LATEX_TABLE_PATH = "paper_tables/service_vs_fulfillment_table.tex"
 const PLOT_PATH = "plots/service_vs_fulfillment_comparison_$(RESULTS_VERSION)_$(SOLVER).pdf"
+const PLOT_PATH_PNG = "plots/service_vs_fulfillment_comparison_$(RESULTS_VERSION)_$(SOLVER).png"
 
 # Random seed for jitter reproducibility (set to `nothing` for non-deterministic)
 const JITTER_SEED = 42
@@ -374,7 +375,7 @@ function build_plot(comparison_df::DataFrame,
     end
 
     # Figure + axis (aligned with plot_article.jl size)
-    fig = Figure(size=(700, 500))
+    fig = Figure(size=(700, 350))
     ax = Axis(fig[1, 1];
         xlabel="Depot",
         ylabel="Rate",
@@ -443,27 +444,24 @@ function build_plot(comparison_df::DataFrame,
     xlims!(ax, (0.5 - PADDING_X, n + 0.5 + PADDING_X))
     ylims!(ax, (0 - PADDING_Y, 1.0 + PADDING_Y))
 
-    # Legend aligned with plot_article.jl style
+    # Legend positioned in top-right corner to save space
     legend_elems = [
         PolyElement(color=(:gray, 0.6), strokecolor=:darkgray, strokewidth=1.0),
         PolyElement(color=(:lightgreen, 0.6), strokecolor=:darkgreen, strokewidth=1.0)
     ]
     legend_labels = ["Actual Fulfillment", "$(scenario_label) Max Service"]
-    Legend(fig[2, 1], legend_elems, legend_labels;
-        orientation=:horizontal,
-        tellheight=true,
-        tellwidth=false,
-        framevisible=false,
-        halign=:center
+    axislegend(ax, legend_elems, legend_labels;
+        position=:lb,
+        framevisible=true,
+        backgroundcolor=(:white, 0.9),
+        framecolor=:gray,
+        framewidth=1
     )
-
-    # Layout sizing (aligned with plot_article.jl proportional approach)
-    rowsize!(fig.layout, 1, Relative(0.85))
-    rowsize!(fig.layout, 2, Relative(0.15))
 
     mkpath(dirname(output_path))
     @info "Saving plot: $output_path"
     save(output_path, fig)
+    save(replace(output_path, r"\.pdf$" => ".png"), fig)  # also save PNG version
 end
 
 # ============================ Summary Reporting ================================
