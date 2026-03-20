@@ -501,7 +501,6 @@ function add_line_arcs_capacity_constraint(routes::Vector{Route}, buses::Vector{
     end
     # --- End check ---
 
-     # Updated log message
      @info "Finished line arcs (Capacity Constraint). Processed demands: $processed_demands, Skipped (Route): $skipped_route_lookup, Skipped (Stop): $skipped_stop_lookup. Arcs created: $arcs_created."
 
     return line_arcs
