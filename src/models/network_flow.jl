@@ -970,8 +970,7 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
 
             # Check 45-minute break conditions (Φ_k^45)
             if (start_time - shift_start <= 270) &&  # ≤ 4.5h from shift start
-               (shift_end - (start_time + 45) <= 270) &&      # ≤ 4.5h to shift end
-               (start_time - shift_start >= 180) &&      # ≥ 3.0h after shift start
+               (shift_end - (start_time + 45) <= 270) &&      # ≤ 4.5h remaining after break
                (actual_time_gap >= min_transition_time + 45)  # ≥ travel_time + 45min
                 push!(phi_45[bus_id_str], arc)
             end
@@ -986,7 +985,6 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
 
             # Check 15-minute break conditions (Φ_k^15) - first break
             if (start_time - shift_start < 180) &&  # < 3.0h from shift start
-               (start_time - shift_start >= 90) &&  # ≥ 1.5h from shift start
                (actual_time_gap >= min_transition_time + 15)  # ≥ travel_time + 15min
                 push!(phi_15[bus_id_str], arc)
             end

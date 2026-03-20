@@ -40,7 +40,7 @@ tee_logger = TeeLogger(file_logger, console_logger)
 global_logger(tee_logger)
 
 # Set the dates to process
-dates_to_process = [Date(2025, 6, day) for day in 1:30]
+dates_to_process = collect(Date(2025, 6, 1):Day(1):Date(2025, 8, 15))
 
 # Set the plots
 interactive_plots = false
@@ -54,7 +54,6 @@ depots_to_process_names = [
     "VLP Schwerin",
     "VLP Ludwigslust",
     "VLP Sternberg",
-    "VLP Zarrentin"
 ]
 
 # Read solver choice from environment variable, default to :gurobi
