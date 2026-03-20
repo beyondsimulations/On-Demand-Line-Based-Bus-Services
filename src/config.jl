@@ -15,7 +15,10 @@ const DATA_PATHS = Dict(
     :depots => "case_data_clean/depots.csv"
 )
 
-# Benchmark number of buses to create for optimization scenarios
-const BUSSES_BENCHMARK = 100
+# Upper bound factor applied to max simultaneous trips for O1/O2 bus pool sizing.
+# Max simultaneous trips is a lower bound on the minimum fleet size (interval scheduling).
+# Repositioning times between consecutive trips may require additional vehicles.
+# Empirically validated: worst-case ratio observed across all instances is 1.29.
+const BUS_UPPER_BOUND_FACTOR = 1.5
 
 end

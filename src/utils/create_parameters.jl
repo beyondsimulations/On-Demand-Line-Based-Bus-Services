@@ -136,20 +136,52 @@ function create_parameters(
     # Note: Individual day shift filtering is now handled within the 3-day processing loop for each setting
 
 
-    busses = Bus[] # Initialize an empty vector to store the Bus objects.
+    busses = Bus[]
+
+    # --- Compute upper bound on buses needed from max simultaneous trips ---
+    function compute_max_simultaneous_trips(routes, depot, date)
+        day_name = lowercase(Dates.dayname(date))
+        day_trips = filter(r -> r.depot_id == depot.depot_id && lowercase(Dates.dayname(date)) == r.day, routes)
+        if isempty(day_trips)
+            return 1
+        end
+        # Group by trip to get start/end times
+        trip_times = Dict{Int, Tuple{Float64, Float64}}()
+        for r in day_trips
+            tid = r.trip_id
+            t = r.stop_times
+            if haskey(trip_times, tid)
+                old_start, old_end = trip_times[tid]
+                trip_times[tid] = (min(old_start, t[1]), max(old_end, t[end]))
+            else
+                trip_times[tid] = (t[1], t[end])
+            end
+        end
+        # Sweep line: count max overlapping trips
+        events = Float64[]
+        for (start, stop) in values(trip_times)
+            push!(events, start)
+            push!(events, -stop)
+        end
+        sort!(events, by=abs)
+        current = 0
+        max_sim = 0
+        for e in events
+            current += (e >= 0 ? 1 : -1)
+            max_sim = max(max_sim, current)
+        end
+        return max(max_sim, 1)
+    end
+
+    max_sim_trips = compute_max_simultaneous_trips(data.routes, depot, date)
+    num_bus_upper_bound = max(ceil(Int, max_sim_trips * Config.BUS_UPPER_BOUND_FACTOR), 10)
+    @info "Max simultaneous trips for $(depot.depot_name) on $date: $max_sim_trips → bus upper bound: $num_bus_upper_bound"
 
     # --- Create buses based on setting ---
     @info "Creating Bus objects based on Setting: $setting"
     if setting == NO_CAPACITY_CONSTRAINT
-        # Create a number of "dummy" buses equal to the total number of shifts (across all depots/days)
-        # or at least one. These buses have effectively infinite capacity and generic availability times.
-        # This setting ignores actual vehicle constraints and focuses only on routing feasibility.
-        num_dummy_buses = Config.BUSSES_BENCHMARK
-
+        num_dummy_buses = num_bus_upper_bound
         @info "Created $(num_dummy_buses) dummy buses (Setting: NO_CAPACITY_CONSTRAINT)."
-        @debug "Bus creation summary (NO_CAPACITY_CONSTRAINT):"
-        @debug "  Total buses: $(length(busses))"
-        @debug "  All buses have infinite capacity (1000.0) and cover full 3-day window"
         for i in 1:num_dummy_buses
             bus_id = lpad(string(i), 3, "0")
             capacity = 1000.0
@@ -169,24 +201,20 @@ function create_parameters(
         end
 
     elseif setting == CAPACITY_CONSTRAINT
-        # Create buses using BUSSES_BENCHMARK × number of unique vehicle capacities.
-        @info "Creating buses based on benchmark (Setting: CAPACITY_CONSTRAINT - BUSSES_BENCHMARK × Unique Capacities)."
+        @info "Creating buses (Setting: CAPACITY_CONSTRAINT — $num_bus_upper_bound per capacity type)."
 
-        # --- Get unique capacities from all vehicles across all depots ---
         unique_capacities = Float64[]
         if !isempty(data.buses_df) && "seats" in names(data.buses_df)
             unique_capacities = unique(Float64.(data.buses_df.seats))
-            @debug "Found unique vehicle capacities across all depots: $unique_capacities"
         else
-            @warn "No vehicles found or 'seats' column missing in buses_df. Using fallback capacity: 3.0"
-            unique_capacities = [3.0] # Fallback if no vehicles defined
+            @warn "No vehicles found or 'seats' column missing. Using fallback capacity: 3.0"
+            unique_capacities = [3.0]
         end
 
-        total_buses_created = 0 # Counter for generated bus objects
+        total_buses_created = 0
 
-        # Create BUSSES_BENCHMARK buses for each unique capacity
         for capacity in unique_capacities
-            for i in 1:Config.BUSSES_BENCHMARK
+            for i in 1:num_bus_upper_bound
                 bus_id_str = string(total_buses_created) * "_benchmark_cap" * string(Int(capacity))
                 shift_start = PREVIOUS_DAY_START
                 shift_end = NEXT_DAY_START + DAY_MINUTES - 1
@@ -208,55 +236,38 @@ function create_parameters(
                 total_buses_created += 1
             end
         end
-        @info "Created $total_buses_created buses (BUSSES_BENCHMARK × unique capacities) with generic times for Setting: CAPACITY_CONSTRAINT."
-        @debug "Bus creation summary (CAPACITY_CONSTRAINT):"
-        @debug "  Total buses: $total_buses_created"
-        @debug "  Unique capacities: $(length(unique_capacities))"
-        @debug "  Capacities used: $unique_capacities"
-        @debug "  BUSSES_BENCHMARK: $(Config.BUSSES_BENCHMARK)"
-        @debug "  All buses use generic 3-day time window"
+        @info "Created $total_buses_created buses ($num_bus_upper_bound × $(length(unique_capacities)) capacities) for Setting: CAPACITY_CONSTRAINT."
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS
-        # Create buses using BUSSES_BENCHMARK randomly drawn from available shift patterns × unique capacities.
-        @info "Creating buses based on random shift sampling (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS - BUSSES_BENCHMARK × Random Shifts × Capacities)."
+        @info "Creating buses via exhaustive shift × capacity enumeration (Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS)."
 
-        # --- Get unique capacities from all vehicles across all depots ---
         unique_capacities = Float64[]
         if !isempty(data.buses_df) && "seats" in names(data.buses_df)
             unique_capacities = unique(Float64.(data.buses_df.seats))
-            @debug "Found unique vehicle capacities across all depots: $unique_capacities"
         else
-            @warn "No vehicles found or 'seats' column missing in buses_df. Using fallback capacity: 3.0"
-            unique_capacities = [3.0] # Fallback
+            @warn "No vehicles found or 'seats' column missing. Using fallback capacity: 3.0"
+            unique_capacities = [3.0]
         end
 
-        total_buses_created = 0 # Counter for total buses generated
+        total_buses_created = 0
 
-        # Collect all relevant shifts from previous and target day
+        # Collect all relevant shifts from previous and target day (across all depots)
         all_relevant_shifts = []
         for day_offset in [-1, 0]
             current_date = date + Day(day_offset)
             day_abbr = get_day_abbr(current_date)
-            day_name = day_offset == -1 ? "previous" : "target"
-
-            @debug "Collecting shifts from $day_name day ($current_date, :$day_abbr)..."
 
             if day_abbr in Symbol.(names(data.shifts_df))
-                # Filter for shifts active on this day (across all depots)
                 day_shifts_df = filter(row -> !ismissing(row[day_abbr]) && !isempty(string(row[day_abbr])), data.shifts_df)
-                @debug "Found $(nrow(day_shifts_df)) shifts active on $day_name day across all depots"
 
                 for row in eachrow(day_shifts_df)
-                    # Convert times using extended 3-day system
                     shift_start = time_string_to_minutes(string(row.shiftstart), day_offset)
                     shift_end = time_string_to_minutes(string(row.shiftend), day_offset)
 
-                    # Handle shifts that cross midnight (end time < start time)
                     if shift_end < shift_start
-                        shift_end += DAY_MINUTES # Add 24 hours to end time
+                        shift_end += DAY_MINUTES
                     end
 
-                    # For previous day: only include shifts that extend into target day
                     if day_offset == -1 && shift_end <= TARGET_DAY_START
                         continue
                     end
@@ -268,58 +279,24 @@ function create_parameters(
                         day_offset = day_offset
                     ))
                 end
-            else
-                @debug "No column found for :$day_abbr in shifts.csv, skipping $day_name day."
             end
         end
 
-        @debug "Total relevant shifts collected: $(length(all_relevant_shifts))"
-
-        # Randomly sample shifts and create buses
+        # Exhaustive enumeration: one bus per (shift, capacity) combination
         if !isempty(all_relevant_shifts)
-            for capacity in unique_capacities
-                for i in 1:Config.BUSSES_BENCHMARK
-                    # Randomly select a shift pattern
-                    selected_shift = rand(all_relevant_shifts)
-
-                    bus_id_str = string(total_buses_created) * "_benchmark_" * selected_shift.shift_id * "_day" * string(selected_shift.day_offset) * "_cap" * string(Int(capacity))
-
-                    @debug "Creating benchmark bus with randomly selected shift:"
-                    @debug "  Bus ID: $bus_id_str"
-                    @debug "  Capacity: $capacity"
-                    @debug "  Shift: $(selected_shift.shift_start) to $(selected_shift.shift_end) minutes"
-                    @debug "  Day offset: $(selected_shift.day_offset)"
-                    @debug "  Depot: $(depot.depot_id)"
-
-                    bus = Bus(
-                        bus_id_str, capacity, selected_shift.shift_start, selected_shift.shift_end, depot.depot_id
-                    )
+            for shift in all_relevant_shifts
+                for capacity in unique_capacities
+                    bus_id_str = string(total_buses_created) * "_" * shift.shift_id * "_day" * string(shift.day_offset) * "_cap" * string(Int(capacity))
+                    bus = Bus(bus_id_str, capacity, shift.shift_start, shift.shift_end, depot.depot_id)
                     push!(busses, bus)
                     total_buses_created += 1
                 end
             end
         else
-            @warn "No relevant shifts found for CAPACITY_CONSTRAINT_DRIVER_BREAKS. Creating fallback buses."
-            # Create fallback buses if no shifts available
-            for capacity in unique_capacities
-                for i in 1:Config.BUSSES_BENCHMARK
-                    bus_id_str = string(total_buses_created) * "_fallback_cap" * string(Int(capacity))
-                    bus = Bus(
-                        bus_id_str, capacity, PREVIOUS_DAY_START, NEXT_DAY_START + DAY_MINUTES - 1, depot.depot_id
-                    )
-                    push!(busses, bus)
-                    total_buses_created += 1
-                end
-            end
+            @warn "No relevant shifts found for CAPACITY_CONSTRAINT_DRIVER_BREAKS."
         end
 
-        @info "Created a total of $total_buses_created buses (BUSSES_BENCHMARK × random shifts × capacities) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS."
-        @debug "Bus creation summary (CAPACITY_CONSTRAINT_DRIVER_BREAKS):"
-        @debug "  Total buses: $total_buses_created"
-        @debug "  Unique capacities: $(length(unique_capacities))"
-        @debug "  Capacities used: $unique_capacities"
-        @debug "  BUSSES_BENCHMARK: $(Config.BUSSES_BENCHMARK)"
-        @debug "  Available shift patterns: $(length(all_relevant_shifts))"
+        @info "Created $total_buses_created buses ($(length(all_relevant_shifts)) shifts × $(length(unique_capacities)) capacities) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS."
 
 
     elseif setting == CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE
@@ -401,14 +378,7 @@ function create_parameters(
                 @debug "No column found for :$day_abbr in shifts.csv, skipping $day_name day for depot $(depot.depot_name)."
             end
         end
-        @info "Created a total of $total_buses_created buses (depot-specific capacities per relevant shifts) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE."
-        @debug "Bus creation summary (CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE):"
-        @debug "  Total buses: $total_buses_created"
-        @debug "  Depot: $(depot.depot_name) (ID: $(depot.depot_id))"
-        @debug "  Depot-specific capacities: $(length(unique_capacities))"
-        @debug "  Capacities used: $unique_capacities"
-        @debug "  Days processed: previous (-1) and target (0)"
-        @debug "  Previous day buses only created if extending into target day"
+        @info "Created $total_buses_created buses (depot-specific shifts × capacities) for Setting: CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE."
 
     else
         # If the setting doesn't match any known case, throw an error.
