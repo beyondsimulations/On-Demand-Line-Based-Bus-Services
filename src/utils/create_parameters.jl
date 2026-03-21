@@ -389,9 +389,57 @@ function create_parameters(
 
     # --- Create passenger demands ---
     @info "Processing passenger demands for Depot $(depot.depot_name) on $date..."
-    passenger_demands = Vector{PassengerDemand}() # Initialize vector for demand objects
-    depot_name_to_id = Dict(d.depot_name => d.depot_id for d in data.depots) # Map depot names to IDs for quick lookup
-    current_demand_id = 0 # Initialize demand ID counter
+    passenger_demands = Vector{PassengerDemand}()
+    depot_name_to_id = Dict(d.depot_name => d.depot_id for d in data.depots)
+    current_demand_id = 0
+
+    # Route lookup for departure times: (route_id, trip_id, trip_sequence) → Route
+    route_lookup = Dict{Tuple{Int,Int,Int}, Route}()
+    for r in data.routes
+        route_lookup[(r.route_id, r.trip_id, r.trip_sequence)] = r
+    end
+
+    # Parse 12-hour Buchzeit (e.g. "4:43:00 PM") to minutes since midnight
+    function parse_buchzeit(s)
+        try
+            s = strip(string(s))
+            if ismissing(s) || isempty(s); return nothing; end
+            parts = split(s, " ")
+            if length(parts) != 2; return nothing; end
+            ampm = uppercase(parts[2])
+            time_parts = split(parts[1], ":")
+            h = parse(Int, time_parts[1])
+            m = parse(Int, time_parts[2])
+            if ampm == "PM" && h != 12; h += 12; end
+            if ampm == "AM" && h == 12; h = 0; end
+            return Float64(h * 60 + m)
+        catch
+            return nothing
+        end
+    end
+
+    # Compute request_time: use real Buchzeit if valid and >= 60min before departure, else departure - 60
+    function compute_request_time(row, departure_time::Float64)
+        buchzeit = hasproperty(row, :Buchzeit) ? parse_buchzeit(row.Buchzeit) : nothing
+        fallback = departure_time - 60.0
+        if buchzeit !== nothing && buchzeit <= departure_time - 60.0
+            return buchzeit
+        else
+            return fallback
+        end
+    end
+
+    # Look up departure time from route stop_times
+    function lookup_departure_time(route_id, trip_id, trip_seq, origin_stop_seq)
+        route = get(route_lookup, (route_id, trip_id, trip_seq), nothing)
+        if route !== nothing
+            idx = findfirst(==(origin_stop_seq), route.stop_sequence)
+            if idx !== nothing && idx <= length(route.stop_times)
+                return route.stop_times[idx]
+            end
+        end
+        return 0.0
+    end
 
     @debug "Processing $(nrow(data.passenger_demands_df)) rows from raw demand data..."
     date_str = Dates.format(date, "yyyy-mm-dd") # Format target date for string comparison
@@ -494,15 +542,18 @@ function create_parameters(
         created_count += 1
 
         # Use the parsed values directly.
+        dep_time = lookup_departure_time(route_id_val, trip_id_val, trip_sequence_val, origin_stop_sequence_val)
+        req_time = compute_request_time(row, dep_time)
+
         push!(passenger_demands, PassengerDemand(
             current_demand_id,
             date,
-            # Origin ModelStation encapsulates location and route context.
             ModelStation(origin_id_val, route_id_val, trip_id_val, trip_sequence_val, origin_stop_sequence_val),
-            # Destination ModelStation.
             ModelStation(destination_id_val, route_id_val, trip_id_val, trip_sequence_val, destination_stop_sequence_val),
-            depot.depot_id, # Use the target depot's ID
+            depot.depot_id,
             demand_value_val,
+            dep_time,
+            req_time,
         ))
     end
     @info "Finished processing demand rows. Total checked: $processed_count, Created: $created_count."
@@ -530,14 +581,17 @@ function create_parameters(
                 end
 
 
-                 if !isempty(route.stop_ids) && !isempty(route.stop_sequence) # Ensure route has stops defined
+                 if !isempty(route.stop_ids) && !isempty(route.stop_sequence)
+                    synth_dep_time = !isempty(route.stop_times) ? route.stop_times[1] : 0.0
                     push!(passenger_demands, PassengerDemand(
                         start_id + synthetic_added_count,
                         date,
-                        ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]), # First stop
-                        ModelStation(route.stop_ids[end], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[end]), # Last stop
+                        ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]),
+                        ModelStation(route.stop_ids[end], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[end]),
                         depot.depot_id,
-                        0.0 # Zero demand value
+                        0.0,
+                        synth_dep_time,
+                        synth_dep_time - 60.0,
                     ))
                     synthetic_added_count += 1
                  else
@@ -572,12 +626,15 @@ function create_parameters(
                                                       pd.demand == 0.0, passenger_demands)
 
                      if !is_existing_synthetic
+                        synth_dep_time = !isempty(route.stop_times) ? route.stop_times[1] : 0.0
                         push!(passenger_demands, PassengerDemand(
                             start_id + synthetic_added_count, date,
                             ModelStation(route.stop_ids[1], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[1]),
                             ModelStation(route.stop_ids[end], route.route_id, route.trip_id, route.trip_sequence, route.stop_sequence[end]),
                             depot.depot_id,
-                            0.0 # Zero demand
+                            0.0,
+                            synth_dep_time,
+                            synth_dep_time - 60.0,
                         ))
                         synthetic_added_count += 1
                     # else: A synthetic demand covering the full route already exists.

@@ -86,105 +86,54 @@ end
 # =============================================================================
 
 """
-Solves full network flow model with capacity, driver break, and vehicle constraints.
-This is the main optimization model used for realistic scenarios.
+Build the capacity-constrained network flow model without solving it.
 """
-function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
-    @info "Setting up full network flow model with capacity constraints..."
-
-    # Create model and set solver options
-    model = _create_model_with_solver_options(parameters, 1.0)
-
-    # Setup network
+function build_capacity_constraint_model(parameters::ProblemParameters; time_limit_hours::Float64=1.0)
+    model = _create_model_with_solver_options(parameters, time_limit_hours)
     network = setup_network_flow(parameters)
     @info "Network setup complete. Building capacity constraint model..."
 
-    # =============================================================================
-    # PRE-COMPUTATIONS AND LOOKUPS
-    # =============================================================================
-    @info "Pre-computing lookups and groupings..."
-
-    # Compute break opportunities if driver breaks are enabled
     phi_45, phi_15, phi_30 = _compute_break_opportunities_if_needed(parameters, network)
-
-    # Create efficient lookup structures
     lookups = _create_constraint_lookups(parameters, network)
 
-    @info "Pre-computation finished."
-
-    # =============================================================================
-    # VARIABLES
-    # =============================================================================
-    @info "Creating variables..."
-    @variable(model, x[network.arcs], Bin)  # Binary arc selection variables
-
-    # Driver break pattern variables (if needed)
+    @variable(model, x[network.arcs], Bin)
     z = _create_break_pattern_variables!(model, parameters)
 
-    @info "Variables created."
-
-    # =============================================================================
-    # OBJECTIVE
-    # =============================================================================
-    @info "Creating objective..."
     @objective(model, Min, sum(x[arc] for arc in network.depot_start_arcs))
-    @info "Objective created."
 
-    # =============================================================================
-    # CONSTRAINT 1: FLOW CONSERVATION
-    # =============================================================================
     _add_flow_conservation_constraints!(model, network, lookups, x)
-
-    # =============================================================================
-    # CONSTRAINT 2: SERVICE COVERAGE
-    # =============================================================================
     _add_service_coverage_constraints!(model, network, parameters, lookups, x)
-
-    # =============================================================================
-    # CONSTRAINT 3: DEPOT START LIMITATIONS
-    # =============================================================================
     _add_depot_start_constraints!(model, lookups, x)
-
-    # =============================================================================
-    # CONSTRAINT 4: ILLEGAL ALLOCATION PREVENTION
-    # =============================================================================
     _add_illegal_allocation_constraints!(model, parameters, network, lookups, x)
-
-    # =============================================================================
-    # CONSTRAINT 5: PASSENGER CAPACITY LIMITS
-    # =============================================================================
     _add_passenger_capacity_constraints!(model, parameters, lookups, x)
-
-    # =============================================================================
-    # CONSTRAINT 6: VEHICLE COUNT LIMITS
-    # =============================================================================
     _add_vehicle_count_constraints!(model, parameters, network, lookups, x)
-
-    # =============================================================================
-    # CONSTRAINT 7: DRIVER BREAK REQUIREMENTS
-    # =============================================================================
     _add_driver_break_constraints!(model, parameters, lookups, phi_45, phi_15, phi_30, x, z)
 
     @info "Model building complete."
+    return (model=model, network=network, x=x, z=z, lookups=lookups,
+            phi_45=phi_45, phi_15=phi_15, phi_30=phi_30)
+end
 
-    # Solve the model and get results
-    solution = solve_and_return_results(model, network, parameters, parameters.buses)
+function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
+    @info "Setting up full network flow model with capacity constraints..."
+    built = build_capacity_constraint_model(parameters, time_limit_hours=1.0)
+
+    solution = solve_and_return_results(built.model, built.network, parameters, parameters.buses)
 
     # Extract break pattern decisions from z variable if available
     break_patterns = Dict{String, String}()
-    if !isnothing(z) && (solution.status == :Optimal || primal_status(model) == MOI.FEASIBLE_POINT)
+    if !isnothing(built.z) && (solution.status == :Optimal || primal_status(built.model) == MOI.FEASIBLE_POINT)
         try
             for bus in parameters.buses
                 bus_id_str = string(bus.bus_id)
                 try
-                    z_value = value(z[bus_id_str])
+                    z_value = value(built.z[bus_id_str])
                     if z_value > 0.5
                         break_patterns[bus_id_str] = "Single 45-minute break (z=1)"
                     else
                         break_patterns[bus_id_str] = "Split breaks: 15+30 minutes (z=0)"
                     end
                 catch BoundsError
-                    # Bus not in z variable container (likely doesn't require breaks)
                     continue
                 end
             end
@@ -194,10 +143,9 @@ function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
         end
     end
 
-    # Log comprehensive bus operations analysis
     if solution.status == :Optimal || !isnothing(solution.buses)
         @info "Generating comprehensive bus operations analysis..."
-        log_complete_solution_analysis(solution, parameters, phi_45, phi_15, phi_30, break_patterns)
+        log_complete_solution_analysis(solution, parameters, built.phi_45, built.phi_15, built.phi_30, break_patterns)
     end
 
     return solution

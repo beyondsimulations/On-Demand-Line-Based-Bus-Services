@@ -54,6 +54,8 @@ struct PassengerDemand
     destination::ModelStation   # Destination station (specific stop visit)
     depot_id::Int               # Depot associated with this demand (often based on route/area)
     demand::Float64             # Number of passengers demanding travel
+    departure_time::Float64     # Departure time in minutes since midnight (from route stop_times)
+    request_time::Float64       # Time demand becomes known (minutes since midnight, from Buchzeit or departure - 60)
 end
 
 """
