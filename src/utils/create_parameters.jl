@@ -421,12 +421,13 @@ function create_parameters(
     # Compute request_time: use real Buchzeit if valid and >= 60min before departure, else departure - 60
     function compute_request_time(row, departure_time::Float64)
         buchzeit = hasproperty(row, :Buchzeit) ? parse_buchzeit(row.Buchzeit) : nothing
-        fallback = departure_time - 60.0
-        if buchzeit !== nothing && buchzeit <= departure_time - 60.0
-            return buchzeit
-        else
-            return fallback
+        if buchzeit === nothing
+            return departure_time - 60.0
         end
+        if buchzeit > departure_time - 60.0
+            buchzeit -= 1440.0  # booking was the previous day
+        end
+        return buchzeit
     end
 
     # Look up departure time from route stop_times
