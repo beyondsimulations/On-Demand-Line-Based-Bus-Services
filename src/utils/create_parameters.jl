@@ -418,7 +418,7 @@ function create_parameters(
         end
     end
 
-    # Compute request_time: use real Buchzeit if valid and >= 60min before departure, else departure - 60
+    # Compute request_time from Buchzeit; subtract 24h if booking appears within 60min of departure (must be previous day)
     function compute_request_time(row, departure_time::Float64)
         buchzeit = hasproperty(row, :Buchzeit) ? parse_buchzeit(row.Buchzeit) : nothing
         if buchzeit === nothing

@@ -69,7 +69,7 @@ function solve_rolling_horizon(
 
         built = build_capacity_constraint_model(iter_params, time_limit_hours=1/60)
 
-        # Fix line arcs for imminent demands only (departure within 60 min, bus dispatched)
+        # Fix line arcs for committed demands (departure within 60 min, bus dispatched)
         fixed_count = 0
         for arc in built.network.line_arcs
             arc_key = make_arc_key(arc)
