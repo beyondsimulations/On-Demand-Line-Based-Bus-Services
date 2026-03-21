@@ -1,4 +1,5 @@
 using Logging
+using Statistics
 
 struct RollingHorizonResult
     total_demands::Int
@@ -6,7 +7,11 @@ struct RollingHorizonResult
     rejected_demands::Int
     service_level::Float64
     num_buses_used::Int
+    num_potential_buses::Int
     total_solve_time::Float64
+    total_operational_duration::Float64
+    total_waiting_time::Float64
+    avg_capacity_utilization::Float64
     iteration_log::Vector{NamedTuple{(:demand_id, :departure_time, :request_time, :status, :cumulative_demands, :buses_used, :solve_time), Tuple{Int, Float64, Float64, Symbol, Int, Int, Float64}}}
 end
 
@@ -32,9 +37,10 @@ function solve_rolling_horizon(
 )
     all_demands = base_parameters.passenger_demands
     buses = base_parameters.buses
+    num_potential = length(buses)
 
     if isempty(buses) || isempty(all_demands)
-        return RollingHorizonResult(length(all_demands), 0, length(all_demands), 0.0, 0, 0.0, [])
+        return RollingHorizonResult(length(all_demands), 0, length(all_demands), 0.0, 0, num_potential, 0.0, 0.0, 0.0, 0.0, [])
     end
 
     sorted_demands = sort(all_demands, by=d -> d.request_time)
@@ -44,6 +50,8 @@ function solve_rolling_horizon(
     previous_arc_values = Dict{Any, Float64}()
     total_solve_time = 0.0
     last_buses_used = 0
+    last_built = nothing
+    last_params = nothing
     iteration_log = []
 
     @info "Rolling horizon: processing $(length(sorted_demands)) demands one at a time"
@@ -112,6 +120,8 @@ function solve_rolling_horizon(
                 catch; continue; end
             end
             last_buses_used = buses_used
+            last_built = built
+            last_params = iter_params
             result_status = :Accepted
         else
             push!(rejected_ids, new_demand.demand_id)
@@ -133,12 +143,37 @@ function solve_rolling_horizon(
         ))
     end
 
+    # Extract operational metrics from the last successful solve
+    total_op_duration = 0.0
+    total_wait_time = 0.0
+    avg_cap_util = 0.0
+
+    if last_built !== nothing && last_params !== nothing
+        # Note: solve_and_return_results calls optimize! internally, which is redundant here
+        # since the model is already solved. Gurobi handles this gracefully (returns instantly).
+        solution = solve_and_return_results(last_built.model, last_built.network, last_params, last_params.buses)
+        if solution.buses !== nothing
+            total_capacity = 0.0
+            for (_, bus_info) in solution.buses
+                total_op_duration += bus_info.operational_duration
+                total_wait_time += bus_info.waiting_time
+                if !isempty(bus_info.capacity_usage)
+                    total_capacity += mean([usage[2] for usage in bus_info.capacity_usage])
+                end
+            end
+            if last_buses_used > 0
+                avg_cap_util = total_capacity / last_buses_used
+            end
+        end
+    end
+
     service_level = length(all_demands) > 0 ? length(accepted_demands) / length(all_demands) : 0.0
 
     @info "Rolling horizon complete: $(length(accepted_demands))/$(length(all_demands)) served ($(round(100*service_level, digits=1))%), $(last_buses_used) buses, $(round(total_solve_time, digits=1))s total"
 
     return RollingHorizonResult(
         length(all_demands), length(accepted_demands), length(rejected_ids),
-        service_level, last_buses_used, total_solve_time, iteration_log
+        service_level, last_buses_used, num_potential, total_solve_time,
+        total_op_duration, total_wait_time, avg_cap_util, iteration_log
     )
 end

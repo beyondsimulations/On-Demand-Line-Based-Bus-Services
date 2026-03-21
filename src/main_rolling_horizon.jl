@@ -81,12 +81,36 @@ results_df = DataFrame(
     rejected_demands=Int[],
     service_level=Float64[],
     num_buses=Int[],
+    num_potential_buses=Int[],
     total_solve_time=Float64[],
+    total_operational_duration=Float64[],
+    total_waiting_time=Float64[],
+    avg_capacity_utilization=Float64[],
     iterations=Int[],
+    operator_served=Int[],
+    operator_rejected=Int[],
+    operator_service_level=Float64[],
     optimizer_constructor=String[],
 )
 
 output_file = "results/rolling_horizon_$(solver_choice)_$(depot_filter)_$(setting_filter).csv"
+
+# Precompute operator performance per (depot, date) from demand status codes
+operator_stats = Dict{Tuple{String, Date}, NamedTuple{(:served, :rejected), Tuple{Int, Int}}}()
+date_str_format = Dates.DateFormat("yyyy-mm-dd")
+for row in eachrow(data.passenger_demands_df)
+    try
+        d = Date(string(row."Abfahrt-Datum"), date_str_format)
+        depot_name = string(row.depot)
+        key = (depot_name, d)
+        prev = get(operator_stats, key, (served=0, rejected=0))
+        if string(row.Status) == "DU"
+            operator_stats[key] = (served=prev.served + 1, rejected=prev.rejected)
+        elseif string(row.Status) == "A"
+            operator_stats[key] = (served=prev.served, rejected=prev.rejected + 1)
+        end
+    catch; continue; end
+end
 
 for depot in depots_to_process
     for date in dates_to_process
@@ -112,11 +136,20 @@ for depot in depots_to_process
 
             result = solve_rolling_horizon(parameters)
 
+            op = get(operator_stats, (depot.depot_name, date), (served=0, rejected=0))
+            op_total = op.served + op.rejected
+            op_sl = op_total > 0 ? op.served / op_total : 0.0
+
             push!(results_df, (
                 depot.depot_name, date, string(setting),
                 result.total_demands, result.confirmed_demands, result.rejected_demands,
-                result.service_level, result.num_buses_used, result.total_solve_time,
-                length(result.iteration_log), string(optimizer_constructor)
+                result.service_level, result.num_buses_used, result.num_potential_buses,
+                result.total_solve_time,
+                result.total_operational_duration, result.total_waiting_time,
+                result.avg_capacity_utilization,
+                length(result.iteration_log),
+                op.served, op.rejected, op_sl,
+                string(optimizer_constructor)
             ))
 
             CSV.write(output_file, results_df)
