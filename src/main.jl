@@ -190,15 +190,16 @@ for depot in depots_to_process
         end
 
         if non_interactive_plots
+            depot_name_safe = replace(depot.depot_name, " " => "_")
             @debug "    Generating plot 2D with Makie..."
             network_plot_2d_makie = plot_network_makie(data.routes, depot, date)
-            save("plots/network_2d_$(depot.depot_name)_$(date).pdf", network_plot_2d_makie)
-            save("plots/network_2d_$(depot.depot_name)_$(date).png", network_plot_2d_makie)
+            save(joinpath("plots", "network_2d_$(depot_name_safe)_$(date).pdf"), network_plot_2d_makie)
+            save(joinpath("plots", "network_2d_$(depot_name_safe)_$(date).png"), network_plot_2d_makie)
 
             @debug "    Generating plot 3D with Makie..."
             network_plot_3d_makie = plot_network_3d_makie(data.routes, data.travel_times, depot, date)
-            save("plots/network_3d_$(depot.depot_name)_$(date).pdf", network_plot_3d_makie)
-            save("plots/network_3d_$(depot.depot_name)_$(date).png", network_plot_3d_makie)
+            save(joinpath("plots", "network_3d_$(depot_name_safe)_$(date).pdf"), network_plot_3d_makie)
+            save(joinpath("plots", "network_3d_$(depot_name_safe)_$(date).png"), network_plot_3d_makie)
         end
     end
 end
