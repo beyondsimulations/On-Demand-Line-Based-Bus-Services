@@ -191,15 +191,24 @@ for depot in depots_to_process
 
         if non_interactive_plots
             depot_name_safe = replace(depot.depot_name, " " => "_")
+
             @debug "    Generating plot 2D with Makie..."
             network_plot_2d_makie = plot_network_makie(data.routes, depot, date)
-            save(joinpath("plots", "network_2d_$(depot_name_safe)_$(date).pdf"), network_plot_2d_makie)
-            save(joinpath("plots", "network_2d_$(depot_name_safe)_$(date).png"), network_plot_2d_makie)
+            path_2d_pdf = joinpath("plots", "network_2d_$(depot_name_safe)_$(date).pdf")
+            path_2d_png = joinpath("plots", "network_2d_$(depot_name_safe)_$(date).png")
+            touch(path_2d_pdf)
+            save(path_2d_pdf, network_plot_2d_makie)
+            touch(path_2d_png)
+            save(path_2d_png, network_plot_2d_makie)
 
             @debug "    Generating plot 3D with Makie..."
             network_plot_3d_makie = plot_network_3d_makie(data.routes, data.travel_times, depot, date)
-            save(joinpath("plots", "network_3d_$(depot_name_safe)_$(date).pdf"), network_plot_3d_makie)
-            save(joinpath("plots", "network_3d_$(depot_name_safe)_$(date).png"), network_plot_3d_makie)
+            path_3d_pdf = joinpath("plots", "network_3d_$(depot_name_safe)_$(date).pdf")
+            path_3d_png = joinpath("plots", "network_3d_$(depot_name_safe)_$(date).png")
+            touch(path_3d_pdf)
+            save(path_3d_pdf, network_plot_3d_makie)
+            touch(path_3d_png)
+            save(path_3d_png, network_plot_3d_makie)
         end
     end
 end
