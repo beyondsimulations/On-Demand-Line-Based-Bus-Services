@@ -449,7 +449,9 @@ function log_system_statistics(solution::NetworkFlowSolution, phi_45::Dict{Strin
     log_to_both_debug("Total Fleet Operational Time: $(format_duration(total_operational_time))", file_handle)
     log_to_both_debug("Total Fleet Waiting Time: $(format_duration(total_waiting_time))", file_handle)
     log_to_both_debug("Total Fleet Active Time: $(format_duration(total_active_time))", file_handle)
-    log_to_both_debug("Fleet Utilization: $(round((total_active_time / total_operational_time) * 100, digits=1))%", file_handle)
+    if total_operational_time > 0
+        log_to_both_debug("Fleet Utilization: $(round((total_active_time / total_operational_time) * 100, digits=1))%", file_handle)
+    end
 
     # Break statistics
     breaks_45 = if isempty(phi_45)
@@ -905,7 +907,9 @@ function create_system_summary(solution::NetworkFlowSolution, parameters::Proble
                 total_active_time = total_operational_time - total_waiting_time
 
                 println(summary_file, "Total Fleet Operational Time: $(format_duration(total_operational_time))")
-                println(summary_file, "Fleet Utilization: $(round((total_active_time / total_operational_time) * 100, digits=1))%")
+                if total_operational_time > 0
+                    println(summary_file, "Fleet Utilization: $(round((total_active_time / total_operational_time) * 100, digits=1))%")
+                end
             else
                 println(summary_file, "Buses Used: 0")
                 println(summary_file, "No solution found or buses available")
