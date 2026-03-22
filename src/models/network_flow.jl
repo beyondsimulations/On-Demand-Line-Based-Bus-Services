@@ -107,6 +107,7 @@ function build_capacity_constraint_model(parameters::ProblemParameters; time_lim
     _add_illegal_allocation_constraints!(model, parameters, network, lookups, x)
     _add_passenger_capacity_constraints!(model, parameters, lookups, x)
     _add_vehicle_count_constraints!(model, parameters, network, lookups, x)
+    _add_driver_uniqueness_constraints!(model, parameters, lookups, x)
     _add_driver_break_constraints!(model, parameters, lookups, phi_45, phi_15, phi_30, x, z)
 
     @info "Model building complete."
@@ -678,6 +679,58 @@ function _add_vehicle_count_constraints!(model, parameters::ProblemParameters, n
     end
 
     @info "Added $constraint_6_count event-based vehicle count constraints."
+end
+
+"""
+Add driver uniqueness constraints: each shift (driver) can be assigned to at most one vehicle type.
+Without this, the exhaustive (shift × capacity) enumeration allows the same driver to simultaneously
+operate multiple vehicles with different capacities.
+Only applies to settings with real driver shifts (O3.1, O3.2).
+"""
+function _add_driver_uniqueness_constraints!(model, parameters::ProblemParameters, lookups, x)
+    if !(parameters.setting in [CAPACITY_CONSTRAINT_DRIVER_BREAKS, CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE])
+        @info "Skipping driver uniqueness constraints (not applicable for setting: $(parameters.setting))."
+        return
+    end
+
+    @info "Creating driver uniqueness constraints (Constraint 7)..."
+
+    # Extract shift identity (shift_id + day_offset) from bus IDs
+    # Bus ID format: "{counter}_{shift_id}_day{offset}_cap{capacity}"
+    shift_groups = Dict{String, Vector{String}}()
+    for bus in parameters.buses
+        bus_id = string(bus.bus_id)
+        m = match(r"^\d+_(.+)_cap\d+$", bus_id)
+        if m !== nothing
+            shift_key = m.captures[1]  # e.g. "86101_day0"
+            if !haskey(shift_groups, shift_key)
+                shift_groups[shift_key] = String[]
+            end
+            push!(shift_groups[shift_key], bus_id)
+        end
+    end
+
+    constraint_count = 0
+    for (shift_key, bus_ids) in shift_groups
+        if length(bus_ids) <= 1
+            continue  # only one capacity variant, no constraint needed
+        end
+
+        # Collect all depot-start arcs for all buses from this shift
+        all_depot_arcs = ModelArc[]
+        for bus_id in bus_ids
+            arcs = get(lookups.depot_start_by_bus, bus_id, ModelArc[])
+            append!(all_depot_arcs, arcs)
+        end
+
+        if !isempty(all_depot_arcs)
+            @constraint(model, sum(x[arc] for arc in all_depot_arcs) <= 1,
+                       base_name = "driver_uniqueness_$shift_key")
+            constraint_count += 1
+        end
+    end
+
+    @info "Added $constraint_count driver uniqueness constraints ($(length(shift_groups)) shifts, $(length(parameters.buses)) buses)."
 end
 
 """
