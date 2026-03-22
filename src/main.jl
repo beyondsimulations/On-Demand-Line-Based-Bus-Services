@@ -42,12 +42,13 @@ global_logger(tee_logger)
 # Set the dates to process
 dates_to_process = collect(Date(2025, 6, 1):Day(1):Date(2025, 8, 15))
 
-# Set the plots
+# Plot generation: disable during computational studies for speed
+generate_plots = lowercase(get(ENV, "JULIA_GENERATE_PLOTS", "false")) in ("true", "1", "yes")
 interactive_plots = false
-non_interactive_plots = true
+non_interactive_plots = generate_plots
 
-# Set the depots to run the model for
-depots_to_process_names = [
+# Filter to a single depot if JULIA_DEPOT is set (for parallel execution)
+all_depot_names = [
     "VLP Boizenburg",
     "VLP Hagenow",
     "VLP Parchim",
@@ -55,6 +56,13 @@ depots_to_process_names = [
     "VLP Ludwigslust",
     "VLP Sternberg",
 ]
+depot_env = get(ENV, "JULIA_DEPOT", "")
+depots_to_process_names = if !isempty(depot_env)
+    @info "Filtering to depot: $depot_env"
+    [depot_env]
+else
+    all_depot_names
+end
 
 # Read solver choice from environment variable, default to :gurobi
 solver_choice_str = get(ENV, "JULIA_SOLVER", "gurobi")
@@ -111,7 +119,7 @@ elseif version == "v1"
 elseif version == "v2"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = false
-    service_levels = 0.01:0.01:1.0
+    service_levels = 0.05:0.05:1.0
 
     # Define settings for solving
     settings = [
@@ -142,7 +150,7 @@ elseif version == "v3"
 elseif version == "v4"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = true
-    service_levels = 0.01:0.01:1.0
+    service_levels = 0.05:0.05:1.0
 
     # Define settings for solving
     settings = [
@@ -166,6 +174,18 @@ if isempty(depots_to_process)
     @error "None of the specified depot names found: $depots_to_process_names"
     error("None of the specified depot names found: $depots_to_process_names")
 end
+
+# Output filename: include depot when running per-depot
+depot_suffix = if !isempty(depot_env)
+    "_" * replace(depot_env, " " => "_")
+else
+    ""
+end
+if !isdir("results")
+    mkdir("results")
+end
+output_filename = "results/computational_study_$(version)_$(solver_choice_str)$(depot_suffix).csv"
+@info "Results will be saved to: $output_filename"
 
 # Plot network for each specified depot and date
 @info "=== Generating Network Plots ==="
@@ -416,7 +436,6 @@ for depot in depots_to_process
                     end
                     @info "--------------------"
 
-                    output_filename = "results/computational_study_$(version)_$(solver_choice_str).csv"
                     CSV.write(output_filename, results_df)
                 end
             end
@@ -424,13 +443,6 @@ for depot in depots_to_process
     end
 end
 
-# Save results to CSV
-if !isdir("results")
-    mkdir("results")
-end
-
-# Include version and solver in the filename
-output_filename = "results/computational_study_$(version)_$(solver_choice_str).csv"
 CSV.write(output_filename, results_df)
 @info "Final results saved to CSV file: $output_filename"
 

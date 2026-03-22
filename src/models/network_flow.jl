@@ -88,7 +88,7 @@ end
 """
 Build the capacity-constrained network flow model without solving it.
 """
-function build_capacity_constraint_model(parameters::ProblemParameters; time_limit_hours::Float64=1.0)
+function build_capacity_constraint_model(parameters::ProblemParameters; time_limit_hours::Float64=10.0/60.0)
     model = _create_model_with_solver_options(parameters, time_limit_hours)
     network = setup_network_flow(parameters)
     @info "Network setup complete. Building capacity constraint model..."
@@ -116,7 +116,7 @@ end
 
 function solve_network_flow_capacity_constraint(parameters::ProblemParameters)
     @info "Setting up full network flow model with capacity constraints..."
-    built = build_capacity_constraint_model(parameters, time_limit_hours=1.0)
+    built = build_capacity_constraint_model(parameters)
 
     solution = solve_and_return_results(built.model, built.network, parameters, parameters.buses)
 
@@ -161,17 +161,17 @@ Create optimization model with appropriate solver options.
 function _create_model_with_solver_options(parameters::ProblemParameters, time_limit_hours::Float64)
     model = Model(parameters.optimizer_constructor)
 
-    time_limit_seconds = Int(3600 * time_limit_hours)
+    time_limit_seconds = 3600.0 * time_limit_hours
 
     if parameters.optimizer_constructor == Gurobi.Optimizer
         set_optimizer_attribute(model, "TimeLimit", time_limit_seconds)
         set_optimizer_attribute(model, "MIPGap", 0.00)
-        set_optimizer_attribute(model, "Threads", 8)
+        set_optimizer_attribute(model, "Threads", 4)
     else
         set_optimizer_attribute(model, "presolve", "on")
         set_optimizer_attribute(model, "time_limit", time_limit_seconds)
         set_optimizer_attribute(model, "mip_rel_gap", 0.00)
-        set_optimizer_attribute(model, "threads", 8)
+        set_optimizer_attribute(model, "threads", 4)
     end
 
     return model
