@@ -1,2 +1,0 @@
-depot_name,date,problem_type,setting,subsetting,service_level,solver_status,solve_time,num_buses,num_potential_buses,num_demands,total_operational_duration,total_waiting_time,avg_capacity_utilization,optimality_gap,filter_demand,optimizer_constructor
-VLP Sternberg,2025-06-02,Minimize_Busses,NO_CAPACITY_CONSTRAINT,ONLY_DEMAND,1.0,Optimal,0.001302957534790039,4,20,52,3823.4137615062637,1910.452748719359,1.0704860667982148,0.0,false,Gurobi.Optimizer
