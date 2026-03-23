@@ -17,7 +17,7 @@ using CSV, DataFrames, Statistics, CairoMakie, Logging
 #   - Keep only depot/service_level/setting combinations where ALL instances were
 #     either Optimal or TIME_LIMIT (i.e. no other statuses) AND we have a full
 #     set of Optimal + Time Limit counts equaling total instances.
-#   - Restrict service_level to 2.5% increments in [0.025, 1.000].
+#   - Restrict service_level to 5% increments in [0.05, 1.00].
 #
 # Output:
 #   plots/evaluation_plot_buses_vs_service_averaged_{version}_{solver}.pdf
@@ -31,7 +31,7 @@ const SOLVER = "gurobi"
 const RESULTS_FILE = "results/computational_study_$(PLOT_VERSION)_$(SOLVER).csv"
 const OUTPUT_FILE = "plots/evaluation_plot_buses_vs_service_averaged_$(PLOT_VERSION)_$(SOLVER).pdf"
 
-const SERVICE_LEVEL_STEP = 0.025
+const SERVICE_LEVEL_STEP = 0.05
 const VALID_SERVICE_LEVELS = collect(SERVICE_LEVEL_STEP:SERVICE_LEVEL_STEP:1.0)
 
 # Axis padding
@@ -120,7 +120,7 @@ function aggregate_results(df::DataFrame)
 
     # Restrict to valid service levels
     filter!(r -> any(abs(r.service_level - v) < 1e-10 for v in VALID_SERVICE_LEVELS), df_agg)
-    @info "After filtering to 2.5% increments: $(nrow(df_agg)) combinations remain."
+    @info "After filtering to $(SERVICE_LEVEL_STEP*100)% increments: $(nrow(df_agg)) combinations remain."
 
     # Success rate (all statuses, but we only keep valid service levels)
     df_success = combine(groupby(df, [:depot_name, :service_level, :setting])) do g
@@ -223,8 +223,8 @@ function plot_success_rate!(ax, success_df::DataFrame)
     end
     sort!(df_agg, :service_level)
     barplot!(ax, df_agg.service_level, df_agg.overall_success_rate;
-        color=(:lightgreen, 0.6),
-        strokecolor=:darkgreen,
+        color=RGBf(0.55, 0.55, 0.55),
+        strokecolor=:black,
         strokewidth=1.0
     )
 end

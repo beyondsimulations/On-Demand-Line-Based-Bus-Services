@@ -1,0 +1,28 @@
+\begin{table}[ht]
+\centering
+\caption{Computational Results by Operational Scenario}
+\label{tab:computational_results}
+\begin{threeparttable}
+\begin{tabular}{lcccccccccccc}
+\toprule
+Metric & \multicolumn{3}{c}{O1} & \multicolumn{3}{c}{O2} & \multicolumn{3}{c}{O3.1} & \multicolumn{3}{c}{O3.2} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7} \cmidrule(lr){8-10} \cmidrule(lr){11-13}
+  & S1 & S2 & S3 & S1 & S2 & S3 & S1 & S2 & S3 & S1 & S2 & S3 \\
+\midrule
+Infeas & 0 & 0 & 0 & 0 & 0 & 0 & 401 & 200 & 118 & 401 & 401 & 401 \\
+TLimit\tnote{a} & 0 & 0 & 0 & 381 & 67 & 0 & 0 & 2 & 0 & 0 & 0 & 0 \\
+Gap\tnote{b} & 0 & 0 & 0 & 20 & 167 & 13 & 0 & 31 & 0 & 0 & 0 & 0 \\
+Opt & 404 & 404 & 404 & 0 & 167 & 388 & 0 & 168 & 283 & 0 & 0 & 0 \\
+Buses & 21.6 & 8.4 & 6.5 & -- & 6.6 & 6.5 & -- & 17.4 & 15.2 & -- & -- & -- \\
+Time\tnote{c} & 0 & 0 & 0 & -- & 118 & 32 & -- & 96 & 5 & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+      \smaller
+      \item \textit{Notes.} 4821 total instances across 6 depots × 76 days × 4 constraint settings × 3 service scopes.
+      \item[a] Time limit reached without finding any feasible solution
+      \item[b] Time limit reached but found at least one feasible solution
+      \item[c] Average computation time for optimally solved instances only
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

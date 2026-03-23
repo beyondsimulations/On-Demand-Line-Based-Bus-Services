@@ -1,0 +1,31 @@
+\begin{table}[ht]
+\centering
+\caption{Rolling horizon performance summary (O3.1/S3 and O3.2/S3)}
+\label{tab:rh_summary}
+\begin{threeparttable}
+\begin{tabular}{l rrrr rrrr}
+\toprule
+& \multicolumn{4}{c}{\textit{O3.1} (global fleet)} & \multicolumn{4}{c}{\textit{O3.2} (depot fleet)} \\
+\cmidrule(lr){2-5} \cmidrule(lr){6-9}
+Depot & SL & $\Delta$\tnote{a} & Buses & Conf. & SL & $\Delta$\tnote{a} & Buses & Conf. \\
+\midrule
+Boizenburg & 0.991 & +39.7 & 17.3 & 78.9 & 0.686 & +9.2 & 8.8 & 52.9 \\
+Hagenow & 0.999 & +50.1 & 19.5 & 82.6 & 0.716 & +21.8 & 9.9 & 58.4 \\
+Ludwigslust & 0.985 & +47.9 & 22.9 & 90.4 & 0.585 & +8.0 & 9.8 & 52.5 \\
+Parchim & 0.989 & +42.9 & 23.3 & 114.4 & 0.504 & -5.6 & 8.7 & 57.0 \\
+Schwerin & 0.992 & +50.9 & 15.9 & 63.5 & 0.573 & +9.0 & 6.8 & 36.2 \\
+Sternberg & 0.998 & +47.3 & 11.2 & 47.3 & 0.608 & +8.4 & 5.6 & 28.4 \\
+\midrule
+Average & 0.992 & +46.5 & 18.3 & 79.5 & 0.612 & +8.4 & 8.3 & 47.6 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\smaller
+\item[a] $\Delta$: rolling horizon minus operator service level (percentage points).
+\item \textit{Notes.} Daily means across 76 days (June 1 -- August 15, 2025).
+SL = service level (confirmed/total demands).
+Buses = mean vehicles used per day.
+Conf.\ = mean confirmed demands per day.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
