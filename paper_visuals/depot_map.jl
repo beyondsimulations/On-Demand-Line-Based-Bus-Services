@@ -50,8 +50,11 @@ sort!(depot_data, :name)
 
 depot_coords = Dict(row.name => (row.x, row.y) for row in eachrow(depot_data))
 
-# Build line data: ordered stops per route_id (one representative trip)
+# Build deduplicated line data: one geometry per unique route_id (first trip only)
 line_data = Dict{Int, NamedTuple{(:stops, :depot), Tuple{Vector{Tuple{Float64,Float64}}, String}}}()
+
+# Track unique geometries to skip duplicate overlapping routes
+seen_geometries = Set{Vector{Tuple{Float64,Float64}}}()
 
 for route_id in unique(routes_df.route_id)
     route_rows = routes_df[routes_df.route_id .== route_id, :]
@@ -63,22 +66,26 @@ for route_id in unique(routes_df.route_id)
 
     stops = Tuple{Float64,Float64}[]
     for row in eachrow(trip_rows)
-        coord = (row.x, row.y)
+        coord = (round(row.x, digits=5), round(row.y, digits=5))
         if isempty(stops) || stops[end] != coord
             push!(stops, coord)
         end
     end
 
+    if stops in seen_geometries
+        continue
+    end
+    push!(seen_geometries, stops)
     line_data[route_id] = (stops=stops, depot=depot_name)
 end
 
-@info "Loaded $(length(line_data)) lines across $(nrow(depot_data)) depots"
+@info "Loaded $(length(line_data)) unique route geometries ($(length(seen_geometries)) deduplicated) across $(nrow(depot_data)) depots"
 
 # =============================================================================
 # Plot
 # =============================================================================
 
-fig = Figure(size=(590, 400))
+fig = Figure(size=(590, 280))
 
 ax = Axis(fig[1, 1];
     aspect=DataAspect(),
@@ -90,31 +97,42 @@ ax = Axis(fig[1, 1];
     xlabelvisible=false, ylabelvisible=false,
 )
 
-# Draw lines and stops, colored by depot
+# Draw deduplicated route lines (thin, light — service area texture)
 for (route_id, ld) in line_data
     color = get(DEPOT_GRAYS, ld.depot, RGBf(0.5, 0.5, 0.5))
 
     if length(ld.stops) >= 2
         xs = [s[1] for s in ld.stops]
         ys = [s[2] for s in ld.stops]
-
-        # Line path
-        lines!(ax, xs, ys; color=color, linewidth=0.5)
-
-        # Stop dots
-        scatter!(ax, xs, ys; color=color, markersize=1.5)
+        lines!(ax, xs, ys; color=(color, 0.5), linewidth=0.3)
     end
+end
 
-    # Dotted connectors: depot → first stop, last stop → depot
-    if !isempty(ld.stops) && haskey(depot_coords, ld.depot)
+# Stop point cloud (unique stops, tiny dots)
+all_stops = Dict{Tuple{Float64,Float64}, String}()
+for (route_id, ld) in line_data
+    for s in ld.stops
+        if !haskey(all_stops, s)
+            all_stops[s] = ld.depot
+        end
+    end
+end
+for (coord, depot) in all_stops
+    color = get(DEPOT_GRAYS, depot, RGBf(0.5, 0.5, 0.5))
+    scatter!(ax, [coord[1]], [coord[2]]; color=(color, 0.6), markersize=1.5)
+end
+@info "Plotted $(length(all_stops)) unique stops"
+
+# Depot connectors: dotted lines from assigned depot to both endpoints
+for (route_id, ld) in line_data
+    if length(ld.stops) >= 2 && haskey(depot_coords, ld.depot)
+        color = get(DEPOT_GRAYS, ld.depot, RGBf(0.5, 0.5, 0.5))
         depot_x, depot_y = depot_coords[ld.depot]
-        first_stop = ld.stops[1]
-        last_stop = ld.stops[end]
 
-        lines!(ax, [depot_x, first_stop[1]], [depot_y, first_stop[2]];
-            color=color, linewidth=0.4, linestyle=:dot)
-        lines!(ax, [last_stop[1], depot_x], [last_stop[2], depot_y];
-            color=color, linewidth=0.4, linestyle=:dot)
+        lines!(ax, [depot_x, ld.stops[1][1]], [depot_y, ld.stops[1][2]];
+            color=(color, 0.4), linewidth=0.3, linestyle=:dot)
+        lines!(ax, [ld.stops[end][1], depot_x], [ld.stops[end][2], depot_y];
+            color=(color, 0.4), linewidth=0.3, linestyle=:dot)
     end
 end
 
@@ -132,7 +150,7 @@ end
 
 # Labels
 label_offsets = Dict(
-    "VLP Boizenburg"  => (-0.03,  0.015),
+    "VLP Boizenburg"  => ( 0.0,  -0.025),
     "VLP Hagenow"     => ( 0.03,  0.005),
     "VLP Ludwigslust" => ( 0.03, -0.02),
     "VLP Parchim"     => ( 0.03,  0.005),
@@ -140,7 +158,7 @@ label_offsets = Dict(
     "VLP Sternberg"   => ( 0.03,  0.005),
 )
 label_aligns = Dict(
-    "VLP Boizenburg"  => (:right, :center),
+    "VLP Boizenburg"  => (:center, :top),
     "VLP Hagenow"     => (:left,  :center),
     "VLP Ludwigslust" => (:left,  :top),
     "VLP Parchim"     => (:left,  :center),
@@ -156,23 +174,12 @@ for row in eachrow(depot_data)
         text=display_name, fontsize=9, align=align)
 end
 
-# Scale bar (20 km)
-scale_lon_start = 10.55
-scale_lat = 53.07
-scale_length_deg = 20.0 / (111.32 * cosd(53.5))
-
-lines!(ax, [scale_lon_start, scale_lon_start + scale_length_deg], [scale_lat, scale_lat];
-    color=:black, linewidth=1.5)
-lines!(ax, [scale_lon_start, scale_lon_start], [scale_lat - 0.005, scale_lat + 0.005];
-    color=:black, linewidth=1.0)
-lines!(ax, [scale_lon_start + scale_length_deg, scale_lon_start + scale_length_deg],
-    [scale_lat - 0.005, scale_lat + 0.005];
-    color=:black, linewidth=1.0)
-text!(ax, scale_lon_start + scale_length_deg / 2, scale_lat - 0.015;
-    text="20 km", fontsize=8, align=(:center, :top))
-
-xlims!(ax, (10.4, 12.5))
-ylims!(ax, (53.02, 53.82))
+# Tight limits around data
+all_xs = vcat([s[1] for s in keys(all_stops)], depot_data.x)
+all_ys = vcat([s[2] for s in keys(all_stops)], depot_data.y)
+pad = 0.04
+xlims!(ax, (minimum(all_xs) - pad, maximum(all_xs) + pad))
+ylims!(ax, (minimum(all_ys) - pad, maximum(all_ys) + pad))
 
 mkpath(dirname(OUTPUT_PDF))
 save(OUTPUT_PDF, fig)
