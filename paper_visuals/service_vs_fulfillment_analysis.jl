@@ -12,7 +12,7 @@ using Logging
 using Printf
 using Random
 
-# Activate CairoMakie backend and set Computer Modern fonts (consistent with other visuals)
+# Activate CairoMakie and set monochrome Computer Modern theme
 CairoMakie.activate!()
 MT = Makie.MathTeXEngine
 mt_fonts_dir = joinpath(dirname(pathof(MT)), "..", "assets", "fonts", "NewComputerModern")
@@ -67,6 +67,11 @@ const JITTER_SEED = 42
 # Axis padding (aligned with plot_article.jl)
 const PADDING_X = 0.05
 const PADDING_Y = 0.05
+
+# Monochrome palette: white → dark (least → most optimized)
+const COLOR_OPERATOR = :white                  # baseline
+const COLOR_STATIC = RGBf(0.20, 0.20, 0.20)   # upper bound
+const EDGE_COLOR = :black
 
 # Logging level (override via ENV["JULIA_LOG_LEVEL"])
 function configure_logger()
@@ -350,7 +355,6 @@ end
 
 Creates a comparison plot:
   - Paired bars (Actual fulfillment vs. Max service level) per depot
-  - Error bars (std)
   - Jittered scatter of daily data points
 
 Saves figure to output_path.
@@ -374,7 +378,6 @@ function build_plot(comparison_df::DataFrame,
         Random.seed!(seed)
     end
 
-    # Figure + axis (aligned with plot_article.jl size)
     fig = Figure(size=(700, 350))
     ax = Axis(fig[1, 1];
         xlabel="Depot",
@@ -384,84 +387,61 @@ function build_plot(comparison_df::DataFrame,
     )
 
     x_positions = 1:n
-
-    # Bars: Actual fulfillment (left), Achieved service (right)
     bar_width = 0.35
 
     actual_vals = df.actual_fulfillment_rate
     service_vals = df.max_achievable_service_level
 
-    # Use professional color scheme aligned with plot_article.jl
-    # Light gray for actual, light green for service (similar to plot_article.jl success bars)
-    actual_color = :gray
-    service_color = :lightgreen
-
     barplot!(ax, x_positions .- 0.2, actual_vals;
         width=bar_width,
-        color=(:gray, 0.6),
-        strokecolor=:darkgray,
+        color=COLOR_OPERATOR,
+        strokecolor=EDGE_COLOR,
         strokewidth=1.0,
         label="Actual Fulfillment"
     )
 
     barplot!(ax, x_positions .+ 0.2, service_vals;
         width=bar_width,
-        color=(:lightgreen, 0.6),
-        strokecolor=:darkgreen,
+        color=COLOR_STATIC,
+        strokecolor=EDGE_COLOR,
         strokewidth=1.0,
         label="$(scenario_label) Max Service"
     )
 
-    # Jittered daily points (actual vs achieved) - using consistent styling
+    # Jittered daily points (tiny solid dots with transparency)
     jitter_width = 0.18
     for (i, depot_disp) in enumerate(depots)
-        raw_depot_name = first(df[df.depot_display.==depot_disp, :]).depot  # original with possible prefix
+        raw_depot_name = first(df[df.depot_display.==depot_disp, :]).depot
         # Actual daily fulfillment
         actual_daily = fulfillment_stats[fulfillment_stats.depot.==raw_depot_name, :]
         if nrow(actual_daily) > 0
             xj = (i - 0.2) .+ (rand(nrow(actual_daily)) .- 0.5) .* jitter_width
             scatter!(ax, xj, actual_daily.fulfillment_rate;
-                color=(:white, 1.0),
-                strokecolor=:darkgray,
-                strokewidth=1.0,
-                markersize=8
-            )
+                color=(:black, 0.25), markersize=3)
         end
         # Daily achieved service
         daily_service = daily_service_levels[daily_service_levels.depot_name.==raw_depot_name, :]
         if nrow(daily_service) > 0
             xj = (i + 0.2) .+ (rand(nrow(daily_service)) .- 0.5) .* jitter_width
             scatter!(ax, xj, daily_service.achieved_service_level;
-                color=(:white, 1.0),
-                strokecolor=:darkgreen,
-                strokewidth=1.0,
-                markersize=8
-            )
+                color=(:black, 0.25), markersize=3)
         end
     end
 
-    # Set axis limits with padding (aligned with plot_article.jl approach)
     xlims!(ax, (0.5 - PADDING_X, n + 0.5 + PADDING_X))
     ylims!(ax, (0 - PADDING_Y, 1.0 + PADDING_Y))
 
-    # Legend positioned in top-right corner to save space
     legend_elems = [
-        PolyElement(color=(:gray, 0.6), strokecolor=:darkgray, strokewidth=1.0),
-        PolyElement(color=(:lightgreen, 0.6), strokecolor=:darkgreen, strokewidth=1.0)
+        PolyElement(color=COLOR_OPERATOR, strokecolor=EDGE_COLOR, strokewidth=1.0),
+        PolyElement(color=COLOR_STATIC, strokecolor=EDGE_COLOR, strokewidth=1.0),
     ]
     legend_labels = ["Actual Fulfillment", "$(scenario_label) Max Service"]
-    axislegend(ax, legend_elems, legend_labels;
-        position=:lb,
-        framevisible=true,
-        backgroundcolor=(:white, 0.9),
-        framecolor=:gray,
-        framewidth=1
-    )
+    axislegend(ax, legend_elems, legend_labels; position=:lb)
 
     mkpath(dirname(output_path))
     @info "Saving plot: $output_path"
     save(output_path, fig)
-    save(replace(output_path, r"\.pdf$" => ".png"), fig)  # also save PNG version
+    save(replace(output_path, r"\.pdf$" => ".png"), fig)
 end
 
 # ============================ Summary Reporting ================================

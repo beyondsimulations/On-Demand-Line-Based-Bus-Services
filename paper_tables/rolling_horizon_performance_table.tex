@@ -1,0 +1,25 @@
+\begin{table}[ht]
+\centering
+\caption{Rolling horizon computational performance}
+\label{tab:rh_performance}
+\begin{threeparttable}
+\begin{tabular}{l rr}
+\toprule
+Metric & \textit{O3.1} & \textit{O3.2} \\
+\midrule
+Instances & 456 & 456 \\
+Mean demands/instance & 80.2 & 80.2 \\
+Mean total solve time (s) & 44.6 & 4.1 \\
+Median total solve time (s) & 29.9 & 3.1 \\
+Max total solve time (s) & 450.1 & 18.8 \\
+Mean time per iteration (s) & 0.46 & 0.04 \\
+Max time per iteration (s) & 2.84 & 0.16 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\smaller
+\item \textit{Notes.} Gurobi solver with 60\,s time limit per MIP iteration.
+Each instance is one depot-day; each iteration adds one demand.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}

@@ -139,7 +139,8 @@ function generate_latex_table(scenarios, df)
                     if metric_col == :avg_buses
                         value_str = (ismissing(row_data[metric_col]) || isnan(row_data[metric_col])) ? "--" : @sprintf("%.1f", row_data[metric_col])
                     elseif metric_col == :avg_optimal_time
-                        value_str = row_data[metric_col] == 0.0 ? "--" : @sprintf("%.0f", row_data[metric_col])
+                        t = row_data[metric_col]
+                        value_str = t == 0.0 ? "--" : t < 1.0 ? "{<}1" : @sprintf("%.0f", t)
                     else
                         value_str = string(row_data[metric_col])
                     end
@@ -157,7 +158,7 @@ function generate_latex_table(scenarios, df)
 \\end{tabular}
 \\begin{tablenotes}
       \\smaller
-      \\item \\textit{Notes.} 2160 total instances across 6 depots × 30 days × 4 constraint settings × 3 service levels.
+      \\item \\textit{Notes.} $(total_instances) total instances across $(length(unique(df.depot_name))) depots × $(length(unique(df.date))) days × 4 constraint settings × 3 service scopes.
       \\item[a] Time limit reached without finding any feasible solution
       \\item[b] Time limit reached but found at least one feasible solution
       \\item[c] Average computation time for optimally solved instances only

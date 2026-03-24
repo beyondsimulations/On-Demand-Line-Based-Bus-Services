@@ -1,0 +1,62 @@
+\begin{table}[ht]
+\centering
+\caption{Service Level Analysis: Trade-offs between Service Quality and Fleet Size (O3.1, O3.2 / S3)}
+\label{tab:service_level_analysis}
+\begin{threeparttable}
+\begin{tabular}{llcccccc}
+\toprule
+Scenario & Service & Infeas & TLimit & Gap & Opt & Buses & Time \\
+\midrule
+O3.1 / S3 & 0.05 & 0 & 0 & 0 & 456 & 1.0 & 2 \\
+ & 0.10 & 0 & 0 & 0 & 456 & 1.0 & 2 \\
+ & 0.15 & 0 & 0 & 0 & 456 & 1.4 & 2 \\
+ & 0.20 & 0 & 0 & 0 & 456 & 1.8 & 2 \\
+ & 0.25 & 0 & 0 & 0 & 456 & 2.1 & 2 \\
+ & 0.30 & 0 & 0 & 0 & 456 & 2.5 & 2 \\
+ & 0.35 & 0 & 0 & 0 & 456 & 3.0 & 2 \\
+ & 0.40 & 0 & 0 & 0 & 456 & 3.4 & 3 \\
+ & 0.45 & 0 & 0 & 0 & 456 & 3.9 & 3 \\
+ & 0.50 & 0 & 0 & 0 & 456 & 4.4 & 4 \\
+ & 0.55 & 0 & 0 & 0 & 456 & 5.0 & 4 \\
+ & 0.60 & 0 & 0 & 0 & 456 & 5.5 & 4 \\
+ & 0.65 & 0 & 0 & 0 & 456 & 6.2 & 5 \\
+ & 0.70 & 0 & 0 & 0 & 456 & 6.9 & 6 \\
+ & 0.75 & 0 & 0 & 0 & 456 & 7.7 & 6 \\
+ & 0.80 & 0 & 0 & 1 & 455 & 8.7 & 6 \\
+ & 0.85 & 0 & 0 & 0 & 456 & 10.0 & 9 \\
+ & 0.90 & 0 & 0 & 1 & 455 & 11.5 & 8 \\
+ & 0.95 & 7 & 0 & 1 & 448 & 13.9 & 8 \\
+ & 1.00 & 148 & 0 & 1 & 307 & 15.8 & 7 \\
+\midrule
+O3.2 / S3 & 0.05 & 0 & 0 & 0 & 456 & 1.0 & 0 \\
+ & 0.10 & 0 & 0 & 0 & 456 & 1.0 & 0 \\
+ & 0.15 & 0 & 0 & 0 & 456 & 1.5 & 0 \\
+ & 0.20 & 0 & 0 & 0 & 456 & 1.8 & 0 \\
+ & 0.25 & 0 & 0 & 0 & 456 & 2.3 & 0 \\
+ & 0.30 & 0 & 0 & 0 & 456 & 2.7 & 0 \\
+ & 0.35 & 0 & 0 & 0 & 456 & 3.1 & 0 \\
+ & 0.40 & 0 & 0 & 0 & 456 & 3.7 & 0 \\
+ & 0.45 & 0 & 0 & 0 & 456 & 4.2 & 0 \\
+ & 0.50 & 1 & 0 & 0 & 455 & 4.8 & 0 \\
+ & 0.55 & 13 & 0 & 0 & 443 & 5.4 & 0 \\
+ & 0.60 & 64 & 0 & 0 & 392 & 6.0 & 0 \\
+ & 0.65 & 156 & 0 & 0 & 300 & 6.5 & 0 \\
+ & 0.70 & 258 & 0 & 0 & 198 & 7.1 & 0 \\
+ & 0.75 & 339 & 0 & 0 & 117 & 7.7 & 0 \\
+ & 0.80 & 409 & 0 & 0 & 47 & 8.4 & 0 \\
+ & 0.85 & 443 & 0 & 0 & 13 & 8.1 & 0 \\
+ & 0.90 & 452 & 0 & 0 & 4 & 7.5 & 0 \\
+ & 0.95 & 456 & 0 & 0 & 0 & -- & -- \\
+ & 1.00 & 456 & 0 & 0 & 0 & -- & -- \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+      \smaller
+      \item \textit{Notes.} Analysis of service level trade-offs for capacity-constrained scenarios with driver breaks.
+      \item Service levels represent exact demand coverage from 5\% to 100\% in 5\% increments
+      \item Infeas: Infeasible solutions; TLimit: Time limit without solution; Gap: Time limit with solution; Opt: Optimal solutions
+      \item Buses: Average number of buses per day; Time: Average computation time for optimal solutions (seconds)
+      \item O3.1: Driver breaks required; O3.2: Driver breaks available; S3: Demand-only service coverage
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
