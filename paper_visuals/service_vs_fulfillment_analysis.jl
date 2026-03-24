@@ -441,7 +441,7 @@ function build_plot(comparison_df::DataFrame,
     mkpath(dirname(output_path))
     @info "Saving plot: $output_path"
     save(output_path, fig)
-    save(replace(output_path, r"\.pdf$" => ".png"), fig)
+    save(replace(output_path, r"\.pdf$" => ".png"), fig, px_per_unit=3)
 end
 
 # ============================ Summary Reporting ================================

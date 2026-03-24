@@ -327,7 +327,7 @@ function build_and_save_plot(data_nt::NamedTuple, output_path::AbstractString)
     mkpath(dirname(output_path))
     @info "Saving plot: $output_path"
     save(output_path, fig)
-    save(replace(output_path, r"\.pdf$" => ".png"), fig)  # also save PNG version
+    save(replace(output_path, r"\.pdf$" => ".png"), fig, px_per_unit=3)
 end
 
 

@@ -1,26 +1,27 @@
 \begin{table}[ht]
 \centering
-\caption{Operator fulfillment vs.\ rolling horizon service level (O3.2/S3)}
+\caption{Service Level vs. Actual Demand Fulfillment by Depot (O3.2)}
 \label{tab:service_vs_fulfillment}
 \begin{threeparttable}
 \begin{tabular}{lccc}
 \toprule
-Depot & Operator & Rolling Horizon & $\Delta$ (pp) \\
+Depot & Actual & O3.2 Max & Service \\
+& Fulfillment & Service & Gap \\
 \midrule
-Boizenburg & 0.594 (0.085) & 0.686 (0.101) & +9.2 \\
-Hagenow & 0.498 (0.074) & 0.716 (0.068) & +21.8 \\
-Ludwigslust & 0.506 (0.082) & 0.585 (0.074) & +8.0 \\
-Parchim & 0.560 (0.069) & 0.504 (0.062) & -5.6 \\
-Schwerin & 0.484 (0.116) & 0.573 (0.072) & +9.0 \\
-Sternberg & 0.524 (0.090) & 0.608 (0.069) & +8.4 \\
+Boizenburg & 0.594 (0.085) & 0.884 (0.063) & +0.290 \\
+Hagenow & 0.498 (0.074) & 0.922 (0.044) & +0.424 \\
+Ludwigslust & 0.506 (0.082) & 0.863 (0.055) & +0.358 \\
+Parchim & 0.560 (0.069) & 0.805 (0.063) & +0.244 \\
+Schwerin & 0.484 (0.116) & 0.840 (0.070) & +0.356 \\
+Sternberg & 0.524 (0.090) & 0.828 (0.070) & +0.304 \\
 \bottomrule
 \end{tabular}
 \begin{tablenotes}
 \smaller
-\item \textit{Notes.} Mean (std) daily service levels across 76 days (June 1 -- August 15, 2025).
-\item Operator: proportion of requests with Status=`DU' (executed).
-\item Rolling Horizon: O3.2/S3 sequential demand admission with depot-specific fleet.
-\item $\Delta$: rolling horizon minus operator (percentage points).
+\item \textit{Notes.} Comparison of actual fulfilled demand vs. maximum achieved service levels (O3.2).
+\item Actual Fulfillment: mean (std) daily proportion of requests with Status='DU'.
+\item O3.2 Achieved service levels solved optimally per day; average (std) across days.
+\item Service Gap: (O3.2 max) minus (Actual Fulfillment).
 \end{tablenotes}
 \end{threeparttable}
 \end{table}
