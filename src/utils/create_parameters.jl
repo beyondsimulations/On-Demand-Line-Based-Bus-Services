@@ -546,6 +546,17 @@ function create_parameters(
         dep_time = lookup_departure_time(route_id_val, trip_id_val, trip_sequence_val, origin_stop_sequence_val)
         req_time = compute_request_time(row, dep_time)
 
+        # Determine cancellation status from booking Status column
+        row_status = hasproperty(row, :Status) ? string(row.Status) : ""
+        is_cancel = row_status in ["L", "S"]
+        cancel_time = if row_status == "L"
+            dep_time - 120.0  # L: cancelled >2h before departure → cancel at departure - 2h
+        elseif row_status == "S"
+            dep_time           # S: cancelled <2h before departure → cancel at departure
+        else
+            0.0
+        end
+
         push!(passenger_demands, PassengerDemand(
             current_demand_id,
             date,
@@ -555,6 +566,8 @@ function create_parameters(
             demand_value_val,
             dep_time,
             req_time,
+            is_cancel,
+            cancel_time,
         ))
     end
     @info "Finished processing demand rows. Total checked: $processed_count, Created: $created_count."
@@ -593,6 +606,8 @@ function create_parameters(
                         0.0,
                         synth_dep_time,
                         synth_dep_time - 60.0,
+                        false,
+                        0.0,
                     ))
                     synthetic_added_count += 1
                  else
@@ -636,6 +651,8 @@ function create_parameters(
                             0.0,
                             synth_dep_time,
                             synth_dep_time - 60.0,
+                            false,
+                            0.0,
                         ))
                         synthetic_added_count += 1
                     # else: A synthetic demand covering the full route already exists.

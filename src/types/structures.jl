@@ -56,6 +56,8 @@ struct PassengerDemand
     demand::Float64             # Number of passengers demanding travel
     departure_time::Float64     # Departure time in minutes since midnight (from route stop_times)
     request_time::Float64       # Time demand becomes known (minutes since midnight, from Buchzeit or departure - 60)
+    is_cancellation::Bool       # true for L/S bookings (customer cancels before departure)
+    cancellation_time::Float64  # When cancellation occurs (minutes since midnight); 0.0 for non-cancellations
 end
 
 """

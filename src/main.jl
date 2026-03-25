@@ -216,6 +216,7 @@ results_df = DataFrame(
     num_buses=Int[],
     num_potential_buses=Int[],
     num_demands=Int[],
+    num_cancellation_demands=Int[],
     total_operational_duration=Float64[],
     total_waiting_time=Float64[],
     avg_capacity_utilization=Float64[],
@@ -268,7 +269,9 @@ for depot in depots_to_process
 
                     # Get number of potential buses before solving
                     num_potential_buses = length(parameters.buses)
+                    num_cancellation_demands = count(d -> d.is_cancellation, parameters.passenger_demands)
                     @debug "Number of potential buses: $num_potential_buses"
+                    @debug "Number of cancellation demands (L/S): $num_cancellation_demands"
 
                     # Solve network flow model
                     @info "Solving network flow model..."
@@ -379,6 +382,7 @@ for depot in depots_to_process
                         num_buses,
                         num_potential_buses,
                         result.num_demands,
+                        num_cancellation_demands,
                         total_operational_duration,
                         total_waiting_time,
                         num_buses > 0 ? total_capacity / num_buses : 0.0,

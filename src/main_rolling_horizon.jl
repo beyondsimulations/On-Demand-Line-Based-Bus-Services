@@ -79,6 +79,8 @@ results_df = DataFrame(
     total_demands=Int[],
     confirmed_demands=Int[],
     rejected_demands=Int[],
+    cancelled_demands=Int[],
+    num_cancellation_demands=Int[],
     service_level=Float64[],
     num_buses=Int[],
     num_potential_buses=Int[],
@@ -136,6 +138,8 @@ for depot in depots_to_process
 
             result = solve_rolling_horizon(parameters)
 
+            num_cancellation_demands = count(d -> d.is_cancellation, parameters.passenger_demands)
+
             op = get(operator_stats, (depot.depot_name, date), (served=0, rejected=0))
             op_total = op.served + op.rejected
             op_sl = op_total > 0 ? op.served / op_total : 0.0
@@ -143,6 +147,7 @@ for depot in depots_to_process
             push!(results_df, (
                 depot.depot_name, date, string(setting),
                 result.total_demands, result.confirmed_demands, result.rejected_demands,
+                result.cancelled_demands, num_cancellation_demands,
                 result.service_level, result.num_buses_used, result.num_potential_buses,
                 result.total_solve_time,
                 result.total_operational_duration, result.total_waiting_time,
