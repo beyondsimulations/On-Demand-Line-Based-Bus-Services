@@ -266,7 +266,8 @@ Constructs 2x2 figure and saves to output_path.
 function build_and_save_plot(data_nt::NamedTuple, output_path::AbstractString)
     (; df_setting_all, df_setting_curr, df_success_all, df_success_curr, df_all_opt) = data_nt
 
-    xlim, ylim = compute_axis_limits(df_all_opt)
+    xlim_raw, ylim = compute_axis_limits(df_all_opt)
+    xlim = (xlim_raw[1], xlim_raw[2] + SERVICE_LEVEL_STEP / 2)  # extra right padding for bar width
 
     depots_all_raw = unique(df_setting_all.depot_name)
     depots_curr_raw = unique(df_setting_curr.depot_name)
