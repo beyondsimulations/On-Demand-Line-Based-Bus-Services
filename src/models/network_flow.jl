@@ -907,16 +907,17 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
 
             if break_duration > 0
                 # Check break conditions for depot end arcs (no more driving after depot)
-                # 45-min break: must start within 4.5h, no time-remaining constraints
+                # Use route_end_time: the break starts after the bus finishes the route
+                # 45-min break: must start within 4.5h of shift start
                 if break_duration >= 45.0 &&
-                    (route_start_time - shift_start <= 270)
+                    (route_end_time - shift_start <= 270)
                     push!(phi_45[bus_id_str], arc)
                 end
 
-                # 30-min break: must start within 4.75h and after 3h, no time-remaining constraints
+                # 30-min break: must start within 4.75h and after 3h of shift start
                 if break_duration >= 30.0 &&
-                    (route_start_time - shift_start >= 180) &&
-                    (route_start_time - shift_start <= 285)
+                    (route_end_time - shift_start >= 180) &&
+                    (route_end_time - shift_start <= 285)
                     push!(phi_30[bus_id_str], arc)
                 end
 
