@@ -81,7 +81,7 @@ version = get(ENV, "JULIA_SCRIPT_VERSION", "v0")
 @info "Using version: $version (Source: ", haskey(ENV, "JULIA_SCRIPT_VERSION") ? "ENV variable JULIA_SCRIPT_VERSION" : "default", ")"
 
 # Validate the version
-valid_versions = ["v0", "v1", "v2", "v3", "v4"]
+valid_versions = ["v0", "v1", "v2"]
 if !(version in valid_versions)
     @error "Invalid version specified: '$version'. Choose from: $valid_versions"
     error("Invalid version specified: '$version'. Choose from: $valid_versions")
@@ -119,37 +119,6 @@ elseif version == "v1"
 elseif version == "v2"
     problem_type = "Maximize_Demand_Coverage"
     filter_demand = false
-    service_levels = 0.05:0.05:1.0
-
-    # Define settings for solving
-    settings = [
-        CAPACITY_CONSTRAINT_DRIVER_BREAKS,
-        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
-    ]
-
-    subsettings = [
-        ONLY_DEMAND,
-    ]
-elseif version == "v3"
-    problem_type = "Minimize_Busses"
-    filter_demand = true
-    service_levels = 1.0
-
-    settings = [
-        NO_CAPACITY_CONSTRAINT,
-        CAPACITY_CONSTRAINT,
-        CAPACITY_CONSTRAINT_DRIVER_BREAKS,
-        CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE,
-    ]
-
-    subsettings = [
-        ALL_LINES,
-        ALL_LINES_WITH_DEMAND,
-        ONLY_DEMAND,
-    ]
-elseif version == "v4"
-    problem_type = "Maximize_Demand_Coverage"
-    filter_demand = true
     service_levels = 0.05:0.05:1.0
 
     # Define settings for solving
@@ -380,7 +349,7 @@ for depot in depots_to_process
                     total_capacity = 0.0
                     num_buses = 0
 
-                    if result.status == :Optimal && result.buses !== nothing
+                    if result.buses !== nothing
                         num_buses = length(result.buses)
 
                         # Calculate aggregated metrics
@@ -422,18 +391,16 @@ for depot in depots_to_process
                     @info "--- Run Summary ---"
                     @info "Status: $(result.status)"
                     @info "Number of potential buses considered: $num_potential_buses"
-                    if result.status == :Optimal
+                    if num_buses > 0
                         @info "Number of buses used in solution: $num_buses"
                         @info "Total operational duration: $(round(total_operational_duration, digits=2)) minutes"
                         @info "Total waiting time: $(round(total_waiting_time, digits=2)) minutes"
                         avg_util = num_buses > 0 ? round(total_capacity / num_buses, digits=2) : 0.0
                         @info "Average capacity utilization: $avg_util"
-                        @info "Solver time: $(round(result.solve_time, digits=2)) seconds"
-                        gap_info = result.gap === nothing ? "N/A" : "$(round(result.gap * 100, digits=4))%"
-                        @info "Optimality Gap: $gap_info"
-                    else
-                        @info "Solver time: $(round(result.solve_time, digits=2)) seconds"
                     end
+                    @info "Solver time: $(round(result.solve_time, digits=2)) seconds"
+                    gap_info = result.gap === nothing ? "N/A" : "$(round(result.gap * 100, digits=4))%"
+                    @info "Optimality Gap: $gap_info"
                     @info "--------------------"
 
                     CSV.write(output_filename, results_df)

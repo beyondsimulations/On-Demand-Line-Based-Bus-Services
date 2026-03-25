@@ -26,7 +26,7 @@ using CSV, DataFrames, Statistics, CairoMakie, Logging
 
 
 # ============================== Configuration =================================
-const PLOT_VERSION = "v4"
+const PLOT_VERSION = "v2"
 const SOLVER = "gurobi"
 const RESULTS_FILE = "results/computational_study_$(PLOT_VERSION)_$(SOLVER).csv"
 const OUTPUT_FILE = "plots/evaluation_plot_buses_vs_service_averaged_$(PLOT_VERSION)_$(SOLVER).pdf"

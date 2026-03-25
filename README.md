@@ -44,7 +44,7 @@ Key features:
 julia src/main.jl
 
 # Specify version and solver
-JULIA_SCRIPT_VERSION=v4 JULIA_SOLVER=gurobi julia src/main.jl
+JULIA_SCRIPT_VERSION=v2 JULIA_SOLVER=gurobi julia src/main.jl
 ```
 
 ## Project Structure

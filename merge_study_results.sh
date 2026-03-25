@@ -2,7 +2,7 @@
 
 # Merge per-depot computational study CSVs into one file per version
 SOLVER="${1:-gurobi}"
-VERSIONS=("v1" "v2" "v3" "v4")
+VERSIONS=("v1" "v2")
 
 for VERSION in "${VERSIONS[@]}"; do
     FILES=(results/computational_study_${VERSION}_${SOLVER}_VLP_*.csv)

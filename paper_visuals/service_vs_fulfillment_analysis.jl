@@ -48,7 +48,7 @@ set_theme!(fonts=(
 # ==============================================================================
 
 # ============================= Configuration ===================================
-const RESULTS_VERSION = "v4"
+const RESULTS_VERSION = "v2"
 const SOLVER = "gurobi"
 
 const DEMAND_CSV = "case_data_clean/demand.csv"

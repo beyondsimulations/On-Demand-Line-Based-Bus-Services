@@ -5,8 +5,6 @@ SCRIPT_PATH="src/main.jl"
 VERSIONS=(
     "v1"
     "v2"
-    "v3"
-    "v4"
 )
 SOLVERS=(
     "gurobi"
