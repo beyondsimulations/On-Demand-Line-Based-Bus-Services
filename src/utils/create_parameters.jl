@@ -457,11 +457,19 @@ function create_parameters(
     for row in eachrow(data.passenger_demands_df)
         processed_count += 1
 
-        # 1. Filter to only executed bookings (DU) when filter_demand is true
-        #    Removes rejected (A), modified (M), dispatched (DI), unknown (X) bookings
-        if filter_demand == true && hasproperty(row, :Status) && row.Status != "DU"
-            skipped_status_filter += 1
-            continue
+        # 1. Filter by booking status. Modified (M), dispatched (DI), and unknown (X)
+        #    bookings are always excluded — they are neither realized demand nor
+        #    cancellations. With filter_demand=true (static study), cancelled bookings
+        #    (L, S) are also excluded, leaving only executed (DU) and rejected (A)
+        #    requests. With filter_demand=false (rolling horizon), L/S bookings are
+        #    kept and flagged as cancellation events below.
+        if hasproperty(row, :Status)
+            row_status_str = string(row.Status)
+            if !(row_status_str in ("DU", "A", "L", "S")) ||
+               (filter_demand && row_status_str in ("L", "S"))
+                skipped_status_filter += 1
+                continue
+            end
         end
 
         # 2. Filter by Date

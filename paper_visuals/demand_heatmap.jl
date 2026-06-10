@@ -76,6 +76,12 @@ function load_demand_data(path::AbstractString, date_col::Symbol)
                   !ismissing(row.depot) &&
                   !ismissing(row.abfahrt_minutes), df)
 
+    # Only realized requests: executed (DU) and rejected (A); cancelled (L, S) and
+    # other internal status codes (M, DI, X) are excluded.
+    if hasproperty(df, :Status)
+        filter!(r -> string(r.Status) in ("DU", "A"), df)
+    end
+
     # Coerce minutes to Int and filter valid daily range
     df.abfahrt_minutes = Int.(df.abfahrt_minutes)
     filter!(row -> 0 <= row.abfahrt_minutes < 1440, df)

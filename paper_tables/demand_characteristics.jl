@@ -22,6 +22,9 @@ const LATEX_TABLE_PATH = "paper_tables/demand_characteristics_table.tex"
 
 demand_df = CSV.read(DEMAND_CSV, DataFrame)
 filter!(r -> !ismissing(r.depot) && !ismissing(r.Status), demand_df)
+# Only realized requests: executed (DU) and rejected (A); cancelled (L, S) and
+# other internal status codes (M, DI, X) are excluded.
+filter!(r -> string(r.Status) in ("DU", "A"), demand_df)
 date_col = Symbol("Abfahrt-Datum")
 if !(eltype(demand_df[!, date_col]) <: Date)
     demand_df[!, date_col] = Date.(demand_df[!, date_col])

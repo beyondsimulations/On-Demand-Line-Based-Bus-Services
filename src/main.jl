@@ -89,7 +89,7 @@ end
 
 if version == "v0"
     problem_type = "Minimize_Busses"
-    filter_demand = false
+    filter_demand = true
     service_levels = 1.0
 
     settings = [
@@ -101,7 +101,7 @@ if version == "v0"
     ]
 elseif version == "v1"
     problem_type = "Minimize_Busses"
-    filter_demand = false
+    filter_demand = true
     service_levels = 1.0
 
     settings = [
@@ -118,7 +118,7 @@ elseif version == "v1"
     ]
 elseif version == "v2"
     problem_type = "Maximize_Demand_Coverage"
-    filter_demand = false
+    filter_demand = true
     service_levels = 0.05:0.05:1.0
 
     # Define settings for solving

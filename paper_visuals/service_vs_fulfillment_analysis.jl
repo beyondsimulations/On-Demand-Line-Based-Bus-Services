@@ -102,6 +102,9 @@ function load_demand_data(path::AbstractString)
     df = CSV.read(path, DataFrame)
 
     filter!(r -> r.depot != "depot" && !ismissing(r.depot) && !ismissing(r.Status), df)
+    # Operator baseline uses only realized requests: executed (DU) and rejected (A).
+    # Cancelled (L, S) and other internal status codes (M, DI, X) are excluded.
+    filter!(r -> string(r.Status) in ("DU", "A"), df)
 
     date_col = Symbol("Abfahrt-Datum")
     if !(eltype(df[!, date_col]) <: Date)
