@@ -5,6 +5,7 @@ struct RollingHorizonResult
     total_demands::Int
     confirmed_demands::Int
     rejected_demands::Int
+    rejected_cancellation_demands::Int
     cancelled_demands::Int
     service_level::Float64
     num_buses_used::Int
@@ -44,7 +45,9 @@ function solve_rolling_horizon(
     num_potential = length(buses)
 
     if isempty(buses) || isempty(all_demands)
-        return RollingHorizonResult(length(all_demands), 0, length(all_demands), 0, 0.0, 0, num_potential, 0.0, 0.0, 0.0, 0.0, [])
+        n_realized = count(d -> !d.is_cancellation, all_demands)
+        n_cancel = length(all_demands) - n_realized
+        return RollingHorizonResult(length(all_demands), 0, n_realized, n_cancel, 0, 0.0, 0, num_potential, 0.0, 0.0, 0.0, 0.0, [])
     end
 
     # Build combined event list: arrivals + cancellations
@@ -52,7 +55,10 @@ function solve_rolling_horizon(
     for d in all_demands
         push!(events, (time=d.request_time, type=:arrival, demand=d))
         if d.is_cancellation
-            push!(events, (time=d.cancellation_time, type=:cancellation, demand=d))
+            # Clamp to the booking time: the recorded (coarse) cancellation time
+            # can precede the booking time for late bookings; such demands are
+            # then cancelled immediately after arrival instead of never.
+            push!(events, (time=max(d.cancellation_time, d.request_time), type=:cancellation, demand=d))
         end
     end
     # Sort by time; arrivals before cancellations at the same time
@@ -272,14 +278,21 @@ function solve_rolling_horizon(
         end
     end
 
-    # Service level: cancelled demands don't count against service level (voluntarily withdrawn)
-    non_cancelled_total = length(all_demands) - length(cancelled_ids)
-    service_level = non_cancelled_total > 0 ? length(accepted_demands) / non_cancelled_total : 0.0
+    # Service level on realized requests only, mirroring the operator baseline
+    # (executed / (executed + rejected)): cancelled bookings are excluded from
+    # numerator and denominator regardless of whether they were confirmed or
+    # rejected before their cancellation. They still occupy capacity while
+    # confirmed, which is the realistic operational burden.
+    realized_confirmed = count(d -> !d.is_cancellation, accepted_demands)
+    realized_rejected = count(d -> !d.is_cancellation && d.demand_id in rejected_ids, all_demands)
+    rejected_cancellation = length(rejected_ids) - realized_rejected
+    realized_total = count(d -> !d.is_cancellation, all_demands)
+    service_level = realized_total > 0 ? realized_confirmed / realized_total : 0.0
 
-    @info "Rolling horizon complete: $(length(accepted_demands))/$(non_cancelled_total) served ($(round(100*service_level, digits=1))%), $(length(cancelled_ids)) cancelled, $(last_buses_used) buses, $(round(total_solve_time, digits=1))s total"
+    @info "Rolling horizon complete: $realized_confirmed/$realized_total realized served ($(round(100*service_level, digits=1))%), $(length(cancelled_ids)) cancelled after confirmation, $rejected_cancellation cancellations rejected before cancelling, $(last_buses_used) buses, $(round(total_solve_time, digits=1))s total"
 
     return RollingHorizonResult(
-        length(all_demands), length(accepted_demands), length(rejected_ids), length(cancelled_ids),
+        length(all_demands), realized_confirmed, realized_rejected, rejected_cancellation, length(cancelled_ids),
         service_level, last_buses_used, num_potential, total_solve_time,
         total_op_duration, total_wait_time, avg_cap_util, iteration_log
     )

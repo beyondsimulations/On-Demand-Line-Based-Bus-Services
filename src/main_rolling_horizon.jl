@@ -79,6 +79,7 @@ results_df = DataFrame(
     total_demands=Int[],
     confirmed_demands=Int[],
     rejected_demands=Int[],
+    rejected_cancellation_demands=Int[],
     cancelled_demands=Int[],
     num_cancellation_demands=Int[],
     service_level=Float64[],
@@ -147,6 +148,7 @@ for depot in depots_to_process
             push!(results_df, (
                 depot.depot_name, date, string(setting),
                 result.total_demands, result.confirmed_demands, result.rejected_demands,
+                result.rejected_cancellation_demands,
                 result.cancelled_demands, num_cancellation_demands,
                 result.service_level, result.num_buses_used, result.num_potential_buses,
                 result.total_solve_time,

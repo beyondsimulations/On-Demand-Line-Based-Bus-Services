@@ -1,0 +1,40 @@
+
+=== Rolling Horizon Summary (O3.1/S3) ===
+Depot           |  RH SL |  Op SL |  Δ (pp) |  Buses |   Conf |    Rej
+---------------------------------------------------------------------------
+Boizenburg      |  0.989 |  0.595 |  +39.4 |   17.1 |   80.3 |    1.0
+Hagenow         |  0.998 |  0.500 |  +49.9 |   19.5 |   83.9 |    0.2
+Ludwigslust     |  0.982 |  0.507 |  +47.5 |   22.8 |   92.0 |    1.7
+Parchim         |  0.985 |  0.562 |  +42.3 |   21.4 |  115.9 |    1.6
+Schwerin        |  0.991 |  0.486 |  +50.5 |   16.4 |   64.3 |    0.6
+Sternberg       |  0.999 |  0.530 |  +46.9 |   11.5 |   47.8 |    0.1
+---------------------------------------------------------------------------
+Aggregate       |  0.991 |  0.530 |  +46.1 |   18.1 |   80.7 |    0.8
+
+Best depot:  Schwerin (+50.5 pp)
+Worst depot: Boizenburg (+39.4 pp)
+
+
+=== Rolling Horizon Summary (O3.2/S3) ===
+Depot           |  RH SL |  Op SL |  Δ (pp) |  Buses |   Conf |    Rej
+---------------------------------------------------------------------------
+Boizenburg      |  0.580 |  0.595 |   -1.6 |    7.5 |   49.0 |   40.1
+Hagenow         |  0.616 |  0.500 |  +11.6 |    9.0 |   54.2 |   35.7
+Ludwigslust     |  0.499 |  0.507 |   -0.8 |    8.7 |   49.8 |   52.5
+Parchim         |  0.405 |  0.562 |  -15.6 |    6.7 |   52.2 |   79.0
+Schwerin        |  0.483 |  0.486 |   -0.4 |    6.4 |   33.8 |   37.2
+Sternberg       |  0.502 |  0.530 |   -2.8 |    4.9 |   26.5 |   27.6
+---------------------------------------------------------------------------
+Aggregate       |  0.514 |  0.530 |   -1.6 |    7.2 |   44.3 |   45.3
+
+Best depot:  Hagenow (+11.6 pp)
+Worst depot: Parchim (-15.6 pp)
+
+
+=== Static Comparison Metrics ===
+O3.1 RH matches static: 63.4% (289/456 instances)
+O3.2 mean gap (static - RH): 0.152 (15.2 pp)
+O3.2 max gap (static - RH):  0.483 (48.3 pp)
+O3.2 median gap:             0.140 (14.0 pp)
+
+Mean improvement over operator (all): +22.2 pp
