@@ -615,7 +615,9 @@ function _add_passenger_capacity_constraints!(model, parameters::ProblemParamete
             ]
 
             if !isempty(relevant_arcs)
-                @constraint(model, sum(x[arc] for arc in relevant_arcs) <= bus_capacity)
+                # Weight each booking arc by its passenger count so capacity is
+                # measured in passengers, not bookings (paper Constraint 10).
+                @constraint(model, sum(arc.demand * x[arc] for arc in relevant_arcs) <= bus_capacity)
                 constraint_5_count += 1
             end
         end
@@ -628,6 +630,13 @@ end
 Add vehicle count constraints limiting available vehicles by capacity type.
 """
 function _add_vehicle_count_constraints!(model, parameters::ProblemParameters, network, lookups, x)
+    # Event-based fleet limits (paper Constraint 12) belong to the shift-constrained
+    # scenarios O3.1/O3.2 only; O2 models unrestricted vehicle availability.
+    if !(parameters.setting in [CAPACITY_CONSTRAINT_DRIVER_BREAKS, CAPACITY_CONSTRAINT_DRIVER_BREAKS_AVAILABLE])
+        @info "Skipping vehicle count constraints (not applicable for setting: $(parameters.setting))."
+        return
+    end
+
     @info "Creating event-based vehicle count constraints per capacity type (Constraint 6)..."
 
     constraint_6_count = 0
@@ -757,22 +766,24 @@ function _add_driver_break_constraints!(model, parameters::ProblemParameters, lo
             # Find depot start arcs for this bus (indicates bus usage)
             bus_depot_arcs = get(lookups.depot_start_by_bus, bus_id_str, ModelArc[])
 
+            # Linearized break constraints (paper Constraints 17-19); valid because
+            # each bus leaves the depot at most once, so sum(depot arcs) is binary.
             # Constraint C71: Single 45-minute break enforcement (conditional)
             @constraint(model,
                 sum(x[arc] for arc in get(phi_45, bus_id_str, ModelArc[])) >=
-                z[bus_id_str] * sum(x[arc] for arc in bus_depot_arcs))
+                z[bus_id_str] + sum(x[arc] for arc in bus_depot_arcs) - 1)
             constraint_break_count += 1
 
             # Constraint C72: First split break (15-minute) enforcement (conditional)
             @constraint(model,
                 sum(x[arc] for arc in get(phi_15, bus_id_str, ModelArc[])) >=
-                (1 - z[bus_id_str]) * sum(x[arc] for arc in bus_depot_arcs))
+                sum(x[arc] for arc in bus_depot_arcs) - z[bus_id_str])
             constraint_break_count += 1
 
             # Constraint C73: Second split break (30-minute) enforcement (conditional)
             @constraint(model,
                 sum(x[arc] for arc in get(phi_30, bus_id_str, ModelArc[])) >=
-                (1 - z[bus_id_str]) * sum(x[arc] for arc in bus_depot_arcs))
+                sum(x[arc] for arc in bus_depot_arcs) - z[bus_id_str])
             constraint_break_count += 1
         end
 
@@ -868,6 +879,7 @@ function compute_break_opportunity_sets(buses::Vector{Bus}, inter_line_arcs::Vec
 
                 if break_duration >= 30.0 &&
                    (route_start_time - shift_start >= 180) &&
+                   (route_start_time - shift_start <= 285) &&
                    (shift_end - (route_start_time + 30) <= 270)
                     push!(phi_30[bus_id_str], arc)
                 end
